@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text
+from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/urna_eleitoral.db")
@@ -16,7 +16,7 @@ Base = declarative_base()
 
 
 class SeccaoConfig(Base):
-    """Estado operacional da Urna na Seção Eleitoral."""
+    """Estado operacional da Urna e do Terminal do Mesário na Seção Eleitoral."""
     __tablename__ = "seccao_config"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -25,7 +25,9 @@ class SeccaoConfig(Base):
     municipio = Column(String(100), default=os.getenv("URNA_MUNICIPIO", "BRASILIA - DF"))
     turno = Column(Integer, default=1)  # 1 = Primeiro Turno, 2 = Segundo Turno
     status = Column(String(30), default="NAO_INICIALIZADA")
-    # Estados possíveis: NAO_INICIALIZADA -> ZERESIMA_EMITIDA -> EM_VOTACAO -> ENCERRADA
+    # Estados possíveis: NAO_INICIALIZADA -> EM_VOTACAO -> ENCERRADA
+    terminal_eleitor_liberado = Column(Boolean, default=False)
+    eleitor_habilitado_titulo = Column(String(20), nullable=True)
     eleitores_aptos = Column(Integer, default=450)
     eleitores_compareceram = Column(Integer, default=0)
     zeresima_timestamp = Column(DateTime, nullable=True)
@@ -34,12 +36,28 @@ class SeccaoConfig(Base):
     ultimo_hash_log = Column(String(64), default="0" * 64)
 
 
+class EleitorSeccao(Base):
+    """Caderno de Votação do Terminal do Mesário (Título, CPF, Biometria e Controle de Presença por Turno)."""
+    __tablename__ = "eleitores_seccao"
+
+    id = Column(Integer, primary_key=True, index=True)
+    titulo = Column(String(20), unique=True, index=True, nullable=False)
+    cpf = Column(String(14), index=True, nullable=False)
+    nome = Column(String(120), nullable=False)
+    data_nascimento = Column(String(12), nullable=False)
+    nome_mae = Column(String(120), nullable=True)
+    biometria_cadastrada = Column(Boolean, default=True)
+    hash_template_biometrico = Column(String(64), nullable=False)
+    votou_turno_1 = Column(Boolean, default=False)
+    votou_turno_2 = Column(Boolean, default=False)
+
+
 class Partido(Base):
     """Partidos e Federações para validação de voto de legenda e associação de candidatos."""
     __tablename__ = "partidos"
 
     id = Column(Integer, primary_key=True, index=True)
-    numero = Column(String(2), unique=True, index=True, nullable=False)  # 2 dígitos (ex: "10", "22", "13")
+    numero = Column(String(2), unique=True, index=True, nullable=False)
     sigla = Column(String(20), nullable=False)
     nome = Column(String(100), nullable=False)
 
@@ -50,7 +68,6 @@ class Candidato(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     cargo = Column(String(40), index=True, nullable=False)
-    # Cargos: DEPUTADO_FEDERAL, DEPUTADO_ESTADUAL, SENADOR, GOVERNADOR, PRESIDENTE
     numero = Column(String(5), index=True, nullable=False)
     nome_urna = Column(String(100), nullable=False)
     nome_completo = Column(String(150), nullable=True)
@@ -58,7 +75,7 @@ class Candidato(Base):
     numero_partido = Column(String(2), index=True, nullable=False)
     vice_ou_suplente1 = Column(String(100), nullable=True)
     suplente2 = Column(String(100), nullable=True)
-    turno = Column(Integer, default=1)  # 1 ou 2
+    turno = Column(Integer, default=1)
     foto_svg = Column(Text, nullable=True)
 
 
@@ -94,3 +111,13 @@ class LogAuditoriaUrna(Base):
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    # Migração automática suave para bancos PostgreSQL/SQLite já criados anteriormente
+    with engine.begin() as conn:
+        try:
+            conn.execute(text("ALTER TABLE seccao_config ADD COLUMN terminal_eleitor_liberado BOOLEAN DEFAULT FALSE"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE seccao_config ADD COLUMN eleitor_habilitado_titulo VARCHAR(20)"))
+        except Exception:
+            pass

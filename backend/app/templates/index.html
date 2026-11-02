@@ -102,6 +102,26 @@
       border-bottom: 6px dashed #d6d3d1;
       box-shadow: 0 10px 25px rgba(0, 0, 0, 0.45);
     }
+    /* Scanner Biométrico Óptico */
+    .bio-scanner {
+      background: radial-gradient(circle at center, #064e3b 0%, #022c22 70%, #090d16 100%);
+      border: 3px solid #10b981;
+      position: relative;
+      overflow: hidden;
+    }
+    .bio-laser {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 3px;
+      background: #34d399;
+      box-shadow: 0 0 12px 3px #10b981;
+      animation: scanLaser 1.2s ease-in-out infinite alternate;
+    }
+    @keyframes scanLaser {
+      0% { top: 8%; }
+      100% { top: 88%; }
+    }
   </style>
 </head>
 <body class="min-h-screen pb-16">
@@ -112,7 +132,7 @@
         <div class="w-10 h-10 rounded-lg bg-emerald-600 flex items-center justify-center font-extrabold text-xl">BR</div>
         <div>
           <h1 class="font-bold text-lg leading-tight">Sistema Eleitoral — Urna Eletrônica Brasileira</h1>
-          <p class="text-xs text-slate-400 mono">ESP32-C3/C6 RISC-V Assembly (ILI9341 320x240 SPI) + Python FastAPI + Cartucho RDV/BU</p>
+          <p class="text-xs text-slate-400 mono">ESP32-C3/C6 RISC-V Assembly (ILI9341 320x240 SPI) + Terminal do Mesário Biométrico + Python Core</p>
         </div>
       </div>
 
@@ -132,10 +152,10 @@
   <div class="max-w-7xl mx-auto px-4 mt-6">
     <div class="flex flex-wrap gap-2 border-b border-slate-800 pb-3">
       <button onclick="switchTab('tab-urna')" id="btn-tab-urna" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-emerald-600 text-white">
-        1. Terminal da Urna & Mesário (Votação)
+        1. Terminal do Mesário (Biometria) & Urna Eletrônica
       </button>
       <button onclick="switchTab('tab-candidatos')" id="btn-tab-candidatos" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-slate-300 hover:bg-slate-700">
-        2. Cadastro de Candidatos & Partidos
+        2. Cadastro de Candidatos & Caderno de Eleitores
       </button>
       <button onclick="switchTab('tab-relatorios')" id="btn-tab-relatorios" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-slate-300 hover:bg-slate-700">
         3. Zerésima, Boletim de Urna (BU) & Cartucho RDV
@@ -146,30 +166,156 @@
     </div>
   </div>
 
+  <!-- Banner de Alerta / Bloqueio de Segurança TSE -->
+  <div id="securityAlertContainer" class="max-w-7xl mx-auto px-4 mt-4 hidden">
+    <div id="securityAlertBox" class="px-4 py-3 rounded-xl border flex items-center justify-between text-xs font-semibold">
+      <span id="securityAlertText"></span>
+      <button onclick="hideSecurityAlert()" class="ml-4 font-bold underline">Fechar</button>
+    </div>
+  </div>
+
   <main class="max-w-7xl mx-auto px-4 mt-6">
-    <!-- TAB 1: TERMINAL DA URNA + CONTROLE DO MESÁRIO -->
+    <!-- TAB 1: TERMINAL DO MESÁRIO + URNA ELETRÔNICA -->
     <section id="tab-urna" class="space-y-6">
-      <!-- Barra de Controle do Presidente da Mesa / Mesário -->
+      <!-- Barra de Controle do Presidente da Seção Eleitoral -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 class="text-base font-bold text-white">Painel do Presidente da Seção Eleitoral (Mesário)</h2>
+          <h2 class="text-base font-bold text-white flex items-center gap-2">
+            <span>Painel do Presidente da Seção Eleitoral</span>
+            <span id="lockTurnBadge" class="hidden px-2 py-0.5 text-[10px] rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 mono">
+              🔒 TRAVA DE TURNO ATIVA (VOTAÇÃO EM ANDAMENTO)
+            </span>
+          </h2>
           <p class="text-xs text-slate-400 mt-0.5">
-            Fluxo Obrigatório TSE: <strong>1. Configurar Turno</strong> → <strong>2. Emitir Zerésima (Abre Seção)</strong> → <strong>3. Votação dos Eleitores</strong> → <strong>4. Encerrar e Gerar BU + Cartucho</strong>
+            Ciclo Seguro TSE: <strong>1. Preparar Turno</strong> → <strong>2. Emitir Zerésima</strong> → <strong>3. Mesário Digita Título + Coleta Biometria + Libera Urna</strong> → <strong>4. Eleitor Vota</strong> → <strong>5. Encerrar e Emitir BU</strong>
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2.5">
-          <button onclick="alternarTurnoRapido(1)" class="px-3 py-2 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200">
+          <button id="btnPrepTurno1" onclick="alternarTurnoRapido(1)" class="px-3 py-2 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 transition">
             Preparar 1º Turno (5 Cargos)
           </button>
-          <button onclick="alternarTurnoRapido(2)" class="px-3 py-2 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-600 text-amber-300">
+          <button id="btnPrepTurno2" onclick="alternarTurnoRapido(2)" class="px-3 py-2 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-600 text-amber-300 transition">
             Preparar 2º Turno (Gov + Pres)
           </button>
-          <button onclick="emitirZeresima()" class="px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow">
+          <button id="btnZeresima" onclick="emitirZeresima()" class="px-4 py-2 rounded-lg text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white shadow transition">
             🖨️ Inicializar Urna & Imprimir Zerésima
           </button>
-          <button onclick="encerrarVotacao()" class="px-4 py-2 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow">
+          <button id="btnEncerrar" onclick="encerrarVotacao()" class="px-4 py-2 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow transition">
             🔒 Encerrar Urna, Emitir BU & Gravar Cartucho
           </button>
+        </div>
+      </div>
+
+      <!-- TERMINAL DO MESÁRIO (IDENTIFICAÇÃO DO ELEITOR + LEITOR BIOMÉTRICO + HABILITAÇÃO DA CABINE) -->
+      <div class="bg-slate-900 border-2 border-slate-700 rounded-xl p-5 shadow-xl">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3 mb-4">
+          <div class="flex items-center gap-2.5">
+            <span class="w-3 h-3 rounded-full bg-emerald-400 animate-pulse" id="mesarioLed"></span>
+            <h3 class="text-sm font-extrabold uppercase tracking-wider text-white mono">
+              Terminal do Mesário (Microterminal Biométrico TSE)
+            </h3>
+          </div>
+          <span id="cabineStatusPill" class="mono text-xs px-3 py-1 rounded-full bg-slate-800 text-slate-300 border border-slate-700">
+            CABINE: BLOQUEADA
+          </span>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
+          <!-- Passo A: Digitar Título ou Selecionar da Fila da Seção -->
+          <div class="lg:col-span-5 space-y-3">
+            <label class="block text-xs font-bold text-slate-300 uppercase">
+              1. Digite o Título de Eleitor ou CPF (ou selecione um eleitor da fila):
+            </label>
+            <div class="flex gap-2">
+              <input
+                id="mesarioDocInput"
+                type="text"
+                placeholder="Ex: 014285930116 ou 123.456.789-01"
+                class="flex-1 bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white mono focus:border-emerald-500 outline-none"
+              />
+              <button
+                onclick="consultarEleitorMesario()"
+                class="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-xs font-bold rounded-lg text-emerald-400"
+              >
+                🔍 Localizar
+              </button>
+            </div>
+
+            <!-- Atalho rápido para simular eleitores da fila da seção -->
+            <div>
+              <span class="text-[11px] text-slate-400 block mb-1">Fila rápida da Seção (clique para preencher no Terminal do Mesário):</span>
+              <div id="quickVotersChips" class="flex flex-wrap gap-1.5"></div>
+            </div>
+
+            <!-- Dados do Eleitor Localizado -->
+            <div id="mesarioVoterCard" class="hidden bg-slate-950 border border-slate-800 rounded-lg p-3.5 text-xs space-y-1">
+              <div class="flex items-center justify-between">
+                <span class="font-extrabold text-sm text-white" id="mvNome"></span>
+                <span id="mvStatusBadge" class="mono text-[10px] px-2 py-0.5 rounded font-bold"></span>
+              </div>
+              <div class="text-slate-400 mono">
+                Título: <strong class="text-slate-200" id="mvTitulo"></strong> • CPF: <strong class="text-slate-200" id="mvCpf"></strong>
+              </div>
+              <div class="text-slate-400">
+                Nascimento: <span id="mvNasc" class="text-slate-200"></span> • Mãe: <span id="mvMae" class="text-slate-200"></span>
+              </div>
+              <div class="text-[11px] pt-1" id="mvBioStatus"></div>
+            </div>
+          </div>
+
+          <!-- Passo B: Sensor Óptico de Coleta Biométrica -->
+          <div class="lg:col-span-4 flex flex-col items-center justify-center bg-slate-950 border border-slate-800 rounded-xl p-4">
+            <div class="text-xs font-bold text-slate-300 uppercase mb-2 mono">2. Leitor Biométrico Óptico (AFIS/TSE)</div>
+            <div
+              id="bioScannerBox"
+              onclick="simularColetaBiometria()"
+              class="bio-scanner w-28 h-36 rounded-2xl flex flex-col items-center justify-center cursor-pointer select-none transition transform hover:scale-105"
+              title="Clique para posicionar o polegar do eleitor no sensor biométrico"
+            >
+              <div id="bioLaserBar" class="bio-laser hidden"></div>
+              <!-- Ícone de Impressão Digital -->
+              <svg id="bioFingerIcon" class="w-16 h-16 text-emerald-400/70 transition" fill="none" stroke="currentColor" stroke-width="1.6" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
+              </svg>
+              <span id="bioScannerLabel" class="text-[10px] font-bold text-emerald-300 mt-2 text-center px-2 leading-tight">
+                CLIQUE PARA COLETAR DIGITAL
+              </span>
+            </div>
+            <div id="bioHashOutput" class="text-[10px] mono text-slate-500 mt-2 text-center">
+              Aguardando leitura do sensor...
+            </div>
+          </div>
+
+          <!-- Passo C: Botão de Liberação da Urna na Cabine -->
+          <div class="lg:col-span-3 flex flex-col justify-between space-y-3">
+            <div class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs space-y-2">
+              <div class="font-bold text-slate-300 uppercase mono">3. Habilitação da Cabine</div>
+              <p class="text-[11px] text-slate-400 leading-relaxed">
+                Após validar a biometria (ou documento oficial caso o eleitor não possua biometria), libere a urna para o eleitor votar.
+              </p>
+              <label id="boxSemBiometriaCheck" class="hidden flex items-center gap-2 text-[11px] text-amber-300 pt-1 cursor-pointer">
+                <input type="checkbox" id="chkSemBiometria" class="rounded" />
+                <span>Conferi documento oficial com foto (Eleitor sem biometria)</span>
+              </label>
+            </div>
+
+            <button
+              id="btnLiberarUrnaEleitor"
+              onclick="liberarUrnaParaEleitor()"
+              disabled
+              class="w-full py-3.5 px-4 rounded-xl font-extrabold text-xs uppercase tracking-wider bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-500 text-white shadow-lg transition"
+            >
+              🔓 Liberar Urna para Voto
+            </button>
+
+            <button
+              id="btnCancelarLiberacao"
+              onclick="cancelarLiberacaoMesario()"
+              class="hidden w-full py-2 px-3 rounded-lg font-bold text-xs bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-700 transition"
+            >
+              ✖ Cancelar Liberação Atual
+            </button>
+          </div>
         </div>
       </div>
 
@@ -181,16 +327,14 @@
             DISPLAY TFT ILI9341 320x240 SPI (DRIVER 100% ASSEMBLY RISC-V)
           </div>
           <div class="ili9341-screen p-4 flex flex-col justify-between select-none" id="urnaScreen">
-            <!-- Estado Bloqueada / Aguardando Zerésima -->
+            <!-- Estado Bloqueada / Aguardando Zerésima ou Aguardando Liberação Biométrica do Mesário -->
             <div id="screenBlocked" class="h-full flex flex-col items-center justify-center text-center px-4">
               <div class="text-xs font-bold uppercase tracking-widest text-slate-500 mb-2">Justiça Eleitoral</div>
               <div id="blockedTitle" class="text-xl font-extrabold text-slate-900 mb-2">URNA NÃO INICIALIZADA</div>
-              <p id="blockedSubtitle" class="text-xs text-slate-600">
-                Clique em <strong>"Inicializar Urna & Imprimir Zerésima"</strong> no painel do mesário acima para comprovar 0 votos e abrir a seção eleitoral.
-              </p>
+              <p id="blockedSubtitle" class="text-xs text-slate-600"></p>
             </div>
 
-            <!-- Estado Em Votação Ativa -->
+            <!-- Estado Em Votação Ativa (Eleitor Habilitado pelo Mesário) -->
             <div id="screenVoting" class="hidden h-full flex flex-col justify-between">
               <div class="flex justify-between items-start">
                 <div class="space-y-1 flex-1 pr-2">
@@ -240,7 +384,7 @@
             <div id="screenFim" class="hidden h-full flex flex-col items-center justify-center">
               <div class="text-7xl font-black tracking-widest text-black">FIM</div>
               <div class="mt-4 text-xs font-bold uppercase text-emerald-700 bg-emerald-100 px-3 py-1 rounded border border-emerald-400">
-                VOTO GRAVADO NO RDV COM SUCESSO
+                VOTOU — TERMINAL BLOQUEADO PARA PRÓXIMO ELEITOR
               </div>
             </div>
           </div>
@@ -289,10 +433,10 @@
       </div>
     </section>
 
-    <!-- TAB 2: CADASTRO DE CANDIDATOS E PARTIDOS -->
-    <section id="tab-candidatos" class="hidden space-y-6">
+    <!-- TAB 2: CADASTRO DE CANDIDATOS & CADERNO DE ELEITORES DA SEÇÃO -->
+    <section id="tab-candidatos" class="hidden space-y-8">
+      <!-- Bloco 1: Candidatos -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Formulário Novo Candidato -->
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
           <h2 class="text-base font-bold text-emerald-400">Cadastrar / Atualizar Candidato</h2>
           <form id="formCandidato" onsubmit="salvarCandidato(event)" class="space-y-3 text-xs">
@@ -341,11 +485,10 @@
           </form>
         </div>
 
-        <!-- Lista de Candidatos -->
         <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-base font-bold text-white">Candidatos na Carga da Seção</h2>
-            <span class="text-xs text-slate-400">1º e 2º Turnos</span>
+            <span class="text-xs text-slate-400">Bloqueado para edição durante EM_VOTACAO</span>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-left text-xs">
@@ -365,12 +508,74 @@
           </div>
         </div>
       </div>
+
+      <!-- Bloco 2: Caderno de Eleitores da Seção (Biometria) -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <h2 class="text-base font-bold text-blue-400">Cadastrar Eleitor no Caderno da Seção</h2>
+          <form id="formEleitor" onsubmit="salvarEleitor(event)" class="space-y-3 text-xs">
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">Número do Título de Eleitor (12 dígitos)</label>
+              <input id="elTitulo" type="text" required placeholder="Ex: 067891230167" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+            </div>
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">CPF</label>
+              <input id="elCpf" type="text" required placeholder="Ex: 678.901.234-56" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+            </div>
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">Nome Completo do Eleitor</label>
+              <input id="elNome" type="text" required placeholder="Ex: PEDRO HENRIQUE SOUZA" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white uppercase" />
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-slate-300 font-semibold mb-1">Data de Nascimento</label>
+                <input id="elNasc" type="text" required placeholder="Ex: 10/04/1990" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" />
+              </div>
+              <div>
+                <label class="block text-slate-300 font-semibold mb-1">Biometria Coletada?</label>
+                <select id="elBio" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                  <option value="true">Sim (Com Digital TSE)</option>
+                  <option value="false">Não (Exige Doc. Foto)</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="block text-slate-300 font-semibold mb-1">Nome da Mãe</label>
+              <input id="elMae" type="text" placeholder="Ex: CLARA SOUZA" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white uppercase" />
+            </div>
+            <button type="submit" class="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg">
+              + Incluir Eleitor no Caderno da Seção
+            </button>
+          </form>
+        </div>
+
+        <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-base font-bold text-white">Caderno de Votação da Seção (Controle Biométrico por Turno)</h2>
+            <span class="text-xs text-slate-400">O RDV é desvinculado do eleitor (sigilo absoluto)</span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th class="py-2">Título</th>
+                  <th class="py-2">CPF</th>
+                  <th class="py-2">Eleitor</th>
+                  <th class="py-2">Biometria AFIS</th>
+                  <th class="py-2">1º Turno</th>
+                  <th class="py-2">2º Turno</th>
+                </tr>
+              </thead>
+              <tbody id="tabelaEleitoresBody" class="divide-y divide-slate-800/60"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- TAB 3: ZERÉSIMA, BOLETIM DE URNA (BU) E CARTUCHO RDV -->
     <section id="tab-relatorios" class="hidden space-y-6">
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Bobina Térmica: Zerésima e BU -->
         <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col items-center">
           <div class="w-full flex items-center justify-between mb-4">
             <h2 class="text-base font-bold text-white">🖨️ Impressora Térmica da Urna (Zerésima / Boletim de Urna)</h2>
@@ -394,13 +599,12 @@ o Boletim de Urna (apos encerramento da votacao).
           </pre>
         </div>
 
-        <!-- Cartucho de Mídia de Resultado (RDV + BU + Assinatura Ed25519) -->
         <div class="space-y-6">
           <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <h2 class="text-base font-bold text-amber-400">💾 Mídia de Resultado (Cartucho Flash da Urna)</h2>
             <p class="text-xs text-slate-300 leading-relaxed">
               Ao encerrar a seção eleitoral, o motor Python gera o pacote criptográfico de cartucho contendo o
-              <strong>RDV (Registro Digital do Voto embaralhado por CSPRNG sem vínculo com a ordem do eleitor)</strong>,
+              <strong>RDV (Registro Digital do Voto embaralhado por CSPRNG sem vínculo com a ordem ou identidade do eleitor)</strong>,
               o <strong>Boletim de Urna (JSON e TXT)</strong>, o <strong>Log encadeado por SHA-256</strong> e a
               <strong>Assinatura Digital Ed25519</strong> para transmissão ao TSE.
             </p>
@@ -411,7 +615,6 @@ o Boletim de Urna (apos encerramento da votacao).
             </div>
           </div>
 
-          <!-- Cadeia de Logs de Auditoria da Seção -->
           <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
             <div class="flex items-center justify-between mb-3">
               <h3 class="text-sm font-bold text-white">🔗 Cadeia de Logs Auditáveis da Seção (SHA-256 Chain)</h3>
@@ -471,6 +674,10 @@ o Boletim de Urna (apos encerramento da votacao).
     // Estado Global da Interface
     let seccaoState = null;
     let candidatosList = [];
+    let eleitoresList = [];
+    let selectedVoter = null;
+    let biometriaColetadaOk = false;
+
     let currentCargoIdx = 0;
     let currentDigits = "";
     let isBranco = false;
@@ -483,7 +690,24 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
-    // Emula fielmente as rotinas Assembly `buzzer_beep_key_asm` e `buzzer_play_fim_asm`
+    function showSecurityAlert(msg, isError = true) {
+      const container = document.getElementById("securityAlertContainer");
+      const box = document.getElementById("securityAlertBox");
+      const text = document.getElementById("securityAlertText");
+      container.classList.remove("hidden");
+      text.textContent = msg;
+      if (isError) {
+        box.className = "px-4 py-3 rounded-xl border flex items-center justify-between text-xs font-semibold bg-rose-950/90 border-rose-600 text-rose-200";
+      } else {
+        box.className = "px-4 py-3 rounded-xl border flex items-center justify-between text-xs font-semibold bg-emerald-950/90 border-emerald-600 text-emerald-200";
+      }
+    }
+
+    function hideSecurityAlert() {
+      document.getElementById("securityAlertContainer").classList.add("hidden");
+    }
+
+    // Sons oficiais em onda quadrada (Tecla, Biometria e FIM)
     function playBeepKey() {
       try {
         initAudio();
@@ -496,6 +720,24 @@ o Boletim de Urna (apos encerramento da votacao).
         gain.connect(audioCtx.destination);
         osc.start();
         osc.stop(audioCtx.currentTime + 0.045);
+      } catch (e) {}
+    }
+
+    function playBeepBiometriaOk() {
+      try {
+        initAudio();
+        const now = audioCtx.currentTime;
+        [1400, 2100].forEach((freq, idx) => {
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+          osc.type = "sine";
+          osc.frequency.setValueAtTime(freq, now + idx * 0.09);
+          gain.gain.setValueAtTime(0.12, now + idx * 0.09);
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+          osc.start(now + idx * 0.09);
+          osc.stop(now + (idx + 1) * 0.09);
+        });
       } catch (e) {}
     }
 
@@ -530,44 +772,220 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     async function fetchStatusAndCandidates() {
-      const [stRes, candRes] = await Promise.all([
+      const [stRes, candRes, elRes] = await Promise.all([
         fetch("/api/status"),
-        fetch("/api/candidatos")
+        fetch("/api/candidatos"),
+        fetch("/api/mesario/eleitores")
       ]);
       seccaoState = await stRes.json();
       candidatosList = await candRes.json();
+      eleitoresList = await elRes.json();
 
       document.getElementById("hdrZona").textContent = seccaoState.zona;
       document.getElementById("hdrSecao").textContent = seccaoState.secao;
       document.getElementById("hdrTurno").textContent = `${seccaoState.turno}º TURNO`;
-      document.getElementById("hdrStatus").textContent = `${seccaoState.status} (${seccaoState.eleitores_compareceram} eleitores)`;
+      document.getElementById("hdrStatus").textContent = `${seccaoState.status} (${seccaoState.eleitores_compareceram} votos)`;
 
+      // Atualiza visual de trava de botões durante EM_VOTACAO
+      const lockBadge = document.getElementById("lockTurnBadge");
+      const btnT1 = document.getElementById("btnPrepTurno1");
+      const btnT2 = document.getElementById("btnPrepTurno2");
+
+      if (seccaoState.status === "EM_VOTACAO") {
+        lockBadge.classList.remove("hidden");
+        btnT1.className = "px-3 py-2 rounded-lg text-xs font-bold bg-slate-900 border border-slate-800 text-slate-500 cursor-not-allowed";
+        btnT2.className = "px-3 py-2 rounded-lg text-xs font-bold bg-slate-900 border border-slate-800 text-slate-500 cursor-not-allowed";
+      } else {
+        lockBadge.classList.add("hidden");
+        btnT1.className = "px-3 py-2 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 transition";
+        btnT2.className = "px-3 py-2 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-600 text-amber-300 transition";
+      }
+
+      renderQuickVotersChips();
       renderQuickCandidates();
       renderTabelaCandidatos();
+      renderTabelaEleitores();
       syncUrnaScreenState();
+    }
+
+    function renderQuickVotersChips() {
+      const container = document.getElementById("quickVotersChips");
+      container.innerHTML = "";
+      eleitoresList.forEach(e => {
+        const btn = document.createElement("button");
+        const jaVotou = e.ja_votou_turno_atual;
+        btn.className = jaVotou
+          ? "px-2.5 py-1 rounded text-[11px] mono bg-slate-900 text-slate-500 border border-slate-800 line-through"
+          : "px-2.5 py-1 rounded text-[11px] mono bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700";
+        btn.textContent = `${e.nome.split(" ")[0]} (${e.titulo.slice(0, 6)}..)${e.biometria_cadastrada ? "  fingerprint" : " s/bio"}`;
+        btn.onclick = () => {
+          document.getElementById("mesarioDocInput").value = e.titulo;
+          consultarEleitorMesario();
+        };
+        container.appendChild(btn);
+      });
+    }
+
+    async function consultarEleitorMesario() {
+      const doc = document.getElementById("mesarioDocInput").value.trim();
+      if (!doc) return;
+      playBeepKey();
+
+      const res = await fetch(`/api/mesario/buscar?documento=${encodeURIComponent(doc)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        selectedVoter = null;
+        biometriaColetadaOk = false;
+        document.getElementById("mesarioVoterCard").classList.add("hidden");
+        showSecurityAlert(data.detail || "Eleitor não encontrado no caderno da seção.", true);
+        return;
+      }
+
+      hideSecurityAlert();
+      selectedVoter = data;
+      biometriaColetadaOk = false;
+      document.getElementById("chkSemBiometria").checked = false;
+
+      document.getElementById("mesarioVoterCard").classList.remove("hidden");
+      document.getElementById("mvNome").textContent = data.nome;
+      document.getElementById("mvTitulo").textContent = data.titulo;
+      document.getElementById("mvCpf").textContent = data.cpf;
+      document.getElementById("mvNasc").textContent = data.data_nascimento;
+      document.getElementById("mvMae").textContent = data.nome_mae || "-";
+
+      const statusBadge = document.getElementById("mvStatusBadge");
+      const bioStatus = document.getElementById("mvBioStatus");
+      const boxSemBio = document.getElementById("boxSemBiometriaCheck");
+
+      resetBioScannerVisual();
+
+      if (data.ja_votou_turno_atual) {
+        statusBadge.className = "mono text-[10px] px-2 py-0.5 rounded font-bold bg-rose-900/70 text-rose-200 border border-rose-600";
+        statusBadge.textContent = `JÁ VOTOU NO ${data.turno_atual}º TURNO`;
+        bioStatus.innerHTML = `<span class="text-rose-400 font-bold">⛔ Eleitor impedido de votar novamente neste turno.</span>`;
+        boxSemBio.classList.add("hidden");
+        document.getElementById("btnLiberarUrnaEleitor").disabled = true;
+      } else {
+        statusBadge.className = "mono text-[10px] px-2 py-0.5 rounded font-bold bg-emerald-900/70 text-emerald-200 border border-emerald-600";
+        statusBadge.textContent = "APTO PARA VOTAR";
+        if (data.biometria_cadastrada) {
+          bioStatus.innerHTML = `<span class="text-emerald-400">✅ Biometria cadastrada no TSE. Clique no sensor óptico ao lado para coletar a digital.</span>`;
+          boxSemBio.classList.add("hidden");
+          document.getElementById("btnLiberarUrnaEleitor").disabled = true;
+        } else {
+          bioStatus.innerHTML = `<span class="text-amber-300">⚠️ Eleitor sem biometria cadastrada. Confira documento com foto e marque a caixa no passo 3.</span>`;
+          boxSemBio.classList.remove("hidden");
+          document.getElementById("btnLiberarUrnaEleitor").disabled = false;
+        }
+      }
+    }
+
+    function resetBioScannerVisual() {
+      document.getElementById("bioLaserBar").classList.add("hidden");
+      document.getElementById("bioScannerLabel").textContent = "CLIQUE PARA COLETAR DIGITAL";
+      document.getElementById("bioScannerLabel").className = "text-[10px] font-bold text-emerald-300 mt-2 text-center px-2 leading-tight";
+      document.getElementById("bioHashOutput").textContent = "Aguardando leitura do sensor...";
+    }
+
+    function simularColetaBiometria() {
+      if (!selectedVoter) {
+        showSecurityAlert("Primeiro localize o eleitor pelo Título ou CPF no Passo 1 do Terminal do Mesário.", true);
+        return;
+      }
+      if (selectedVoter.ja_votou_turno_atual) {
+        showSecurityAlert(`BLOQUEIO TSE: O eleitor ${selectedVoter.nome} já votou neste turno!`, true);
+        return;
+      }
+      if (!selectedVoter.biometria_cadastrada) {
+        showSecurityAlert("Este eleitor não possui biometria no cadastro TSE. Utilize a conferência de documento com foto no Passo 3.", false);
+        return;
+      }
+
+      document.getElementById("bioLaserBar").classList.remove("hidden");
+      document.getElementById("bioScannerLabel").textContent = "LENDO MINÚCIAS AFIS...";
+      document.getElementById("bioHashOutput").textContent = "Extraindo template ISO/IEC 19794-2...";
+
+      setTimeout(() => {
+        document.getElementById("bioLaserBar").classList.add("hidden");
+        biometriaColetadaOk = true;
+        playBeepBiometriaOk();
+        document.getElementById("bioScannerLabel").textContent = "DIGITAL VALIDADA (100%)";
+        document.getElementById("bioScannerLabel").className = "text-[10px] font-extrabold text-emerald-400 mt-2 text-center px-2 leading-tight";
+        document.getElementById("bioHashOutput").textContent = `MATCH OK: ${selectedVoter.hash_template_biometrico.slice(0, 18)}...`;
+        document.getElementById("btnLiberarUrnaEleitor").disabled = false;
+      }, 950);
+    }
+
+    async function liberarUrnaParaEleitor() {
+      if (!selectedVoter) return;
+      const semBioCheck = document.getElementById("chkSemBiometria").checked;
+
+      const res = await fetch("/api/mesario/liberar-urna", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          documento: selectedVoter.titulo,
+          biometria_validada: biometriaColetadaOk,
+          justificativa_sem_biometria: semBioCheck ? "DOCUMENTO_OFICIAL_COM_FOTO_CONFERIDO" : null
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showSecurityAlert(data.detail || "Falha ao liberar terminal da urna.", true);
+        return;
+      }
+
+      playBeepBiometriaOk();
+      showSecurityAlert(`Cabine Liberada para ${selectedVoter.nome} (${data.metodo}). O eleitor já pode digitar o voto na Urna!`, false);
+      currentCargoIdx = 0;
+      voterBasket = [];
+      await fetchStatusAndCandidates();
+    }
+
+    async function cancelarLiberacaoMesario() {
+      await fetch("/api/mesario/cancelar-liberacao", { method: "POST" });
+      await fetchStatusAndCandidates();
     }
 
     function syncUrnaScreenState() {
       const blocked = document.getElementById("screenBlocked");
       const voting = document.getElementById("screenVoting");
       const fim = document.getElementById("screenFim");
+      const cabinePill = document.getElementById("cabineStatusPill");
+      const btnCancelarLib = document.getElementById("btnCancelarLiberacao");
 
       blocked.classList.add("hidden");
       voting.classList.add("hidden");
       fim.classList.add("hidden");
+      btnCancelarLib.classList.add("hidden");
 
       if (seccaoState.status === "NAO_INICIALIZADA") {
         blocked.classList.remove("hidden");
+        cabinePill.textContent = "CABINE: AGUARDANDO ZERÉSIMA";
+        cabinePill.className = "mono text-xs px-3 py-1 rounded-full bg-slate-800 text-amber-300 border border-amber-700";
         document.getElementById("blockedTitle").textContent = `SEÇÃO NO ${seccaoState.turno}º TURNO — AGUARDANDO ZERÉSIMA`;
         document.getElementById("blockedSubtitle").innerHTML =
-          `Clique em <strong>"Inicializar Urna & Imprimir Zerésima"</strong> na barra acima para emitir o comprovante de 0 votos e liberar o teclado.`;
+          `Clique em <strong>"Inicializar Urna & Imprimir Zerésima"</strong> na barra superior para emitir o comprovante de 0 votos e abrir a seção.`;
       } else if (seccaoState.status === "ENCERRADA") {
         blocked.classList.remove("hidden");
+        cabinePill.textContent = "CABINE: SEÇÃO ENCERRADA";
+        cabinePill.className = "mono text-xs px-3 py-1 rounded-full bg-rose-950 text-rose-300 border border-rose-700";
         document.getElementById("blockedTitle").textContent = "VOTAÇÃO ENCERRADA NESTA SEÇÃO";
         document.getElementById("blockedSubtitle").innerHTML =
-          `Boletim de Urna (BU) e Cartucho RDV gerados. Acesse a aba <strong>"3. Zerésima, Boletim de Urna (BU) & Cartucho RDV"</strong> para conferir ou baixar o cartucho.`;
-      } else if (seccaoState.status === "EM_VOTACAO") {
+          `Boletim de Urna (BU) e Cartucho RDV gerados. Agora você já pode preparar o próximo turno ou baixar o cartucho na aba 3.`;
+      } else if (seccaoState.status === "EM_VOTACAO" && !seccaoState.terminal_eleitor_liberado) {
+        blocked.classList.remove("hidden");
+        cabinePill.textContent = "CABINE: BLOQUEADA (AGUARDANDO BIOMETRIA DO MESÁRIO)";
+        cabinePill.className = "mono text-xs px-3 py-1 rounded-full bg-amber-950 text-amber-300 border border-amber-700";
+        document.getElementById("blockedTitle").textContent = "AGUARDANDO HABILITAÇÃO DO MESÁRIO";
+        document.getElementById("blockedSubtitle").innerHTML =
+          `Seção aberta. No <strong>Terminal do Mesário</strong> acima, localize o eleitor pelo Título/CPF, colete a <strong>Biometria</strong> e clique em <strong>"Liberar Urna para Voto"</strong>.`;
+      } else if (seccaoState.status === "EM_VOTACAO" && seccaoState.terminal_eleitor_liberado) {
         voting.classList.remove("hidden");
+        btnCancelarLib.classList.remove("hidden");
+        const nomeEl = seccaoState.eleitor_habilitado ? seccaoState.eleitor_habilitado.nome : "ELEITOR";
+        cabinePill.textContent = `CABINE LIBERADA: ${nomeEl}`;
+        cabinePill.className = "mono text-xs px-3 py-1 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-600";
         loadCargoScreen(currentCargoIdx);
       }
     }
@@ -605,7 +1023,7 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     async function pressKey(digit) {
-      if (!seccaoState || seccaoState.status !== "EM_VOTACAO" || isBranco) return;
+      if (!seccaoState || seccaoState.status !== "EM_VOTACAO" || !seccaoState.terminal_eleitor_liberado || isBranco) return;
       const cargoMeta = seccaoState.cargos_turno[currentCargoIdx];
       if (currentDigits.length >= cargoMeta.digitos) return;
 
@@ -652,8 +1070,8 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     function pressBranco() {
-      if (!seccaoState || seccaoState.status !== "EM_VOTACAO") return;
-      if (currentDigits.length > 0) return; // Padrão TSE: BRANCO só se nenhum número foi digitado
+      if (!seccaoState || seccaoState.status !== "EM_VOTACAO" || !seccaoState.terminal_eleitor_liberado) return;
+      if (currentDigits.length > 0) return;
       playBeepKey();
       isBranco = true;
       renderDigitBoxes(0);
@@ -664,7 +1082,7 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     function pressCorrige() {
-      if (!seccaoState || seccaoState.status !== "EM_VOTACAO") return;
+      if (!seccaoState || seccaoState.status !== "EM_VOTACAO" || !seccaoState.terminal_eleitor_liberado) return;
       playBeepKey();
       loadCargoScreen(currentCargoIdx);
     }
@@ -678,7 +1096,7 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     async function pressConfirma() {
-      if (!seccaoState || seccaoState.status !== "EM_VOTACAO") return;
+      if (!seccaoState || seccaoState.status !== "EM_VOTACAO" || !seccaoState.terminal_eleitor_liberado) return;
       const cargoMeta = seccaoState.cargos_turno[currentCargoIdx];
 
       const podeConfirmar =
@@ -703,27 +1121,39 @@ o Boletim de Urna (apos encerramento da votacao).
       if (currentCargoIdx + 1 < seccaoState.cargos_turno.length) {
         loadCargoScreen(currentCargoIdx + 1);
       } else {
-        // Envia cesta de votos do eleitor ao Backend Python
         const res = await fetch("/api/urna/votar", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ votos: voterBasket })
         });
+        const data = await res.json();
         voterBasket = [];
         currentCargoIdx = 0;
 
-        if (res.ok) {
-          document.getElementById("screenVoting").classList.add("hidden");
-          document.getElementById("screenFim").classList.remove("hidden");
-          playSomFimUrna();
-          setTimeout(async () => {
-            await fetchStatusAndCandidates();
-          }, 1800);
+        if (!res.ok) {
+          showSecurityAlert(data.detail || "Erro ao registrar voto.", true);
+          return;
         }
+
+        // Limpa seleção atual do mesário após voto concluído
+        selectedVoter = null;
+        biometriaColetadaOk = false;
+        document.getElementById("mesarioVoterCard").classList.add("hidden");
+        document.getElementById("mesarioDocInput").value = "";
+        resetBioScannerVisual();
+        document.getElementById("btnLiberarUrnaEleitor").disabled = true;
+
+        document.getElementById("screenVoting").classList.add("hidden");
+        document.getElementById("screenFim").classList.remove("hidden");
+        playSomFimUrna();
+        setTimeout(async () => {
+          await fetchStatusAndCandidates();
+        }, 1800);
       }
     }
 
     async function alternarTurnoRapido(turno) {
+      // Trava imediata no frontend + validação no backend HTTP 409
       const res = await fetch("/api/seccao/configurar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -732,37 +1162,47 @@ o Boletim de Urna (apos encerramento da votacao).
           secao: seccaoState?.secao || "0105",
           municipio: seccaoState?.municipio || "BRASILIA - DF",
           turno: turno,
-          eleitores_aptos: seccaoState?.eleitores_aptos || 450
+          eleitores_aptos: seccaoState?.eleitores_aptos || 450,
+          forcar_reinicio: false
         })
       });
-      if (res.ok) {
-        currentCargoIdx = 0;
-        voterBasket = [];
-        await fetchStatusAndCandidates();
+      const data = await res.json();
+      if (!res.ok) {
+        showSecurityAlert(data.detail || "Operação bloqueada durante votação ativa.", true);
+        return;
       }
+
+      currentCargoIdx = 0;
+      voterBasket = [];
+      selectedVoter = null;
+      biometriaColetadaOk = false;
+      document.getElementById("mesarioVoterCard").classList.add("hidden");
+      showSecurityAlert(data.mensagem, false);
+      await fetchStatusAndCandidates();
     }
 
     async function emitirZeresima() {
       const res = await fetch("/api/seccao/zeresima", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || "Erro ao emitir Zerésima.");
+        showSecurityAlert(data.detail || "Erro ao emitir Zerésima.", true);
         return;
       }
       document.getElementById("thermalPrinterOutput").textContent = data.cupom_termico;
       await fetchStatusAndCandidates();
-      alert("Zerésima impressa com sucesso! A seção está ABERTA para votação.");
+      showSecurityAlert("Zerésima emitida com sucesso! Agora utilize o Terminal do Mesário para coletar a biometria e liberar cada eleitor.", false);
     }
 
     async function encerrarVotacao() {
       const res = await fetch("/api/seccao/encerrar", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || "Erro ao encerrar votação.");
+        showSecurityAlert(data.detail || "Erro ao encerrar votação.", true);
         return;
       }
       document.getElementById("thermalPrinterOutput").textContent = data.boletim_de_urna.cupom_termico;
       await fetchStatusAndCandidates();
+      showSecurityAlert("Votação encerrada! Boletim de Urna (BU) impresso e Cartucho RDV assinado gerado.", false);
       switchTab("tab-relatorios");
     }
 
@@ -770,7 +1210,7 @@ o Boletim de Urna (apos encerramento da votacao).
       const res = await fetch("/api/seccao/boletim");
       const data = await res.json();
       if (!res.ok) {
-        alert(data.detail || "Encerre a votação primeiro para emitir o Boletim de Urna.");
+        showSecurityAlert(data.detail || "Encerre a votação primeiro para emitir o Boletim de Urna.", true);
         return;
       }
       document.getElementById("thermalPrinterOutput").textContent = data.cupom_termico;
@@ -808,11 +1248,37 @@ o Boletim de Urna (apos encerramento da votacao).
       `).join("");
     }
 
+    function renderTabelaEleitores() {
+      const tbody = document.getElementById("tabelaEleitoresBody");
+      tbody.innerHTML = eleitoresList.map(e => `
+        <tr>
+          <td class="py-2 mono font-bold text-blue-300">${e.titulo}</td>
+          <td class="py-2 mono text-slate-300">${e.cpf}</td>
+          <td class="py-2 font-semibold">${e.nome}</td>
+          <td class="py-2 mono text-[11px]">
+            ${e.biometria_cadastrada
+              ? `<span class="text-emerald-400">AFIS OK (${e.hash_template_biometrico})</span>`
+              : `<span class="text-amber-400">Sem Biometria</span>`}
+          </td>
+          <td class="py-2">
+            ${e.votou_turno_1
+              ? `<span class="px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-300 font-bold text-[10px]">VOTOU</span>`
+              : `<span class="text-slate-500 text-[11px]">Pendente</span>`}
+          </td>
+          <td class="py-2">
+            ${e.votou_turno_2
+              ? `<span class="px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-300 font-bold text-[10px]">VOTOU</span>`
+              : `<span class="text-slate-500 text-[11px]">Pendente</span>`}
+          </td>
+        </tr>
+      `).join("");
+    }
+
     async function salvarCandidato(e) {
       e.preventDefault();
       const numero = document.getElementById("candNumero").value.trim();
       if (numero.length < 2) {
-        alert("O número do candidato deve ter pelo menos 2 dígitos.");
+        showSecurityAlert("O número do candidato deve ter pelo menos 2 dígitos.", true);
         return;
       }
       const payload = {
@@ -830,14 +1296,46 @@ o Boletim de Urna (apos encerramento da votacao).
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
-      if (res.ok) {
-        document.getElementById("formCandidato").reset();
-        await fetchStatusAndCandidates();
+      const data = await res.json();
+      if (!res.ok) {
+        showSecurityAlert(data.detail || "Erro ao cadastrar candidato.", true);
+        return;
       }
+      document.getElementById("formCandidato").reset();
+      await fetchStatusAndCandidates();
+    }
+
+    async function salvarEleitor(e) {
+      e.preventDefault();
+      const payload = {
+        titulo: document.getElementById("elTitulo").value.trim(),
+        cpf: document.getElementById("elCpf").value.trim(),
+        nome: document.getElementById("elNome").value.trim(),
+        data_nascimento: document.getElementById("elNasc").value.trim(),
+        nome_mae: document.getElementById("elMae").value.trim(),
+        biometria_cadastrada: document.getElementById("elBio").value === "true"
+      };
+      const res = await fetch("/api/mesario/eleitores", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showSecurityAlert(data.detail || "Erro ao cadastrar eleitor.", true);
+        return;
+      }
+      document.getElementById("formEleitor").reset();
+      showSecurityAlert("Eleitor incluído no Caderno de Votação da Seção com sucesso!", false);
+      await fetchStatusAndCandidates();
     }
 
     async function removerCandidato(id) {
-      await fetch(`/api/candidatos/${id}`, { method: "DELETE" });
+      const res = await fetch(`/api/candidatos/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json();
+        showSecurityAlert(data.detail || "Não foi possível remover candidato.", true);
+      }
       await fetchStatusAndCandidates();
     }
 
@@ -857,9 +1355,9 @@ o Boletim de Urna (apos encerramento da votacao).
       `).join("");
     }
 
-    // Suporte ao teclado numérico do computador para testar agilmente
     window.addEventListener("keydown", (e) => {
       if (document.getElementById("tab-urna").classList.contains("hidden")) return;
+      if (document.activeElement && document.activeElement.tagName === "INPUT") return;
       if (e.key >= "0" && e.key <= "9") pressKey(e.key);
       else if (e.key === "Enter") pressConfirma();
       else if (e.key === "Backspace") pressCorrige();

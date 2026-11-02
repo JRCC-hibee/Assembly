@@ -1,4 +1,5 @@
 import os
+import hashlib
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, Request
@@ -11,6 +12,7 @@ from .database import (
     SessionLocal,
     init_db,
     SeccaoConfig,
+    EleitorSeccao,
     Partido,
     Candidato,
     RegistroDigitalVoto,
@@ -30,8 +32,8 @@ from .esp32_protocol import decode_esp32_vote_frame
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
-    version="1.0.0",
-    description="Motor Eleitoral de 1º e 2º Turnos, Zerésima, Boletim de Urna, Cartucho RDV Assinado e Interface ESP32 RISC-V.",
+    version="1.1.0",
+    description="Motor Eleitoral de 1º e 2º Turnos, Terminal do Mesário com Biometria, Zerésima, Boletim de Urna, Cartucho RDV Assinado e Interface ESP32 RISC-V.",
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -78,12 +80,28 @@ class CandidatoCreate(BaseModel):
     turno: int = 1
 
 
+class EleitorCreate(BaseModel):
+    titulo: str
+    cpf: str
+    nome: str
+    data_nascimento: str
+    nome_mae: Optional[str] = ""
+    biometria_cadastrada: bool = True
+
+
+class MesarioLiberarEleitorSchema(BaseModel):
+    documento: str  # Título ou CPF
+    biometria_validada: bool = False
+    justificativa_sem_biometria: Optional[str] = None
+
+
 class SeccaoSetupUpdate(BaseModel):
     zona: str
     secao: str
     municipio: str
     turno: int
     eleitores_aptos: int
+    forcar_reinicio: bool = False
 
 
 class VotoItemSchema(BaseModel):
@@ -113,12 +131,25 @@ def api_get_status(db: Session = Depends(get_db)):
     config = get_or_create_seccao(db)
     cargos = get_cargos_por_turno(config.turno)
     total_rdv = db.query(RegistroDigitalVoto).filter(RegistroDigitalVoto.turno == config.turno).count()
+
+    eleitor_atual = None
+    if config.terminal_eleitor_liberado and config.eleitor_habilitado_titulo:
+        el = db.query(EleitorSeccao).filter(EleitorSeccao.titulo == config.eleitor_habilitado_titulo).first()
+        if el:
+            eleitor_atual = {
+                "titulo": el.titulo,
+                "nome": el.nome,
+                "cpf": el.cpf,
+            }
+
     return {
         "zona": config.zona,
         "secao": config.secao,
         "municipio": config.municipio,
         "turno": config.turno,
         "status": config.status,
+        "terminal_eleitor_liberado": bool(config.terminal_eleitor_liberado),
+        "eleitor_habilitado": eleitor_atual,
         "eleitores_aptos": config.eleitores_aptos,
         "eleitores_compareceram": config.eleitores_compareceram,
         "total_registros_rdv": total_rdv,
@@ -136,29 +167,214 @@ def api_configurar_seccao(payload: SeccaoSetupUpdate, db: Session = Depends(get_
     if payload.turno not in (1, 2):
         raise HTTPException(status_code=400, detail="Turno deve ser 1 ou 2.")
 
-    # Ao trocar de turno ou reconfigurar seção, reinicia a seção para permitir nova Zerésima
+    # Trava de Segurança TSE: Impede trocar de turno ou reconfigurar seção enquanto EM_VOTACAO!
+    if config.status == "EM_VOTACAO" and not payload.forcar_reinicio:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"BLOQUEIO DE SEGURANÇA TSE: A seção está EM VOTAÇÃO ATIVA no {config.turno}º Turno! "
+                "Não é permitido preparar outro turno ou reiniciar a urna antes de ENCERRAR a votação e emitir o Boletim de Urna (BU)."
+            ),
+        )
+
     config.zona = payload.zona
     config.secao = payload.secao
     config.municipio = payload.municipio.upper()
     config.turno = payload.turno
     config.eleitores_aptos = payload.eleitores_aptos
     config.status = "NAO_INICIALIZADA"
+    config.terminal_eleitor_liberado = False
+    config.eleitor_habilitado_titulo = None
     config.eleitores_compareceram = 0
     config.zeresima_timestamp = None
     config.abertura_timestamp = None
     config.encerramento_timestamp = None
+
+    # Limpa os votos do turno que está sendo preparado e reseta a flag de presença daquele turno no caderno
     db.query(RegistroDigitalVoto).filter(RegistroDigitalVoto.turno == payload.turno).delete()
+    for el in db.query(EleitorSeccao).all():
+        if payload.turno == 1:
+            el.votou_turno_1 = False
+        else:
+            el.votou_turno_2 = False
+
     db.commit()
 
     registrar_log_encadeado(
         db,
         config,
         "CONFIGURACAO_SECAO",
-        f"Seção configurada para {payload.turno}º Turno (Zona {payload.zona}, Seção {payload.secao}) e RDV do turno limpo para Zerésima.",
+        f"Seção configurada para {payload.turno}º Turno (Zona {payload.zona}, Seção {payload.secao}) e pronta para emissão da Zerésima.",
     )
     return {"ok": True, "mensagem": f"Seção preparada para o {payload.turno}º Turno. Pronta para emitir Zerésima."}
 
 
+# ==============================================================================
+# Rotas do Terminal do Mesário (Busca de Eleitor, Biometria e Habilitação da Urna)
+# ==============================================================================
+@app.get("/api/mesario/eleitores")
+def api_listar_eleitores_seccao(db: Session = Depends(get_db)):
+    config = get_or_create_seccao(db)
+    eleitores = db.query(EleitorSeccao).order_by(EleitorSeccao.nome).all()
+    return [
+        {
+            "id": e.id,
+            "titulo": e.titulo,
+            "cpf": e.cpf,
+            "nome": e.nome,
+            "data_nascimento": e.data_nascimento,
+            "nome_mae": e.nome_mae,
+            "biometria_cadastrada": e.biometria_cadastrada,
+            "hash_template_biometrico": e.hash_template_biometrico[:16] + "...",
+            "ja_votou_turno_atual": e.votou_turno_1 if config.turno == 1 else e.votou_turno_2,
+            "votou_turno_1": e.votou_turno_1,
+            "votou_turno_2": e.votou_turno_2,
+        }
+        for e in eleitores
+    ]
+
+
+@app.post("/api/mesario/eleitores")
+def api_cadastrar_eleitor(payload: EleitorCreate, db: Session = Depends(get_db)):
+    titulo_limpo = "".join(ch for ch in payload.titulo if ch.isdigit())
+    if len(titulo_limpo) < 8:
+        raise HTTPException(status_code=400, detail="Título de Eleitor inválido (mínimo 8 dígitos).")
+
+    existente = db.query(EleitorSeccao).filter(EleitorSeccao.titulo == titulo_limpo).first()
+    bio_hash = hashlib.sha256(f"BIO-TSE|{titulo_limpo}|{payload.cpf}".encode("utf-8")).hexdigest()
+    if existente:
+        existente.cpf = payload.cpf.strip()
+        existente.nome = payload.nome.upper().strip()
+        existente.data_nascimento = payload.data_nascimento.strip()
+        existente.nome_mae = (payload.nome_mae or "").upper().strip()
+        existente.biometria_cadastrada = payload.biometria_cadastrada
+        existente.hash_template_biometrico = bio_hash
+    else:
+        db.add(
+            EleitorSeccao(
+                titulo=titulo_limpo,
+                cpf=payload.cpf.strip(),
+                nome=payload.nome.upper().strip(),
+                data_nascimento=payload.data_nascimento.strip(),
+                nome_mae=(payload.nome_mae or "").upper().strip(),
+                biometria_cadastrada=payload.biometria_cadastrada,
+                hash_template_biometrico=bio_hash,
+            )
+        )
+    db.commit()
+    return {"ok": True}
+
+
+@app.get("/api/mesario/buscar")
+def api_buscar_eleitor_mesario(documento: str, db: Session = Depends(get_db)):
+    config = get_or_create_seccao(db)
+    doc_raw = documento.strip()
+    doc_digits = "".join(ch for ch in doc_raw if ch.isdigit())
+
+    eleitor = (
+        db.query(EleitorSeccao)
+        .filter(
+            (EleitorSeccao.titulo == doc_raw)
+            | (EleitorSeccao.titulo == doc_digits)
+            | (EleitorSeccao.cpf == doc_raw)
+        )
+        .first()
+    )
+    if not eleitor:
+        # Tenta comparar CPF sem pontuação
+        for e in db.query(EleitorSeccao).all():
+            cpf_digits = "".join(ch for ch in e.cpf if ch.isdigit())
+            if doc_digits and (e.titulo == doc_digits or cpf_digits == doc_digits):
+                eleitor = e
+                break
+
+    if not eleitor:
+        raise HTTPException(status_code=404, detail="Eleitor não encontrado no caderno desta Seção Eleitoral.")
+
+    ja_votou = eleitor.votou_turno_1 if config.turno == 1 else eleitor.votou_turno_2
+    return {
+        "titulo": eleitor.titulo,
+        "cpf": eleitor.cpf,
+        "nome": eleitor.nome,
+        "data_nascimento": eleitor.data_nascimento,
+        "nome_mae": eleitor.nome_mae,
+        "biometria_cadastrada": eleitor.biometria_cadastrada,
+        "hash_template_biometrico": eleitor.hash_template_biometrico,
+        "ja_votou_turno_atual": ja_votou,
+        "turno_atual": config.turno,
+    }
+
+
+@app.post("/api/mesario/liberar-urna")
+def api_mesario_liberar_urna(payload: MesarioLiberarEleitorSchema, db: Session = Depends(get_db)):
+    config = get_or_create_seccao(db)
+    if config.status != "EM_VOTACAO":
+        raise HTTPException(
+            status_code=400,
+            detail=f"A seção não está aberta para votação (Status: {config.status}). Emita a Zerésima primeiro!",
+        )
+
+    if config.terminal_eleitor_liberado:
+        raise HTTPException(
+            status_code=409,
+            detail="A urna já está liberada para um eleitor na cabine! Aguarde a conclusão do voto ou cancele a liberação.",
+        )
+
+    busca = api_buscar_eleitor_mesario(payload.documento, db)
+    if busca["ja_votou_turno_atual"]:
+        raise HTTPException(
+            status_code=409,
+            detail=f"BLOQUEIO TSE: O eleitor {busca['nome']} (Título {busca['titulo']}) JÁ VOTOU neste {config.turno}º Turno!",
+        )
+
+    if busca["biometria_cadastrada"] and not payload.biometria_validada:
+        raise HTTPException(
+            status_code=400,
+            detail="O eleitor possui biometria cadastrada. Realize a coleta da impressão digital no sensor biométrico do Terminal do Mesário.",
+        )
+
+    if not busca["biometria_cadastrada"] and not payload.biometria_validada and not payload.justificativa_sem_biometria:
+        raise HTTPException(
+            status_code=400,
+            detail="Eleitor sem biometria exige confirmação de documento oficial com foto pelo Mesário.",
+        )
+
+    config.terminal_eleitor_liberado = True
+    config.eleitor_habilitado_titulo = busca["titulo"]
+    db.commit()
+
+    metodo_auth = "BIOMETRIA AFIS/TSE VALIDADA" if payload.biometria_validada else "HABILITAÇÃO POR DOCUMENTO COM FOTO (SEM BIO)"
+    registrar_log_encadeado(
+        db,
+        config,
+        "TERMINAL_MESARIO_HABILITOU_ELEITOR",
+        f"Terminal da Urna liberado pelo Mesário ({metodo_auth}). Cabine pronta para receber voto.",
+    )
+    return {
+        "ok": True,
+        "eleitor": busca,
+        "metodo": metodo_auth,
+    }
+
+
+@app.post("/api/mesario/cancelar-liberacao")
+def api_mesario_cancelar_liberacao(db: Session = Depends(get_db)):
+    config = get_or_create_seccao(db)
+    config.terminal_eleitor_liberado = False
+    config.eleitor_habilitado_titulo = None
+    db.commit()
+    registrar_log_encadeado(
+        db,
+        config,
+        "TERMINAL_MESARIO_CANCELOU_LIBERACAO",
+        "Liberação do terminal da urna cancelada pelo Presidente da Mesa.",
+    )
+    return {"ok": True}
+
+
+# ==============================================================================
+# Rotas de Partidos e Candidatos
+# ==============================================================================
 @app.get("/api/partidos")
 def api_listar_partidos(db: Session = Depends(get_db)):
     partidos = db.query(Partido).order_by(Partido.numero).all()
@@ -206,6 +422,12 @@ def api_listar_candidatos(turno: Optional[int] = None, db: Session = Depends(get
 @app.post("/api/candidatos")
 def api_cadastrar_candidato(payload: CandidatoCreate, db: Session = Depends(get_db)):
     config = get_or_create_seccao(db)
+    if config.status == "EM_VOTACAO":
+        raise HTTPException(
+            status_code=409,
+            detail="BLOQUEIO TSE: Não é permitido alterar a carga de candidatos enquanto a seção está EM VOTAÇÃO!",
+        )
+
     numero = payload.numero.strip()
     num_partido = payload.numero_partido.strip()
 
@@ -254,6 +476,12 @@ def api_cadastrar_candidato(payload: CandidatoCreate, db: Session = Depends(get_
 
 @app.delete("/api/candidatos/{candidato_id}")
 def api_remover_candidato(candidato_id: int, db: Session = Depends(get_db)):
+    config = get_or_create_seccao(db)
+    if config.status == "EM_VOTACAO":
+        raise HTTPException(
+            status_code=409,
+            detail="BLOQUEIO TSE: Não é permitido excluir candidatos enquanto a seção está EM VOTAÇÃO!",
+        )
     cand = db.query(Candidato).filter(Candidato.id == candidato_id).first()
     if not cand:
         raise HTTPException(status_code=404, detail="Candidato não encontrado.")
@@ -271,6 +499,16 @@ def api_consultar_digitos(cargo: str, numero: str, db: Session = Depends(get_db)
 @app.post("/api/seccao/zeresima")
 def api_emitir_zeresima(db: Session = Depends(get_db)):
     config = get_or_create_seccao(db)
+    if config.status == "EM_VOTACAO":
+        raise HTTPException(
+            status_code=409,
+            detail="A Zerésima já foi emitida e a seção já está EM VOTAÇÃO! Não é permitido reemitir Zerésima com a urna aberta.",
+        )
+    if config.status == "ENCERRADA":
+        raise HTTPException(
+            status_code=409,
+            detail="Esta seção já foi ENCERRADA. Para iniciar o próximo turno, clique em Preparar 1º ou 2º Turno.",
+        )
     try:
         relatorio = gerar_relatorio_zeresima(db, config)
     except ValueError as exc:
@@ -280,7 +518,7 @@ def api_emitir_zeresima(db: Session = Depends(get_db)):
         db,
         config,
         "EMISSAO_ZERESIMA_E_ABERTURA",
-        f"Zerésima emitida com sucesso (SHA256: {relatorio['hash_sha256'][:16]}...). Seção aberta para votação.",
+        f"Zerésima emitida com sucesso (SHA256: {relatorio['hash_sha256'][:16]}...). Seção aberta aguardando liberação de eleitores pelo Mesário.",
     )
     return relatorio
 
@@ -306,10 +544,6 @@ def api_computar_votos_eleitor(payload: CestaVotosEleitorSchema, db: Session = D
 
 @app.post("/api/esp32/pacote-binario")
 def api_receber_pacote_esp32(payload: Esp32HexPacketSchema, db: Session = Depends(get_db)):
-    """
-    Endpoint para ingestão direta dos frames binários de 10 bytes gerados
-    pelo firmware Assembly RISC-V (`urna_fsm_riscv.S`: 0xAA ... 0x55).
-    """
     config = get_or_create_seccao(db)
     votos_decodificados = []
     try:
@@ -333,6 +567,12 @@ def api_encerrar_votacao(db: Session = Depends(get_db)):
     config = get_or_create_seccao(db)
     if config.status != "EM_VOTACAO":
         raise HTTPException(status_code=400, detail=f"A seção precisa estar EM_VOTACAO para ser encerrada (Status atual: {config.status}).")
+
+    if config.terminal_eleitor_liberado:
+        raise HTTPException(
+            status_code=409,
+            detail="Há um eleitor habilitado na cabine de votação! Aguarde ele concluir o voto ou cancele a liberação no Terminal do Mesário antes de encerrar a urna.",
+        )
 
     config.status = "ENCERRADA"
     config.encerramento_timestamp = datetime.now(timezone.utc)

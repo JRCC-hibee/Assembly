@@ -2,7 +2,14 @@ import hashlib
 import secrets
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
-from .database import SeccaoConfig, Partido, Candidato, RegistroDigitalVoto, LogAuditoriaUrna
+from .database import (
+    SeccaoConfig,
+    EleitorSeccao,
+    Partido,
+    Candidato,
+    RegistroDigitalVoto,
+    LogAuditoriaUrna,
+)
 
 # Definição Oficial dos Cargos por Turno na Eleição Geral Brasileira
 CARGOS_TURNO_1 = [
@@ -51,8 +58,74 @@ def get_or_create_seccao(db: Session) -> SeccaoConfig:
     return config
 
 
+def seed_default_voters(db: Session):
+    """Popula o Caderno de Votação da Seção (Terminal do Mesário) com eleitores e templates biométricos."""
+    if db.query(EleitorSeccao).count() > 0:
+        return
+
+    eleitores_demo = [
+        (
+            "014285930116",
+            "123.456.789-01",
+            "JOÃO CARLOS DA SILVA",
+            "14/05/1984",
+            "MARIA APARECIDA DA SILVA",
+            True,
+        ),
+        (
+            "029384750124",
+            "234.567.890-12",
+            "ANA PAULA FERREIRA ROCHA",
+            "22/09/1991",
+            "VERA LÚCIA FERREIRA",
+            True,
+        ),
+        (
+            "038475610132",
+            "345.678.901-23",
+            "MARCOS VINÍCIUS SANTOS",
+            "03/11/1978",
+            "HELENA PEREIRA SANTOS",
+            True,
+        ),
+        (
+            "047586920140",
+            "456.789.012-34",
+            "CAMILA MENDES OLIVEIRA",
+            "19/02/1998",
+            "SANDRA REGINA MENDES",
+            True,
+        ),
+        (
+            "056192830159",
+            "567.890.123-45",
+            "ANTÔNIO JOSÉ NOGUEIRA",
+            "08/07/1955",
+            "FRANCISCA ALVES NOGUEIRA",
+            False,  # Sem biometria cadastrada (exige liberação com código do mesário)
+        ),
+    ]
+
+    for titulo, cpf, nome, nasc, mae, bio in eleitores_demo:
+        bio_hash = hashlib.sha256(f"BIO-TSE|{titulo}|{cpf}".encode("utf-8")).hexdigest()
+        db.add(
+            EleitorSeccao(
+                titulo=titulo,
+                cpf=cpf,
+                nome=nome,
+                data_nascimento=nasc,
+                nome_mae=mae,
+                biometria_cadastrada=bio,
+                hash_template_biometrico=bio_hash,
+            )
+        )
+    db.commit()
+
+
 def seed_default_candidates(db: Session):
-    """Popula partidos e candidatos de demonstração para 1º e 2º turnos caso o banco esteja vazio."""
+    """Popula partidos, candidatos de demonstração e caderno de eleitores."""
+    seed_default_voters(db)
+
     if db.query(Partido).count() > 0:
         return
 
@@ -98,10 +171,7 @@ def seed_default_candidates(db: Session):
 
 def consultar_digitos_urna(db: Session, turno: int, cargo: str, numero_digitado: str):
     """
-    Simula a validação instantânea da Urna Eletrônica enquanto o eleitor digita os números:
-    - Identifica o partido pelos 2 primeiros dígitos;
-    - Identifica o candidato pelo número completo;
-    - Identifica Voto de Legenda ou Voto Nulo (Número Errado).
+    Simula a validação instantânea da Urna Eletrônica enquanto o eleitor digita os números.
     """
     prefixo_partido = numero_digitado[:2] if len(numero_digitado) >= 2 else ""
     partido = None
@@ -174,10 +244,29 @@ def consultar_digitos_urna(db: Session, turno: int, cargo: str, numero_digitado:
 def computar_cesta_votos_eleitor(db: Session, config: SeccaoConfig, votos_eleitor: list[dict]):
     """
     Grava no RDV todos os votos dos cargos de 1 eleitor utilizando chave de embaralhamento CSPRNG
-    (garantindo que a ordem de armazenamento no RDV não revele a identidade do eleitor).
+    (garantindo que a ordem de armazenamento no RDV não revele a identidade do eleitor) e
+    bloqueia novamente o terminal da urna até que o mesário habilite o próximo eleitor via biometria.
     """
     if config.status != "EM_VOTACAO":
         raise ValueError(f"A urna não está aberta para votação (Status atual: {config.status}).")
+
+    if not config.terminal_eleitor_liberado or not config.eleitor_habilitado_titulo:
+        raise ValueError(
+            "Terminal da Urna bloqueado! O mesário precisa identificar o eleitor (Título/CPF) e validar a Biometria antes de liberar o voto."
+        )
+
+    eleitor = (
+        db.query(EleitorSeccao)
+        .filter(EleitorSeccao.titulo == config.eleitor_habilitado_titulo)
+        .first()
+    )
+    if not eleitor:
+        raise ValueError("Eleitor habilitado não encontrado no caderno da seção.")
+
+    if config.turno == 1 and eleitor.votou_turno_1:
+        raise ValueError("Este eleitor já registrou voto no 1º Turno!")
+    if config.turno == 2 and eleitor.votou_turno_2:
+        raise ValueError("Este eleitor já registrou voto no 2º Turno!")
 
     cargos_esperados = get_cargos_por_turno(config.turno)
     for item in votos_eleitor:
@@ -219,11 +308,22 @@ def computar_cesta_votos_eleitor(db: Session, config: SeccaoConfig, votos_eleito
         )
         db.add(rdv_row)
 
+    # Marca presença no caderno de votação (sem qualquer chave estrangeira ou timestamp cruzado com o RDV!)
+    if config.turno == 1:
+        eleitor.votou_turno_1 = True
+    else:
+        eleitor.votou_turno_2 = True
+
+    # Trava novamente o terminal da urna para aguardar o próximo eleitor no Terminal do Mesário
+    config.terminal_eleitor_liberado = False
+    config.eleitor_habilitado_titulo = None
     config.eleitores_compareceram += 1
     db.commit()
+
+    # Nota de sigilo: o log de auditoria registra apenas o evento anônimo de conclusão de voto na urna
     registrar_log_encadeado(
         db,
         config,
         "VOTO_COMPUTADO_RDV",
-        f"Eleitor #{config.eleitores_compareceram} concluiu votação ({len(cargos_esperados)} cargos gravados no RDV).",
+        f"Comparecimento #{config.eleitores_compareceram} concluiu votação ({len(cargos_esperados)} cargos gravados no RDV embaralhado). Terminal bloqueado para próximo eleitor.",
     )
