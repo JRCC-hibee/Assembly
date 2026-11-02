@@ -1,53 +1,88 @@
 version: "3.8"
 
+# ==============================================================================
+# STACK PORTAINER + TRAEFIK — Urna Eletrônica Brasileira
+# Domínio: urnassembly.hibeeapps.com.br
+# Arquitetura: ESP32 RISC-V Assembly (ILI9341 320x240) + Python FastAPI + Postgres 16
+# ==============================================================================
+
 services:
+  # ----------------------------------------------------------------------------
+  # 1. Banco de Dados Dedicado na VPS (PostgreSQL 16 Alpine)
+  # ----------------------------------------------------------------------------
+  urna-db:
+    image: postgres:16-alpine
+    container_name: urna_eletronica_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-urna_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-urna_secret_2026}
+      POSTGRES_DB: ${POSTGRES_DB:-urna_eleitoral}
+      POSTGRES_HOST_AUTH_METHOD: trust
+      TZ: America/Sao_Paulo
+      PGTZ: America/Sao_Paulo
+    volumes:
+      - urna_pgdata:/var/lib/postgresql/data
+    networks:
+      - urna_internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-urna_user} -d ${POSTGRES_DB:-urna_eleitoral}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: >
+      postgres
+      -c timezone=America/Sao_Paulo
+      -c max_connections=100
+
+  # ----------------------------------------------------------------------------
+  # 2. Motor Eleitoral Python (FastAPI + Emulador ILI9341 + Cartucho RDV/BU)
+  # ----------------------------------------------------------------------------
   urna-core:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: urna-eletronica-core
+    pull_policy: build
+    container_name: urna_eletronica_core
     restart: unless-stopped
-    ports:
-      - "${URNA_PORT:-8000}:8000"
-    environment:
-      - DATABASE_URL=postgresql://urna_user:${POSTGRES_PASSWORD:-urna_secret_2026}@urna-db:5432/urna_eleitoral
-      - URNA_SECRET_KEY=${URNA_SECRET_KEY:-tse-simulador-chave-assinatura-2026}
-      - URNA_ZONA=${URNA_ZONA:-0001}
-      - URNA_SECAO=${URNA_SECAO:-0105}
-      - URNA_MUNICIPIO=${URNA_MUNICIPIO:-BRASILIA - DF}
-      - CARTRIDGE_DIR=/app/cartuchos
-    volumes:
-      - urna_cartuchos:/app/cartuchos
-      - urna_data:/app/data
     depends_on:
       urna-db:
         condition: service_healthy
-    networks:
-      - urna-net
-
-  urna-db:
-    image: postgres:16-alpine
-    container_name: urna-eletronica-db
-    restart: unless-stopped
     environment:
-      - POSTGRES_USER=urna_user
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-urna_secret_2026}
-      - POSTGRES_DB=urna_eleitoral
+      TZ: America/Sao_Paulo
+      DATABASE_URL: postgresql://${POSTGRES_USER:-urna_user}:${POSTGRES_PASSWORD:-urna_secret_2026}@urna-db:5432/${POSTGRES_DB:-urna_eleitoral}
+      URNA_SECRET_KEY: ${URNA_SECRET_KEY:-tse-simulador-chave-assinatura-2026}
+      URNA_ZONA: ${URNA_ZONA:-0001}
+      URNA_SECAO: ${URNA_SECAO:-0105}
+      URNA_MUNICIPIO: ${URNA_MUNICIPIO:-BRASILIA - DF}
+      CARTRIDGE_DIR: /app/cartuchos
     volumes:
-      - urna_pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U urna_user -d urna_eleitoral"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      - urna_cartuchos:/app/cartuchos
+      - urna_data:/app/data
     networks:
-      - urna-net
+      - urna_internal
+      - traefik_public
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik_public}"
+      - "traefik.http.routers.urnassembly.rule=Host(`${APP_DOMAIN:-urnassembly.hibeeapps.com.br}`)"
+      - "traefik.http.routers.urnassembly.priority=10000"
+      - "traefik.http.routers.urnassembly.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
+      - "traefik.http.routers.urnassembly.tls=true"
+      - "traefik.http.routers.urnassembly.tls.certresolver=${TRAEFIK_CERTRESOLVER:-leresolver}"
+      - "traefik.http.services.urnassembly.loadbalancer.server.port=8000"
 
 volumes:
   urna_pgdata:
+    driver: local
   urna_cartuchos:
+    driver: local
   urna_data:
+    driver: local
 
 networks:
-  urna-net:
+  urna_internal:
     driver: bridge
+  traefik_public:
+    external: true
+    name: ${TRAEFIK_NETWORK:-traefik_public}
