@@ -859,69 +859,192 @@ o Boletim de Urna (apos encerramento da votacao).
 
     <!-- TAB 6: ENGENHARIA REVERSA OFICIAL TSE (.LOG.JEZ / .IMGBU.DAT / .RDV.DAT / .BU.DAT / .VOTA.VSC) -->
     <section id="tab-tse-reverso" class="hidden space-y-6">
-      <!-- Barra de Upload e Amostra Oficial PR 2026 -->
-      <div class="bg-slate-900 border-2 border-cyan-500/40 rounded-xl p-5 flex flex-wrap items-center justify-between gap-4">
-        <div class="max-w-2xl">
-          <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
-            Motor Forense de Engenharia Reversa TSE — Eleições Gerais 2026 (2º Turno PR)
-          </span>
-          <h2 class="text-base font-bold text-white mt-1">
-            Leitura Reversa e Batimento Triplo (`-log.jez` × `-imgbu.dat` × `-rdv.dat` ASN.1 DER)
-          </h2>
-          <p class="text-xs text-slate-400 mt-0.5">
-            Selecione os arquivos de qualquer seção da sua pasta <code class="text-cyan-300">bu_imgbu_logjez_rdv_vscmr_2026_2t_PR</code> (ex: os 5 arquivos <code class="text-slate-200">o03221pr...-bu.dat, -imgbu.dat, -log.jez, -rdv.dat, -vota.vsc</code>) ou carregue com 1 clique a Seção 0017 de Almirante Tamandaré/PR já integrada.
-          </p>
+      <!-- Barra de Upload em Lote (Estadual / Municipal / Seção) e Amostra Oficial PR 2026 -->
+      <div class="bg-slate-900 border-2 border-cyan-500/40 rounded-xl p-5 space-y-4">
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div class="max-w-2xl">
+            <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
+              Motor Forense Multi-Urna TSE — Consolidação Paraná (Cidade × Zona × Seção)
+            </span>
+            <h2 class="text-base font-bold text-white mt-1">
+              Importação em Lote Estadual e Batimento Triplo (`-log.jez` × `-imgbu.dat` × `-rdv.dat` ASN.1 DER)
+            </h2>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Selecione <strong>quantas seções ou pastas quiser</strong> da sua pasta <code class="text-cyan-300">bu_imgbu_logjez_rdv_vscmr_2026_2t_PR</code>. O sistema envia em micro-lotes automáticos (sem travar ou estourar limite de upload) e habilita a consolidação por <strong>Cidade, Zona e Urna</strong>.
+            </p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2.5">
+            <label class="px-3.5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2">
+              <span>📂 Selecionar Arquivos (.jez, .dat, .vsc)</span>
+              <input id="tseFilesInput" type="file" multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
+            </label>
+
+            <label class="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2">
+              <span>🗂️ Selecionar Pasta Inteira (PR / Cidades)</span>
+              <input id="tseFolderInput" type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
+            </label>
+
+            <button
+              onclick="carregarAmostraOficialPR()"
+              class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-cyan-500/50 text-cyan-300 font-bold text-xs rounded-xl transition"
+            >
+              ⚡ Amostra PR (Seção 0017)
+            </button>
+
+            <button
+              onclick="limparBaseTseReverso()"
+              title="Limpar todas as urnas carregadas no catálogo"
+              class="px-3 py-2.5 bg-slate-950 hover:bg-rose-950 border border-slate-700 hover:border-rose-600 text-slate-400 hover:text-rose-300 font-bold text-xs rounded-xl transition"
+            >
+              🗑️ Limpar Base
+            </button>
+          </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-3">
-          <label class="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2">
-            <span>📂 Subir Arquivos da Seção TSE (.jez, .dat, .vsc)</span>
-            <input id="tseFilesInput" type="file" multiple onchange="subirArquivosTseReverso(event)" class="hidden" />
-          </label>
+        <!-- Opção de Estratégia de Upload para Grandes Volumes (Estado Inteiro) -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/80 text-xs">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-slate-400 font-semibold mono">Modo de Ingestão p/ Múltiplas Urnas:</span>
+            <select id="tseUploadStrategy" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-cyan-300 font-bold mono">
+              <option value="AUTO">⚡ Inteligente: Turbo (BU + RDV imediato + Log.jez sob demanda ao abrir urna) p/ &gt;15 urnas</option>
+              <option value="TURBO">🚀 Sempre Turbo Estadual (Sobe milhares de urnas em segundos via BU+RDV; Log.jez ao clicar na urna)</option>
+              <option value="COMPLETO">🔬 Sempre Completo (Enviar todos os arquivos -log.jez de todas as urnas durante o lote)</option>
+            </select>
+          </div>
+          <div id="tseCatalogCountBadge" class="mono text-[11px] text-emerald-400 font-bold"></div>
+        </div>
 
-          <button
-            onclick="carregarAmostraOficialPR()"
-            class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-cyan-500/50 text-cyan-300 font-bold text-xs rounded-xl transition"
-          >
-            ⚡ Carregar Seção 0017 — Almirante Tamandaré/PR (2ºT 2026)
-          </button>
+        <!-- Barra de Progresso de Upload em Lote -->
+        <div id="tseBatchProgressBox" class="hidden bg-slate-950 border border-cyan-500/50 rounded-xl p-3.5 space-y-2">
+          <div class="flex items-center justify-between text-xs mono">
+            <span id="tseBatchProgressText" class="font-bold text-cyan-300">Preparando lotes de urnas...</span>
+            <div class="flex items-center gap-3">
+              <span id="tseBatchProgressPct" class="font-extrabold text-white">0%</span>
+              <button
+                onclick="pararImportacaoLoteTse()"
+                class="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-extrabold text-[11px]"
+              >
+                ⏹ Parar Aqui e Consolidar Urnas Já Enviadas
+              </button>
+            </div>
+          </div>
+          <div class="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
+            <div id="tseBatchProgressBar" style="width: 0%" class="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full transition-all duration-200"></div>
+          </div>
         </div>
       </div>
 
-      <!-- Painel de Resultados da Engenharia Reversa -->
+      <!-- SELETORA HIERÁRQUICA: CIDADE A CIDADE -> ZONA A ZONA -> URNA A URNA (CONSOLIDAÇÃO GLOBAL) -->
+      <div id="tseFilterBarContainer" class="hidden bg-slate-900 border-2 border-emerald-500/40 rounded-xl p-4 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] font-extrabold mono uppercase">
+              Filtro & Consolidação Hierárquica
+            </span>
+            <span class="text-xs font-bold text-white">
+              Filtre por Cidade (Município), Zona Eleitoral ou Seção/Urna para Consolidação Global ou Inspeção Individual
+            </span>
+          </div>
+          <button
+            onclick="voltarParaConsolidacaoFiltro()"
+            id="btnVoltarConsolidado"
+            class="hidden px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs mono transition"
+          >
+            📊 Ver Consolidação Global deste Filtro
+          </button>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <!-- Seletor 1: Cidade a Cidade -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5">
+            <label class="block text-[10px] font-extrabold text-slate-400 mono uppercase mb-1">
+              1. Seletora Cidade a Cidade (Município TSE)
+            </label>
+            <select
+              id="tseSelectCidade"
+              onchange="aoMudarFiltroCidadeTse()"
+              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-bold mono focus:border-cyan-400 outline-none"
+            >
+              <option value="TODAS">🌎 TODAS AS CIDADES CARREGADAS</option>
+            </select>
+          </div>
+
+          <!-- Seletor 2: Zona a Zona -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5">
+            <label class="block text-[10px] font-extrabold text-slate-400 mono uppercase mb-1">
+              2. Seletora Zona a Zona (Zona Eleitoral)
+            </label>
+            <select
+              id="tseSelectZona"
+              onchange="aoMudarFiltroZonaTse()"
+              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-cyan-300 font-bold mono focus:border-cyan-400 outline-none"
+            >
+              <option value="TODAS">📍 TODAS AS ZONAS DA SELEÇÃO</option>
+            </select>
+          </div>
+
+          <!-- Seletor 3: Urna a Urna / Consolidação Global -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5">
+            <label class="block text-[10px] font-extrabold text-slate-400 mono uppercase mb-1">
+              3. Seletora Urna a Urna / Modo de Visão
+            </label>
+            <select
+              id="tseSelectSecao"
+              onchange="aoMudarFiltroSecaoTse()"
+              class="w-full bg-slate-900 border border-emerald-600/60 rounded-lg px-3 py-2 text-xs text-emerald-300 font-bold mono focus:border-emerald-400 outline-none"
+            >
+              <option value="CONSOLIDADO">📊 CONSOLIDAÇÃO GLOBAL DO FILTRO (Soma das Urnas)</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <!-- Painel de Resultados da Engenharia Reversa (Consolidado ou Urna Individual) -->
       <div id="tseReversoResultContainer" class="hidden space-y-6">
-        <!-- Veredito + Metadados da Urna UE2020 -->
+        <!-- Veredito Geral (Consolidado ou Individual) -->
         <div id="tseVereditoBox" class="p-4 rounded-xl border-2 text-xs"></div>
 
-        <!-- Cartões de Identificação Física da Seção e Urna -->
+        <!-- Cartões de Identificação / KPIs (Adaptáveis entre Consolidado e Urna Individual) -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-xs mono">
           <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
-            <div class="text-[10px] text-slate-400">MUNICÍPIO / UF</div>
+            <div id="tseCard1Label" class="text-[10px] text-slate-400">MUNICÍPIO / UF</div>
             <div id="tseMunVal" class="font-bold text-white mt-0.5 truncate">-</div>
           </div>
           <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
-            <div class="text-[10px] text-slate-400">ZONA / SEÇÃO</div>
+            <div id="tseCard2Label" class="text-[10px] text-slate-400">ZONA / SEÇÃO</div>
             <div id="tseZonaSecaoVal" class="font-bold text-cyan-300 mt-0.5">-</div>
           </div>
           <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
-            <div class="text-[10px] text-slate-400">MODELO / SERIAL UE</div>
+            <div id="tseCard3Label" class="text-[10px] text-slate-400">MODELO / SERIAL UE</div>
             <div id="tseModeloSerialVal" class="font-bold text-emerald-400 mt-0.5">-</div>
           </div>
           <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
-            <div class="text-[10px] text-slate-400">VERSÃO SOFTWARE TSE</div>
+            <div id="tseCard4Label" class="text-[10px] text-slate-400">VERSÃO SOFTWARE TSE</div>
             <div id="tseVersaoSwVal" class="font-bold text-amber-300 mt-0.5 truncate">-</div>
           </div>
           <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
-            <div class="text-[10px] text-slate-400">COMPARECIMENTO / APTOS</div>
+            <div id="tseCard5Label" class="text-[10px] text-slate-400">COMPARECIMENTO / APTOS</div>
             <div id="tseCompAptosVal" class="font-bold text-white mt-0.5">-</div>
           </div>
           <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
-            <div class="text-[10px] text-slate-400">CADÊNCIA MÉDIA REAL</div>
+            <div id="tseCard6Label" class="text-[10px] text-slate-400">CADÊNCIA MÉDIA REAL</div>
             <div id="tseCadenciaMediaVal" class="font-bold text-emerald-300 mt-0.5">-</div>
           </div>
         </div>
 
-        <!-- Tabela de Batimento Forense Triplo (logd.dat x imgbu.dat x rdv.dat ASN.1) -->
+        <!-- BLOCO EXCLUSIVO DA VISÃO CONSOLIDADA: PLACAR TOTALIZADO DE CANDIDATOS -->
+        <div id="tsePlacarConsolidadoBox" class="hidden bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h3 class="text-sm font-bold text-white">
+              🏆 Totalização Consolidada de Votos por Candidato no Filtro (`Soma BU` × `Soma RDV Binário ASN.1`)
+            </h3>
+            <span id="tsePlacarSubLabel" class="text-xs text-cyan-300 mono"></span>
+          </div>
+          <div id="tsePlacarCandidatosGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
+        </div>
+
+        <!-- Tabela de Batimento Forense Triplo (logd.dat x imgbu.dat x rdv.dat ASN.1) + Vazão Horária -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
             <div class="flex items-center justify-between">
@@ -957,64 +1080,107 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
 
-        <!-- Espectrograma Cronológico Separado Hora a Hora (08h às 17h) com Clique para Modal -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+        <!-- BLOCO EXCLUSIVO DA VISÃO CONSOLIDADA: TABELA COMPARATIVA DE TODAS AS URNAS DO FILTRO -->
+        <div id="tseListaUrnasConsolidadaBox" class="hidden bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 class="text-sm font-bold text-white">
-                ⏱️ Linha do Tempo Separada Hora a Hora (08h às 16h/17h) — Clique na Barra para Inspecionar o Eleitor
+                🗳️ Relação de Urnas / Seções Eleitorais do Filtro (Clique em "Abrir Urna" para ver Gráfico Hora a Hora, Eleitores e BU)
               </h3>
               <p class="text-xs text-slate-400">
-                Os eleitores estão agrupados por faixa horária (`08h`, `09h`, ..., `16h`). <strong>Clique em qualquer barra do gráfico (ou linha da tabela abaixo)</strong> para abrir o dossiê forense completo daquele eleitor no `logd.dat`.
+                Navegue por todas as urnas consolidadas neste filtro de Cidade/Zona ou filtre rapidamente abaixo.
               </p>
             </div>
-            <div class="flex flex-wrap items-center gap-3 text-[11px] mono">
-              <span class="text-emerald-400">🟢 Biométrica AFIS (1-2 tent.)</span>
-              <span class="text-blue-400">🔵 Biométrica (3-4 tent.)</span>
-              <span class="text-amber-300">🟡 Biográfica / Mesário</span>
-            </div>
+            <input
+              id="tseUrnaQuickSearch"
+              type="text"
+              oninput="filtrarTabelaUrnasConsolidada()"
+              placeholder="Buscar cidade, zona, seção ou serial..."
+              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white mono w-64"
+            />
           </div>
 
-          <!-- Botões de Filtro Rápido por Hora -->
-          <div id="tseHourFilterButtons" class="flex flex-wrap gap-1.5"></div>
-
-          <!-- Container dos Blocos Horários (08h..16h) -->
-          <div id="tseRealVoterBars" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
+          <div class="max-h-96 overflow-y-auto">
+            <table class="w-full text-left text-xs mono">
+              <thead class="text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-900">
+                <tr>
+                  <th class="py-2">Município</th>
+                  <th class="py-2">Zona / Seção</th>
+                  <th class="py-2">Serial UE</th>
+                  <th class="py-2">Comparecimento / Aptos</th>
+                  <th class="py-2">Votos Candidatos (BU)</th>
+                  <th class="py-2">Brancos / Nulos</th>
+                  <th class="py-2">Arquivos</th>
+                  <th class="py-2">Status</th>
+                  <th class="py-2 text-right">Ação Forense</th>
+                </tr>
+              </thead>
+              <tbody id="tseListaUrnasTableBody" class="divide-y divide-slate-800/60"></tbody>
+            </table>
+          </div>
         </div>
 
-        <!-- Tabelas Lado a Lado: Ciclos de Eleitores Reconstruídos vs Espelho Original do Boletim de Urna -->
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-            <div class="flex items-center justify-between">
-              <h3 class="text-sm font-bold text-white">
-                👥 Tabela Auditável dos Eleitores da Seção (Clique em um eleitor para abrir o Modal)
-              </h3>
-              <span id="tseTableCountLabel" class="text-xs text-cyan-300 mono"></span>
+        <!-- BLOCO EXCLUSIVO DA VISÃO INDIVIDUAL DA URNA: GRÁFICO HORA A HORA + TABELA ELEITORES + ESPELHO BU -->
+        <div id="tseIndividualUrnaSection" class="space-y-6">
+          <!-- Espectrograma Cronológico Separado Hora a Hora (08h às 17h) com Clique para Modal -->
+          <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 class="text-sm font-bold text-white">
+                  ⏱️ Linha do Tempo Separada Hora a Hora (08h às 16h/17h) — Clique na Barra para Inspecionar o Eleitor
+                </h3>
+                <p class="text-xs text-slate-400">
+                  Os eleitores estão agrupados por faixa horária (`08h`, `09h`, ..., `16h`). <strong>Clique em qualquer barra do gráfico (ou linha da tabela abaixo)</strong> para abrir o dossiê forense completo daquele eleitor no `logd.dat`.
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-3 text-[11px] mono">
+                <span class="text-emerald-400">🟢 Biométrica AFIS (1-2 tent.)</span>
+                <span class="text-blue-400">🔵 Biométrica (3-4 tent.)</span>
+                <span class="text-amber-300">🟡 Biográfica / Mesário</span>
+              </div>
             </div>
-            <div class="max-h-96 overflow-y-auto">
-              <table class="w-full text-left text-[11px] mono">
-                <thead class="text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-900">
-                  <tr>
-                    <th class="py-1.5">#Seq</th>
-                    <th class="py-1.5">Início → Voto</th>
-                    <th class="py-1.5">Doc.</th>
-                    <th class="py-1.5">Habilitação</th>
-                    <th class="py-1.5">Tent. Bio</th>
-                    <th class="py-1.5">Mesa(s)</th>
-                    <th class="py-1.5">Cabine(s)</th>
-                    <th class="py-1.5">MAC 16-Hex</th>
-                  </tr>
-                </thead>
-                <tbody id="tseCiclosTableBody" class="divide-y divide-slate-800/60"></tbody>
-              </table>
-            </div>
+
+            <!-- Botões de Filtro Rápido por Hora -->
+            <div id="tseHourFilterButtons" class="flex flex-wrap gap-1.5"></div>
+
+            <!-- Container dos Blocos Horários (08h..16h) -->
+            <div id="tseRealVoterBars" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
           </div>
 
-          <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col items-center">
-            <h3 class="text-sm font-bold text-white w-full mb-3">
-              🧾 Espelho Oficial Limpo do Boletim de Urna (`-imgbu.dat`)
-            </h3>
-            <pre id="tseEspelhoBuPre" class="thermal-paper mono text-[10px] leading-snug p-4 w-full max-h-96 overflow-y-auto whitespace-pre"></pre>
+          <!-- Tabelas Lado a Lado: Ciclos de Eleitores Reconstruídos vs Espelho Original do Boletim de Urna -->
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-bold text-white">
+                  👥 Tabela Auditável dos Eleitores da Seção (Clique em um eleitor para abrir o Modal)
+                </h3>
+                <span id="tseTableCountLabel" class="text-xs text-cyan-300 mono"></span>
+              </div>
+              <div class="max-h-96 overflow-y-auto">
+                <table class="w-full text-left text-[11px] mono">
+                  <thead class="text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-900">
+                    <tr>
+                      <th class="py-1.5">#Seq</th>
+                      <th class="py-1.5">Início → Voto</th>
+                      <th class="py-1.5">Doc.</th>
+                      <th class="py-1.5">Habilitação</th>
+                      <th class="py-1.5">Tent. Bio</th>
+                      <th class="py-1.5">Mesa(s)</th>
+                      <th class="py-1.5">Cabine(s)</th>
+                      <th class="py-1.5">MAC 16-Hex</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tseCiclosTableBody" class="divide-y divide-slate-800/60"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col items-center">
+              <h3 class="text-sm font-bold text-white w-full mb-3">
+                🧾 Espelho Oficial Limpo do Boletim de Urna (`-imgbu.dat`)
+              </h3>
+              <pre id="tseEspelhoBuPre" class="thermal-paper mono text-[10px] leading-snug p-4 w-full max-h-96 overflow-y-auto whitespace-pre"></pre>
+            </div>
           </div>
         </div>
       </div>
@@ -1180,6 +1346,7 @@ o Boletim de Urna (apos encerramento da votacao).
       document.getElementById(tabId).classList.remove("hidden");
       document.getElementById("btn-" + tabId).className = "tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-emerald-600 text-white";
       if (tabId === "tab-relatorios") carregarLogs();
+      if (tabId === "tab-tse-reverso") atualizarConsolidacaoTse(false);
     }
 
     async function fetchStatusAndCandidates() {
@@ -1928,28 +2095,156 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
-    async function subirArquivosTseReverso(event) {
-      const files = event.target.files;
-      if (!files || files.length === 0) return;
+    // =========================================================================
+    // MOTOR MULTI-URNA TSE: IMPORTAÇÃO EM LOTE + CONSOLIDAÇÃO CIDADE/ZONA/SEÇÃO
+    // =========================================================================
 
-      const formData = new FormData();
-      for (let i = 0; i < files.length; i++) {
-        formData.append("files", files[i]);
+    // Guarda referências locais aos arquivos .jez selecionados na sessão do navegador
+    // para carregamento instantâneo sob demanda caso o usuário use o Modo Turbo Estadual
+    window.localTseFilesByPrefix = {};
+    window.cancelarLoteTseFlag = false;
+    window.listaUrnasConsolidadaAtual = [];
+
+    function extrairPrefixoNoCliente(filename) {
+      const base = filename.split("/").pop().split("\\").pop().toLowerCase();
+      const m = base.match(/^(o\d{5}[a-z]{2}\d{13,14})-/i);
+      if (m) return m[1].toLowerCase();
+      return base.replace(/-(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc)$/i, "");
+    }
+
+    function pararImportacaoLoteTse() {
+      window.cancelarLoteTseFlag = true;
+      document.getElementById("tseBatchProgressText").textContent =
+        "⏹ Finalizando lote atual e abrindo consolidação das urnas já carregadas...";
+    }
+
+    async function iniciarImportacaoLoteTse(event) {
+      const fileList = event.target.files;
+      if (!fileList || fileList.length === 0) return;
+
+      // 1. Filtra arquivos oficiais TSE (.jez, .dat, .vsc) e agrupa por prefixo de seção
+      const gruposPorPrefixo = new Map();
+      let totalArquivosValidos = 0;
+
+      for (let i = 0; i < fileList.length; i++) {
+        const f = fileList[i];
+        const base = f.name.toLowerCase();
+        if (base.startsWith(".")) continue;
+        if (!(base.endsWith(".jez") || base.endsWith(".dat") || base.endsWith(".vsc"))) continue;
+
+        const prefixo = extrairPrefixoNoCliente(f.name);
+        if (!prefixo) continue;
+
+        if (!gruposPorPrefixo.has(prefixo)) {
+          gruposPorPrefixo.set(prefixo, []);
+        }
+        gruposPorPrefixo.get(prefixo).push(f);
+
+        if (!window.localTseFilesByPrefix[prefixo]) {
+          window.localTseFilesByPrefix[prefixo] = {};
+        }
+        window.localTseFilesByPrefix[prefixo][base] = f;
+        totalArquivosValidos++;
       }
 
-      showSecurityAlert(`Processando engenharia reversa de ${files.length} arquivo(s) oficiais do TSE...`, false);
-      const res = await fetch("/api/tse-reverso/upload", {
-        method: "POST",
-        body: formData
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        showSecurityAlert(data.detail || "Falha ao analisar arquivos do TSE.", true);
+      const listaPrefixos = Array.from(gruposPorPrefixo.keys()).sort();
+      const totalUrnas = listaPrefixos.length;
+
+      if (totalUrnas === 0) {
+        showSecurityAlert("Nenhum arquivo oficial do TSE (.jez, .dat, .vsc) foi identificado na seleção.", true);
         return;
       }
+
+      // 2. Define estratégia: Turbo (BU+RDV no lote e .jez ao abrir urna) ou Completo
+      const stratSelect = document.getElementById("tseUploadStrategy").value;
+      const usarModoTurbo = stratSelect === "TURBO" || (stratSelect === "AUTO" && totalUrnas > 15);
+
+      // Quantas seções enviamos por requisição HTTP POST:
+      // No modo Turbo (só -imgbu.dat e -rdv.dat ~ 9 KB/urna), enviamos 25 urnas por POST (~225 KB/req)
+      // No modo Completo (com -log.jez ~ 880 KB/urna), enviamos 2 urnas por POST (~1.7 MB/req)
+      const urnasPorRequisicao = usarModoTurbo ? 25 : 2;
+
+      window.cancelarLoteTseFlag = false;
+      const progBox = document.getElementById("tseBatchProgressBox");
+      const progBar = document.getElementById("tseBatchProgressBar");
+      const progText = document.getElementById("tseBatchProgressText");
+      const progPct = document.getElementById("tseBatchProgressPct");
+
+      progBox.classList.remove("hidden");
+      progBar.style.width = "2%";
+      progPct.textContent = "0%";
+
+      let urnasEnviadas = 0;
+
+      for (let idx = 0; idx < totalUrnas; idx += urnasPorRequisicao) {
+        if (window.cancelarLoteTseFlag) break;
+
+        const fatiaPrefixos = listaPrefixos.slice(idx, idx + urnasPorRequisicao);
+        const formData = new FormData();
+        let arquivosNaFatia = 0;
+
+        for (const pref of fatiaPrefixos) {
+          const arqs = gruposPorPrefixo.get(pref) || [];
+          const temBuOuRdv = arqs.some(a => {
+            const n = a.name.toLowerCase();
+            return n.endsWith("imgbu.dat") || n.endsWith("rdv.dat");
+          });
+
+          for (const arq of arqs) {
+            const low = arq.name.toLowerCase();
+            // No modo Turbo, pula o .jez pesado durante o lote massivo se a seção já tiver BU ou RDV
+            if (usarModoTurbo && temBuOuRdv && low.endsWith(".jez")) {
+              continue;
+            }
+            formData.append("files", arq, arq.name);
+            arquivosNaFatia++;
+          }
+        }
+
+        if (arquivosNaFatia > 0) {
+          const pctAtual = Math.round((urnasEnviadas / totalUrnas) * 100);
+          progBar.style.width = `${Math.max(3, pctAtual)}%`;
+          progPct.textContent = `${pctAtual}%`;
+          progText.textContent = usarModoTurbo
+            ? `⚡ Modo Turbo Estadual: Consolidando Urnas ${urnasEnviadas + 1} a ${Math.min(urnasEnviadas + fatiaPrefixos.length, totalUrnas)} de ${totalUrnas} (${fatiaPrefixos[0]})...`
+            : `🔬 Modo Completo Forense: Processando Urnas ${urnasEnviadas + 1} a ${Math.min(urnasEnviadas + fatiaPrefixos.length, totalUrnas)} de ${totalUrnas} (${fatiaPrefixos[0]})...`;
+
+          try {
+            const res = await fetch("/api/tse-reverso/upload-lote", {
+              method: "POST",
+              body: formData
+            });
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              showSecurityAlert(errData.detail || `Erro no lote (${res.status})`, true);
+              break;
+            }
+          } catch (err) {
+            showSecurityAlert(`Falha de conexão ao enviar lote: ${err.message}`, true);
+            break;
+          }
+        }
+
+        urnasEnviadas += fatiaPrefixos.length;
+      }
+
+      progBar.style.width = "100%";
+      progPct.textContent = "100%";
+      progText.textContent = `✅ Importação concluída! ${urnasEnviadas} urna(s) processada(s) e indexada(s) por Cidade, Zona e Seção.`;
+      setTimeout(() => {
+        progBox.classList.add("hidden");
+      }, 2800);
+
+      event.target.value = "";
       hideSecurityAlert();
       playBeepBiometriaOk();
-      renderizarLaudoTseReverso(data);
+
+      // Se subiu apenas 1 seção, abre direto a seção; se subiu várias, abre a Consolidação Global
+      if (totalUrnas === 1) {
+        await atualizarConsolidacaoTse(true, "TODAS", "TODAS", listaPrefixos[0]);
+      } else {
+        await atualizarConsolidacaoTse(true, "TODAS", "TODAS", "CONSOLIDADO");
+      }
     }
 
     async function carregarAmostraOficialPR() {
@@ -1962,21 +2257,348 @@ o Boletim de Urna (apos encerramento da votacao).
       }
       hideSecurityAlert();
       playBeepBiometriaOk();
-      renderizarLaudoTseReverso(data);
+      await atualizarConsolidacaoTse(true, "TODAS", "TODAS", data.prefixo_seccao || "o03221pr7407101710017");
+    }
+
+    async function limparBaseTseReverso() {
+      const res = await fetch("/api/tse-reverso/catalogo", { method: "DELETE" });
+      if (res.ok) {
+        window.localTseFilesByPrefix = {};
+        document.getElementById("tseFilterBarContainer").classList.add("hidden");
+        document.getElementById("tseReversoResultContainer").classList.add("hidden");
+        document.getElementById("tseCatalogCountBadge").textContent = "Base limpa (0 urnas)";
+        showSecurityAlert("Catálogo de urnas TSE limpo com sucesso.", false);
+      }
+    }
+
+    async function aoMudarFiltroCidadeTse() {
+      const cid = document.getElementById("tseSelectCidade").value;
+      await atualizarConsolidacaoTse(true, cid, "TODAS", "CONSOLIDADO");
+    }
+
+    async function aoMudarFiltroZonaTse() {
+      const cid = document.getElementById("tseSelectCidade").value;
+      const zona = document.getElementById("tseSelectZona").value;
+      await atualizarConsolidacaoTse(true, cid, zona, "CONSOLIDADO");
+    }
+
+    async function aoMudarFiltroSecaoTse() {
+      const cid = document.getElementById("tseSelectCidade").value;
+      const zona = document.getElementById("tseSelectZona").value;
+      const secao = document.getElementById("tseSelectSecao").value;
+      if (secao !== "CONSOLIDADO") {
+        await garantirLogJezSobDemanda(secao);
+      }
+      await atualizarConsolidacaoTse(true, cid, zona, secao);
+    }
+
+    async function voltarParaConsolidacaoFiltro() {
+      const cid = document.getElementById("tseSelectCidade").value;
+      const zona = document.getElementById("tseSelectZona").value;
+      document.getElementById("tseSelectSecao").value = "CONSOLIDADO";
+      await atualizarConsolidacaoTse(true, cid, zona, "CONSOLIDADO");
+    }
+
+    async function inspecionarUrnaIndividualTse(prefixo) {
+      await garantirLogJezSobDemanda(prefixo);
+      const cid = document.getElementById("tseSelectCidade").value || "TODAS";
+      const zona = document.getElementById("tseSelectZona").value || "TODAS";
+      await atualizarConsolidacaoTse(true, cid, zona, prefixo);
+    }
+
+    async function garantirLogJezSobDemanda(prefixo) {
+      // Se o arquivo -log.jez desta seção estiver na memória local do navegador (Modo Turbo),
+      // envia automaticamente para o backend antes de abrir os detalhes da urna!
+      const localMap = window.localTseFilesByPrefix[prefixo];
+      if (!localMap) return;
+
+      const jezEntry = Object.entries(localMap).find(([k]) => k.endsWith(".jez"));
+      if (!jezEntry || jezEntry[1]._alreadyUploaded) return;
+
+      const jezFile = jezEntry[1];
+      showSecurityAlert(`Carregando arquivo ${jezFile.name} para reconstruir os eleitores hora a hora desta urna...`, false);
+      const fd = new FormData();
+      fd.append("files", jezFile, jezFile.name);
+      try {
+        const r = await fetch("/api/tse-reverso/upload-lote", { method: "POST", body: fd });
+        if (r.ok) {
+          jezFile._alreadyUploaded = true;
+        }
+      } catch (e) {}
+      hideSecurityAlert();
+    }
+
+    async function atualizarConsolidacaoTse(mostrarAlertaSeVazio = false, municipio = null, zona = null, secao = null) {
+      const cidVal = municipio !== null ? municipio : (document.getElementById("tseSelectCidade")?.value || "TODAS");
+      const zonaVal = zona !== null ? zona : (document.getElementById("tseSelectZona")?.value || "TODAS");
+      const secVal = secao !== null ? secao : (document.getElementById("tseSelectSecao")?.value || "CONSOLIDADO");
+
+      const qs = new URLSearchParams({
+        municipio: cidVal,
+        zona: zonaVal,
+        secao: secVal
+      });
+
+      const res = await fetch(`/api/tse-reverso/consolidar?${qs.toString()}`);
+      if (!res.ok) return;
+      const payload = await res.json();
+
+      const hier = payload.hierarquia || {};
+      const totalGeral = hier.total_geral_urnas || 0;
+      document.getElementById("tseCatalogCountBadge").textContent =
+        totalGeral > 0 ? `📦 ${totalGeral} Urna(s) / Seção(ões) carregada(s) no Catálogo` : "";
+
+      if (totalGeral === 0) {
+        document.getElementById("tseFilterBarContainer").classList.add("hidden");
+        document.getElementById("tseReversoResultContainer").classList.add("hidden");
+        return;
+      }
+
+      document.getElementById("tseFilterBarContainer").classList.remove("hidden");
+      document.getElementById("tseReversoResultContainer").classList.remove("hidden");
+
+      popularSeletoresHierarquicosTse(hier);
+
+      if (payload.modo_visao === "SECAO_INDIVIDUAL" && payload.secao_individual) {
+        document.getElementById("btnVoltarConsolidado").classList.remove("hidden");
+        document.getElementById("tsePlacarConsolidadoBox").classList.add("hidden");
+        document.getElementById("tseListaUrnasConsolidadaBox").classList.add("hidden");
+        document.getElementById("tseIndividualUrnaSection").classList.remove("hidden");
+        renderizarLaudoTseReverso(payload.secao_individual);
+      } else if (payload.consolidado) {
+        document.getElementById("btnVoltarConsolidado").classList.add("hidden");
+        document.getElementById("tsePlacarConsolidadoBox").classList.remove("hidden");
+        document.getElementById("tseListaUrnasConsolidadaBox").classList.remove("hidden");
+        document.getElementById("tseIndividualUrnaSection").classList.add("hidden");
+        renderizarVisaoConsolidadaTse(payload.consolidado, hier);
+      }
+    }
+
+    function popularSeletoresHierarquicosTse(hier) {
+      const selCidade = document.getElementById("tseSelectCidade");
+      const selZona = document.getElementById("tseSelectZona");
+      const selSecao = document.getElementById("tseSelectSecao");
+
+      const totalUrnasCat = hier.total_geral_urnas || 0;
+      const cidades = hier.cidades || [];
+      const zonas = hier.zonas || [];
+      const secoes = hier.secoes || [];
+
+      selCidade.innerHTML = `<option value="TODAS">🌎 TODAS AS CIDADES CARREGADAS (${cidades.length} cidades / ${totalUrnasCat} urnas)</option>` +
+        cidades.map(c =>
+          `<option value="${c.codigo}" ${hier.municipio_selecionado === c.codigo ? "selected" : ""}>🏙️ ${c.nome} (${c.codigo}) — ${c.total_urnas} urna(s) / ${c.total_votos} votos</option>`
+        ).join("");
+
+      const urnasNaCidade = zonas.reduce((acc, z) => acc + z.total_urnas, 0);
+      selZona.innerHTML = `<option value="TODAS">📍 TODAS AS ZONAS DA SELEÇÃO (${zonas.length} zonas / ${urnasNaCidade} urnas)</option>` +
+        zonas.map(z =>
+          `<option value="${z.zona}" ${hier.zona_selecionada === z.zona ? "selected" : ""}>Zona ${z.zona} — ${z.total_urnas} urna(s) / ${z.total_votos} votos</option>`
+        ).join("");
+
+      selSecao.innerHTML = `<option value="CONSOLIDADO" ${hier.secao_selecionada === "CONSOLIDADO" ? "selected" : ""}>📊 CONSOLIDAÇÃO GLOBAL DO FILTRO (${secoes.length} urnas somadas)</option>` +
+        secoes.map(s =>
+          `<option value="${s.prefixo}" ${hier.secao_selecionada === s.prefixo ? "selected" : ""}>🗳️ Seção ${s.secao} (Z:${s.zona} - ${s.municipio_nome}) — ${s.votos} votos ${s.tem_log_jez ? "[c/ Log]" : "[BU+RDV]"}</option>`
+        ).join("");
+    }
+
+    function renderizarVisaoConsolidadaTse(cons, hier) {
+      // Restaura rótulos dos 6 cartões superiores para modo Consolidado Global
+      document.getElementById("tseCard1Label").textContent = "ESCOPO DO FILTRO";
+      document.getElementById("tseCard2Label").textContent = "URNAS AUDITADAS";
+      document.getElementById("tseCard3Label").textContent = "STATUS DE INTEGRIDADE";
+      document.getElementById("tseCard4Label").textContent = "ARQUIVOS POR URNA";
+      document.getElementById("tseCard5Label").textContent = "COMPARECIMENTO GLOBAL";
+      document.getElementById("tseCard6Label").textContent = "CADÊNCIA PONDERADA";
+
+      const cidSel = hier.municipio_selecionado === "TODAS"
+        ? `PARANÁ (${cons.cidades_no_filtro} Cidades)`
+        : (hier.cidades.find(c => c.codigo === hier.municipio_selecionado)?.nome || hier.municipio_selecionado);
+      const zonaSel = hier.zona_selecionada === "TODAS"
+        ? `${cons.zonas_no_filtro} Zona(s)`
+        : `Zona ${hier.zona_selecionada}`;
+
+      document.getElementById("tseMunVal").textContent = cidSel;
+      document.getElementById("tseZonaSecaoVal").textContent = `${zonaSel} / ${cons.total_urnas} Seção(ões)`;
+      document.getElementById("tseModeloSerialVal").textContent =
+        `${cons.urnas_integras} Íntegras / ${cons.urnas_com_alerta} Alertas`;
+      document.getElementById("tseVersaoSwVal").textContent =
+        `BU:${cons.urnas_com_bu} | RDV:${cons.urnas_com_rdv} | Log:${cons.urnas_com_log}`;
+      document.getElementById("tseCompAptosVal").textContent =
+        `${cons.comparecimento_total.toLocaleString("pt-BR")} / ${cons.eleitores_aptos_total.toLocaleString("pt-BR")} (${cons.pct_comparecimento}%)`;
+      document.getElementById("tseCadenciaMediaVal").textContent = cons.tempo_medio_ciclo_s > 0
+        ? `${cons.tempo_medio_ciclo_s}s (Cabine: ${cons.tempo_medio_cabine_s}s)`
+        : "Suba .jez ou abra urna";
+
+      const verBox = document.getElementById("tseVereditoBox");
+      if (cons.nivel_risco === "BAIXO") {
+        verBox.className = "p-4 rounded-xl border-2 bg-emerald-950/90 border-emerald-500 text-emerald-100 text-xs";
+        verBox.innerHTML = `<div class="font-extrabold text-sm text-emerald-300 uppercase">✅ ${cons.veredito_geral}</div>
+          <div class="mt-1 mono">Filtro Ativo: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong> • <strong>${cons.total_urnas} urna(s) consolidada(s)</strong> | Selecione qualquer urna na tabela abaixo ou no 3º seletor para inspecionar os eleitores hora a hora.</div>`;
+      } else {
+        verBox.className = "p-4 rounded-xl border-2 bg-rose-950/90 border-rose-500 text-rose-100 text-xs";
+        verBox.innerHTML = `<div class="font-extrabold text-sm text-rose-300 uppercase">🚨 ${cons.veredito_geral}</div>
+          <div class="mt-1 mono">Filtro Ativo: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong> • Verifique as urnas sinalizadas na tabela abaixo.</div>`;
+      }
+
+      // Placar Consolidado de Candidatos
+      document.getElementById("tsePlacarSubLabel").textContent =
+        `Brancos: ${cons.brancos_total.toLocaleString("pt-BR")} • Nulos: ${cons.nulos_total.toLocaleString("pt-BR")} • Faltosos: ${cons.faltosos_total.toLocaleString("pt-BR")}`;
+
+      const gridCands = document.getElementById("tsePlacarCandidatosGrid");
+      gridCands.innerHTML = (cons.placar_candidatos || []).map(c => `
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 font-extrabold text-xs mono">Nº ${c.numero}</span>
+              <span class="font-extrabold text-white text-sm ml-1.5">${c.nome}</span>
+            </div>
+            <span class="text-lg font-extrabold text-emerald-400 mono">${c.pct_validos}%</span>
+          </div>
+          <div class="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
+            <div style="width: ${Math.min(100, Math.round(c.pct_validos))}%" class="bg-emerald-500 h-full"></div>
+          </div>
+          <div class="flex justify-between text-[11px] mono text-slate-400 pt-1">
+            <span>Soma BU: <strong class="text-amber-300">${c.votos_bu.toLocaleString("pt-BR")}</strong></span>
+            <span>Soma RDV ASN.1: <strong class="text-emerald-300">${c.votos_rdv.toLocaleString("pt-BR")}</strong></span>
+            <span class="${c.status === 'CONFERE_100%' ? 'text-emerald-400' : 'text-rose-400'} font-bold">${c.status === 'CONFERE_100%' ? '100% OK' : 'DIVERGENTE'}</span>
+          </div>
+        </div>
+      `).join("");
+
+      document.getElementById("tseMacSummary").textContent =
+        `${cons.total_linhas_logd.toLocaleString("pt-BR")} linhas logd.dat | ${cons.total_macs_validos.toLocaleString("pt-BR")} MACs íntegros`;
+
+      // Tabela de Batimentos Consolidados
+      document.getElementById("tseBatimentoTableBody").innerHTML = (cons.batimentos_cruzados || []).map(b => `
+        <tr>
+          <td class="py-2 font-semibold text-slate-200">${b.item}</td>
+          <td class="py-2 text-cyan-300 font-bold">${typeof b.valor_log === 'number' ? b.valor_log.toLocaleString("pt-BR") : b.valor_log}</td>
+          <td class="py-2 text-amber-300 font-bold">${typeof b.valor_bu === 'number' ? b.valor_bu.toLocaleString("pt-BR") : b.valor_bu}</td>
+          <td class="py-2 text-emerald-300 font-bold">${typeof b.valor_rdv === 'number' ? b.valor_rdv.toLocaleString("pt-BR") : b.valor_rdv}</td>
+          <td class="py-2 text-right">
+            ${b.status === "CONFERE_100%"
+              ? `<span class="px-2 py-0.5 rounded bg-emerald-900/70 text-emerald-300 font-extrabold text-[10px]">CONFERE 100%</span>`
+              : `<span class="px-2 py-0.5 rounded bg-rose-900/70 text-rose-300 font-extrabold text-[10px]">${b.status}</span>`}
+          </td>
+        </tr>
+      `).join("");
+
+      const nulosStr = Object.entries(cons.votos_nulos_numeros_digitados || {})
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 12)
+        .map(([num, qtd]) => `"${num}": ${qtd}x`)
+        .join(" • ") || "Nenhum voto nulo decodificado no RDV";
+
+      document.getElementById("tseRdvNulosBox").innerHTML = `
+        <div class="font-bold text-cyan-300 mb-1">Consolidado Binário ASN.1 DER dos Arquivos <code>-rdv.dat</code> (${cons.urnas_com_rdv} urnas):</div>
+        <div class="text-slate-300">• Números digitados nos Votos Nulos em todo o filtro: <strong class="text-amber-300">${nulosStr}</strong></div>
+      `;
+
+      // Vazão Horária Consolidada
+      const hourlyContainer = document.getElementById("tseHourlyBars");
+      const vph = cons.votos_por_hora || {};
+      const entriesVph = Object.entries(vph);
+      if (entriesVph.length > 0) {
+        const maxH = Math.max(...Object.values(vph), 1);
+        hourlyContainer.innerHTML = entriesVph.map(([hh, qtd]) => {
+          const wPct = Math.round((qtd / maxH) * 100);
+          return `
+            <div class="flex items-center gap-2">
+              <span class="w-10 text-slate-400 font-bold">${hh}</span>
+              <div class="flex-1 bg-slate-950 rounded h-4 overflow-hidden border border-slate-800">
+                <div style="width: ${wPct}%" class="bg-cyan-500 h-full"></div>
+              </div>
+              <span class="w-20 text-right font-bold text-white">${qtd.toLocaleString("pt-BR")} votos</span>
+            </div>
+          `;
+        }).join("");
+      } else {
+        hourlyContainer.innerHTML = `<div class="text-slate-400 text-xs">Clique em qualquer urna abaixo para carregar seu <code>-log.jez</code> e visualizar a vazão horária detalhada.</div>`;
+      }
+
+      document.getElementById("tseOperationalStats").innerHTML = `
+        <div>• Total de Urnas no Filtro: <strong class="text-emerald-400">${cons.total_urnas} urna(s)</strong> (${cons.cidades_no_filtro} cidade(s) / ${cons.zonas_no_filtro} zona(s))</div>
+        <div>• Teclas Indevidas Acumuladas nos Logs: <strong class="text-white">${cons.total_teclas_indevidas.toLocaleString("pt-BR")}</strong></div>
+        <div>• Títulos Inválidos Digitados pelos Mesários: <strong class="text-white">${cons.total_id_invalido.toLocaleString("pt-BR")}</strong></div>
+      `;
+
+      // Renderiza Tabela de Todas as Urnas do Filtro
+      window.listaUrnasConsolidadaAtual = cons.lista_urnas || [];
+      filtrarTabelaUrnasConsolidada();
+    }
+
+    function filtrarTabelaUrnasConsolidada() {
+      const q = (document.getElementById("tseUrnaQuickSearch")?.value || "").trim().toLowerCase();
+      const lista = (window.listaUrnasConsolidadaAtual || []).filter(u => {
+        if (!q) return true;
+        return (
+          (u.municipio_nome || "").toLowerCase().includes(q) ||
+          (u.municipio_codigo || "").toLowerCase().includes(q) ||
+          (u.zona || "").toLowerCase().includes(q) ||
+          (u.secao || "").toLowerCase().includes(q) ||
+          (u.serial_ue || "").toLowerCase().includes(q) ||
+          (u.prefixo || "").toLowerCase().includes(q)
+        );
+      });
+
+      const tbody = document.getElementById("tseListaUrnasTableBody");
+      tbody.innerHTML = lista.map(u => {
+        const placarStr = (u.candidatos || [])
+          .map(c => `${c.numero}: <strong>${c.votos_bu || c.votos_rdv}</strong>`)
+          .join(" | ") || "-";
+        const tagsArq = [
+          u.tem_imgbu ? `<span class="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700 text-[10px]">BU</span>` : "",
+          u.tem_rdv ? `<span class="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px]">RDV</span>` : "",
+          u.tem_log_jez ? `<span class="px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 text-[10px]">LOG</span>` : ""
+        ].join(" ");
+
+        return `
+          <tr class="hover:bg-slate-800/60 transition">
+            <td class="py-2 font-bold text-white">${u.municipio_nome} <span class="text-slate-500">(${u.municipio_codigo})</span></td>
+            <td class="py-2 text-cyan-300 font-bold">Z: ${u.zona} / S: ${u.secao}</td>
+            <td class="py-2 text-slate-300">#${u.serial_ue}</td>
+            <td class="py-2 text-white font-bold">${u.comparecimento_efetivo} / ${u.eleitores_aptos}</td>
+            <td class="py-2 text-slate-200">${placarStr}</td>
+            <td class="py-2 text-slate-400">B:${u.brancos_bu || u.brancos_rdv} / N:${u.nulos_bu || u.nulos_rdv}</td>
+            <td class="py-2 space-x-1">${tagsArq}</td>
+            <td class="py-2">
+              ${u.nivel_risco === "BAIXO"
+                ? `<span class="px-2 py-0.5 rounded bg-emerald-900/70 text-emerald-300 font-extrabold text-[10px]">ÍNTEGRA</span>`
+                : `<span class="px-2 py-0.5 rounded bg-rose-900/70 text-rose-300 font-extrabold text-[10px]">ALERTA</span>`}
+            </td>
+            <td class="py-2 text-right">
+              <button
+                onclick="inspecionarUrnaIndividualTse('${u.prefixo}')"
+                class="px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-[11px] transition"
+              >
+                🔍 Abrir Urna & Eleitores
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("");
     }
 
     function renderizarLaudoTseReverso(data) {
       document.getElementById("tseReversoResultContainer").classList.remove("hidden");
 
+      // Restaura rótulos dos 6 cartões superiores para modo Urna Individual
+      document.getElementById("tseCard1Label").textContent = "MUNICÍPIO / UF";
+      document.getElementById("tseCard2Label").textContent = "ZONA / SEÇÃO";
+      document.getElementById("tseCard3Label").textContent = "MODELO / SERIAL UE";
+      document.getElementById("tseCard4Label").textContent = "VERSÃO SOFTWARE TSE";
+      document.getElementById("tseCard5Label").textContent = "COMPARECIMENTO / APTOS";
+      document.getElementById("tseCard6Label").textContent = "CADÊNCIA MÉDIA REAL";
+
       const verBox = document.getElementById("tseVereditoBox");
       if (data.nivel_risco === "BAIXO") {
         verBox.className = "p-4 rounded-xl border-2 bg-emerald-950/90 border-emerald-500 text-emerald-100 text-xs";
         verBox.innerHTML = `<div class="font-extrabold text-sm text-emerald-300 uppercase">✅ ${data.veredito_geral}</div>
-          <div class="mt-1 mono">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos processados: <strong>${data.arquivos_recebidos.join(", ")}</strong></div>`;
+          <div class="mt-1 mono">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos processados: <strong>${(data.arquivos_recebidos || []).join(", ")}</strong></div>`;
       } else {
         verBox.className = "p-4 rounded-xl border-2 bg-rose-950/90 border-rose-500 text-rose-100 text-xs";
         verBox.innerHTML = `<div class="font-extrabold text-sm text-rose-300 uppercase">🚨 ${data.veredito_geral}</div>
-          <div class="mt-1 mono">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos: <strong>${data.arquivos_recebidos.join(", ")}</strong></div>`;
+          <div class="mt-1 mono">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos: <strong>${(data.arquivos_recebidos || []).join(", ")}</strong></div>`;
       }
 
       const bu = data.imgbu || {};
@@ -1999,6 +2621,8 @@ o Boletim de Urna (apos encerramento da votacao).
       if (log.macs_validos !== undefined) {
         document.getElementById("tseMacSummary").textContent =
           `${log.total_linhas_logd} linhas no logd.dat | ${log.macs_validos} Assinaturas MAC 16-Hex íntegras`;
+      } else {
+        document.getElementById("tseMacSummary").textContent = "Suba o arquivo -log.jez desta seção para auditar os MACs";
       }
 
       // Tabela de Batimentos

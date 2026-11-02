@@ -8,8 +8,13 @@ Motor de Engenharia Reversa e Auditoria Forense de Arquivos Oficiais do TSE:
   - `-vota.vsc` (Catálogo de assinaturas e certificados digitais ICP-Brasil/TSE)
 """
 
+from __future__ import annotations
+
 import io
+import os
 import re
+import json
+import shutil
 import zipfile
 import hashlib
 from collections import Counter
@@ -24,6 +29,40 @@ TIPO_VOTO_ASN1_MAP = {
     5: "AUSENCIA_VOTO",
 }
 
+# Catálogo base de códigos TSE dos principais municípios do Paraná (e aprendizado dinâmico via -imgbu.dat)
+MUNICIPIOS_PR_TSE = {
+    "74071": "ALMIRANTE TAMANDARÉ",
+    "75353": "CURITIBA",
+    "76678": "LONDRINA",
+    "76910": "MARINGÁ",
+    "77771": "PONTA GROSSA",
+    "74934": "CASCAVEL",
+    "78859": "SÃO JOSÉ DOS PINHAIS",
+    "75639": "FOZ DO IGUAÇU",
+    "75132": "COLOMBO",
+    "75833": "GUARAPUAVA",
+    "77453": "PARANAGUÁ",
+    "74250": "ARAUCÁRIA",
+    "79154": "TOLEDO",
+    "74152": "APUCARANA",
+    "77690": "PINHAIS",
+    "74810": "CAMPO LARGO",
+    "74357": "ARAPONGAS",
+    "74098": "ALTO PARANÁ",
+    "79278": "UMUARAMA",
+    "77496": "PARANAVAÍ",
+    "74756": "CAMBÉ",
+    "75558": "FAZENDA RIO GRANDE",
+    "78697": "SARANDI",
+    "75655": "FRANCISCO BELTRÃO",
+    "77470": "PATO BRANCO",
+    "75051": "CIANORTE",
+    "79073": "TELÊMACO BORBA",
+    "74950": "CASTRO",
+    "78395": "ROLÂNDIA",
+    "76171": "IRATI",
+}
+
 
 def extrair_prefixo_seccao(filename: str) -> str:
     """
@@ -34,7 +73,38 @@ def extrair_prefixo_seccao(filename: str) -> str:
     m = re.match(r"^(o\d{5}[a-z]{2}\d{13,14})-", base, re.IGNORECASE)
     if m:
         return m.group(1).lower()
-    return re.sub(r"-(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc)$", "", base, flags=re.IGNORECASE)
+    return re.sub(r"-(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc)$", "", base, flags=re.IGNORECASE).lower()
+
+
+def extrair_identificacao_arquivo_tse(filename: str) -> dict:
+    """
+    Extrai pleito, UF, código do município (5 dígitos), zona (4 dígitos) e seção (4 dígitos)
+    diretamente da nomenclatura oficial do arquivo TSE:
+    Ex: 'o03221pr7407101710017-log.jez' ->
+        pleito='03221', uf='PR', municipio_codigo='74071', zona='0171', secao='0017'
+    """
+    prefixo = extrair_prefixo_seccao(filename)
+    m = re.match(r"^o(\d{5})([a-z]{2})(\d{5})(\d{4})(\d{4})$", prefixo, re.IGNORECASE)
+    if m:
+        mun_cod = m.group(3)
+        return {
+            "prefixo": prefixo,
+            "pleito": m.group(1),
+            "uf": m.group(2).upper(),
+            "municipio_codigo": mun_cod,
+            "municipio_nome": MUNICIPIOS_PR_TSE.get(mun_cod, f"MUNICÍPIO {mun_cod}"),
+            "zona": m.group(4),
+            "secao": m.group(5),
+        }
+    return {
+        "prefixo": prefixo,
+        "pleito": "",
+        "uf": "PR",
+        "municipio_codigo": "00000",
+        "municipio_nome": "NÃO IDENTIFICADO",
+        "zona": "0000",
+        "secao": "0000",
+    }
 
 
 def decodificar_rdv_asn1_der(rdv_bytes: bytes) -> dict:
@@ -538,14 +608,18 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
     rdv_report = None
     outros_hashes = {}
     prefixo = ""
+    id_info = {}
 
     # Primeiro processa o imgbu se existir para saber a data de abertura exata do BU
     for fname, content in arquivos_dict.items():
         low = fname.lower()
         if not prefixo:
-            prefixo = extrair_prefixo_seccao(fname)
+            id_info = extrair_identificacao_arquivo_tse(fname)
+            prefixo = id_info["prefixo"]
         if low.endswith("-imgbu.dat") or low.endswith("imgbu.dat"):
             imgbu_report = decodificar_imgbu_tse(content)
+            if imgbu_report.get("municipio_codigo") and imgbu_report.get("municipio_nome"):
+                MUNICIPIOS_PR_TSE[imgbu_report["municipio_codigo"]] = imgbu_report["municipio_nome"]
         elif low.endswith("-rdv.dat") or low.endswith("rdv.dat"):
             rdv_report = decodificar_rdv_asn1_der(content)
 
@@ -561,11 +635,60 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
                 "sha256": hashlib.sha256(content).hexdigest().upper(),
             }
 
+    # Garante preenchimento de município, zona e seção mesmo quando só -log.jez ou -rdv.dat foi enviado
+    mun_cod = (
+        (imgbu_report.get("municipio_codigo") if imgbu_report else "")
+        or (log_report["metadados_urna"].get("municipio") if log_report else "")
+        or id_info.get("municipio_codigo", "00000")
+    )
+    mun_nome = (
+        (imgbu_report.get("municipio_nome") if imgbu_report else "")
+        or MUNICIPIOS_PR_TSE.get(mun_cod, f"MUNICÍPIO {mun_cod}")
+    )
+    zona_str = (
+        (imgbu_report.get("zona") if imgbu_report else "")
+        or (log_report["metadados_urna"].get("zona") if log_report else "")
+        or id_info.get("zona", "0000")
+    )
+    secao_str = (
+        (imgbu_report.get("secao") if imgbu_report else "")
+        or (log_report["metadados_urna"].get("secao") if log_report else "")
+        or id_info.get("secao", "0000")
+    )
+
+    if imgbu_report is None:
+        imgbu_report = {
+            "municipio_codigo": mun_cod,
+            "municipio_nome": mun_nome,
+            "zona": zona_str,
+            "secao": secao_str,
+            "local_votacao": "-",
+            "codigo_ue": log_report["metadados_urna"].get("serial_ue", "-") if log_report else "-",
+            "eleitores_aptos": 0,
+            "comparecimento": 0,
+            "habilitacao_biometrica": 0,
+            "habilitacao_biografica": 0,
+            "habilitacao_sem_biometria": 0,
+            "faltosos": 0,
+            "brancos": 0,
+            "nulos": 0,
+            "candidatos": [],
+            "espelho_bobina": "",
+            "ausente": True,
+        }
+    else:
+        imgbu_report["municipio_codigo"] = mun_cod
+        imgbu_report["municipio_nome"] = mun_nome
+        imgbu_report["zona"] = zona_str
+        imgbu_report["secao"] = secao_str
+        imgbu_report["ausente"] = False
+
     batimentos = []
     anomalias_forenses = []
 
+    tem_bu = not imgbu_report.get("ausente", False)
     votos_log = log_report["resumo_votacao_log"]["total_votos_computados"] if log_report else None
-    votos_bu = imgbu_report["comparecimento"] if imgbu_report else None
+    votos_bu = imgbu_report["comparecimento"] if tem_bu else None
     votos_rdv = rdv_report["total_votos_no_rdv"] if rdv_report else None
 
     if votos_log is not None and votos_bu is not None:
@@ -600,7 +723,7 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
                 "descricao": f"O arquivo binário -rdv.dat contém {votos_rdv} votos, divergindo do BU ({votos_bu}).",
             })
 
-    if log_report and imgbu_report:
+    if log_report and tem_bu:
         bio_log = log_report["resumo_votacao_log"]["habilitacao_biometrica"]
         bio_bu = imgbu_report["habilitacao_biometrica"]
         ok_bio = bio_log == bio_bu
@@ -632,39 +755,53 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
             "status": "CONFERE_100%" if sbio_log == sbio_bu else "DIVERGENTE",
         })
 
-    if rdv_report and imgbu_report:
-        for cand in imgbu_report.get("candidatos", []):
-            num = cand["numero"]
-            qtd_bu = cand["votos"]
-            qtd_rdv = rdv_report["votos_nominais_por_numero"].get(num, 0)
-            ok_c = qtd_bu == qtd_rdv
+    candidatos_consolidados = []
+    if rdv_report or tem_bu:
+        cands_bu_map = {c["numero"]: c for c in (imgbu_report.get("candidatos", []) if tem_bu else [])}
+        nums_rdv = set(rdv_report["votos_nominais_por_numero"].keys()) if rdv_report else set()
+        todos_nums = sorted(set(cands_bu_map.keys()) | nums_rdv)
+
+        for num in todos_nums:
+            c_bu = cands_bu_map.get(num)
+            nome_cand = c_bu["nome"] if c_bu else f"CANDIDATO {num}"
+            qtd_bu = c_bu["votos"] if c_bu else (0 if tem_bu else None)
+            qtd_rdv = rdv_report["votos_nominais_por_numero"].get(num, 0) if rdv_report else None
+            candidatos_consolidados.append({
+                "numero": num,
+                "nome": nome_cand,
+                "votos_bu": qtd_bu if qtd_bu is not None else 0,
+                "votos_rdv": qtd_rdv if qtd_rdv is not None else 0,
+            })
+            if qtd_bu is not None and qtd_rdv is not None:
+                ok_c = qtd_bu == qtd_rdv
+                batimentos.append({
+                    "item": f"Candidato {nome_cand} ({num}) — BU vs RDV Binário ASN.1",
+                    "valor_log": "SIGILO_CONSTITUCIONAL",
+                    "valor_bu": qtd_bu,
+                    "valor_rdv": qtd_rdv,
+                    "status": "CONFERE_100%" if ok_c else "DIVERGENTE",
+                })
+
+        if tem_bu and rdv_report:
+            br_bu = imgbu_report["brancos"]
+            br_rdv = rdv_report["resumo_tipos"].get("BRANCO", 0)
             batimentos.append({
-                "item": f"Candidato {cand['nome']} ({num}) — BU vs RDV Binário ASN.1",
-                "valor_log": "SIGILO_CONSTITUCIONAL",
-                "valor_bu": qtd_bu,
-                "valor_rdv": qtd_rdv,
-                "status": "CONFERE_100%" if ok_c else "DIVERGENTE",
+                "item": "Votos em Branco (BU vs RDV Binário ASN.1)",
+                "valor_log": "-",
+                "valor_bu": br_bu,
+                "valor_rdv": br_rdv,
+                "status": "CONFERE_100%" if br_bu == br_rdv else "DIVERGENTE",
             })
 
-        br_bu = imgbu_report["brancos"]
-        br_rdv = rdv_report["resumo_tipos"].get("BRANCO", 0)
-        batimentos.append({
-            "item": "Votos em Branco (BU vs RDV Binário ASN.1)",
-            "valor_log": "-",
-            "valor_bu": br_bu,
-            "valor_rdv": br_rdv,
-            "status": "CONFERE_100%" if br_bu == br_rdv else "DIVERGENTE",
-        })
-
-        nu_bu = imgbu_report["nulos"]
-        nu_rdv = rdv_report["resumo_tipos"].get("NULO", 0)
-        batimentos.append({
-            "item": "Votos Nulos (BU vs RDV Binário ASN.1)",
-            "valor_log": "-",
-            "valor_bu": nu_bu,
-            "valor_rdv": nu_rdv,
-            "status": "CONFERE_100%" if nu_bu == nu_rdv else "DIVERGENTE",
-        })
+            nu_bu = imgbu_report["nulos"]
+            nu_rdv = rdv_report["resumo_tipos"].get("NULO", 0)
+            batimentos.append({
+                "item": "Votos Nulos (BU vs RDV Binário ASN.1)",
+                "valor_log": "-",
+                "valor_bu": nu_bu,
+                "valor_rdv": nu_rdv,
+                "status": "CONFERE_100%" if nu_bu == nu_rdv else "DIVERGENTE",
+            })
 
     if log_report:
         for c in log_report["ciclos_eleitores"]:
@@ -681,17 +818,69 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
                     "descricao": f"Eleitor #{c['seq']} votou às {c['hora_computado']} (antes das 08:00:00).",
                 })
 
-    veredito_geral = "SEÇÃO OFICIAL ÍNTEGRA — BATIMENTO TRIPLO (LOG.JEZ × IMGBU.DAT × RDV.DAT) 100% VALIDADO"
+    veredito_geral = "SEÇÃO OFICIAL ÍNTEGRA — BATIMENTO FORENSE 100% VALIDADO"
     risco_geral = "BAIXO"
     if any(b["status"] != "CONFERE_100%" for b in batimentos) or any(a["severidade"] == "CRITICA" for a in anomalias_forenses):
         veredito_geral = "DIVERGÊNCIA OU ANOMALIA CRÍTICA DETECTADA NA SEÇÃO"
         risco_geral = "CRITICO"
 
+    res_log = log_report["resumo_votacao_log"] if log_report else {}
+    meta_log = log_report["metadados_urna"] if log_report else {}
+
+    resumo_consolidacao = {
+        "prefixo": prefixo,
+        "uf": id_info.get("uf", "PR"),
+        "municipio_codigo": mun_cod,
+        "municipio_nome": mun_nome,
+        "zona": zona_str,
+        "secao": secao_str,
+        "local_votacao": imgbu_report.get("local_votacao", "-"),
+        "modelo_ue": meta_log.get("modelo_ue", "UE2020"),
+        "serial_ue": meta_log.get("serial_ue") or imgbu_report.get("codigo_ue", "-"),
+        "versao_sw": meta_log.get("versao_aplicacao", "-"),
+        "nivel_risco": risco_geral,
+        "veredito_geral": veredito_geral,
+        "tem_log_jez": log_report is not None,
+        "tem_imgbu": tem_bu,
+        "tem_rdv": rdv_report is not None,
+        "arquivos_recebidos": sorted(list(arquivos_dict.keys())),
+        "eleitores_aptos": imgbu_report.get("eleitores_aptos", 0) if tem_bu else 0,
+        "faltosos": imgbu_report.get("faltosos", 0) if tem_bu else 0,
+        "comparecimento_bu": votos_bu if votos_bu is not None else 0,
+        "comparecimento_log": votos_log if votos_log is not None else 0,
+        "comparecimento_rdv": votos_rdv if votos_rdv is not None else 0,
+        "comparecimento_efetivo": votos_bu or votos_rdv or votos_log or 0,
+        "hab_biometrica_bu": imgbu_report.get("habilitacao_biometrica", 0) if tem_bu else 0,
+        "hab_biometrica_log": res_log.get("habilitacao_biometrica", 0),
+        "hab_biografica_bu": imgbu_report.get("habilitacao_biografica", 0) if tem_bu else 0,
+        "hab_biografica_log": res_log.get("habilitacao_biografica", 0),
+        "hab_sem_bio_bu": imgbu_report.get("habilitacao_sem_biometria", 0) if tem_bu else 0,
+        "hab_sem_bio_log": res_log.get("habilitacao_sem_biometria", 0),
+        "brancos_bu": imgbu_report.get("brancos", 0) if tem_bu else 0,
+        "brancos_rdv": rdv_report["resumo_tipos"].get("BRANCO", 0) if rdv_report else 0,
+        "nulos_bu": imgbu_report.get("nulos", 0) if tem_bu else 0,
+        "nulos_rdv": rdv_report["resumo_tipos"].get("NULO", 0) if rdv_report else 0,
+        "votos_nulos_numeros_rdv": rdv_report.get("votos_nulos_numeros_digitados", {}) if rdv_report else {},
+        "candidatos": candidatos_consolidados,
+        "votos_por_hora": res_log.get("votos_por_hora", {}),
+        "tempo_medio_ciclo_s": res_log.get("tempo_medio_ciclo_s", 0.0),
+        "tempo_medio_cabine_s": res_log.get("tempo_medio_cabine_s", 0.0),
+        "tempo_medio_mesa_s": res_log.get("tempo_medio_mesa_bio_s", 0.0),
+        "total_linhas_logd": log_report.get("total_linhas_logd", 0) if log_report else 0,
+        "macs_validos": log_report.get("macs_validos", 0) if log_report else 0,
+        "macs_invalidos": log_report.get("macs_invalidos", 0) if log_report else 0,
+        "total_teclas_indevidas": res_log.get("total_teclas_indevidas", 0),
+        "total_id_invalido": res_log.get("total_identificador_invalido", 0),
+        "etapas_assinatura_ok": log_report.get("etapas_assinatura_software_ok", 0) if log_report else 0,
+        "qtd_anomalias": len(anomalias_forenses),
+    }
+
     return {
         "prefixo_seccao": prefixo,
         "veredito_geral": veredito_geral,
         "nivel_risco": risco_geral,
-        "arquivos_recebidos": list(arquivos_dict.keys()),
+        "arquivos_recebidos": sorted(list(arquivos_dict.keys())),
+        "resumo_consolidacao": resumo_consolidacao,
         "batimentos_cruzados": batimentos,
         "anomalias_forenses": anomalias_forenses,
         "log_jez": log_report,
@@ -699,3 +888,461 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
         "rdv": rdv_report,
         "outros_arquivos": outros_hashes,
     }
+
+
+# ==============================================================================
+# GERENCIADOR MULTI-SEÇÃO / MULTI-ZONA / MULTI-CIDADE (CONSOLIDAÇÃO PARANÁ)
+# ==============================================================================
+
+def _get_tse_storage_dir() -> str:
+    if os.path.exists("/app/data"):
+        base = "/app/data/tse_reverso"
+    else:
+        base = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "tse_reverso")
+    os.makedirs(os.path.join(base, "secoes"), exist_ok=True)
+    os.makedirs(os.path.join(base, "raw"), exist_ok=True)
+    return base
+
+
+_CATALOGO_MEMORIA: dict[str, dict] = {}
+_CATALOGO_CARREGADO = False
+
+
+def _carregar_catalogo_disco() -> dict[str, dict]:
+    global _CATALOGO_MEMORIA, _CATALOGO_CARREGADO
+    if _CATALOGO_CARREGADO:
+        return _CATALOGO_MEMORIA
+    storage = _get_tse_storage_dir()
+    cat_path = os.path.join(storage, "catalogo_secoes.json")
+    if os.path.exists(cat_path):
+        try:
+            with open(cat_path, "r", encoding="utf-8") as f:
+                _CATALOGO_MEMORIA = json.load(f)
+                # Atualiza nomes de municípios aprendidos
+                for item in _CATALOGO_MEMORIA.values():
+                    mc = item.get("municipio_codigo")
+                    mn = item.get("municipio_nome")
+                    if mc and mn and not mn.startswith("MUNICÍPIO"):
+                        MUNICIPIOS_PR_TSE[mc] = mn
+        except Exception:
+            _CATALOGO_MEMORIA = {}
+    _CATALOGO_CARREGADO = True
+    return _CATALOGO_MEMORIA
+
+
+def _salvar_catalogo_disco() -> None:
+    storage = _get_tse_storage_dir()
+    cat_path = os.path.join(storage, "catalogo_secoes.json")
+    with open(cat_path, "w", encoding="utf-8") as f:
+        json.dump(_CATALOGO_MEMORIA, f, ensure_ascii=False)
+
+
+def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
+    """
+    Recebe um lote contendo 1 ou N arquivos de 1 ou várias seções eleitorais do TSE,
+    agrupa pelo prefixo da seção (`o03221pr7407101710017`), mescla com arquivos já
+    recebidos daquela seção, salva o relatório completo em disco e atualiza o catálogo global.
+    """
+    catalogo = _carregar_catalogo_disco()
+    storage = _get_tse_storage_dir()
+
+    grupos: dict[str, dict[str, bytes]] = {}
+    for raw_name, content in arquivos_dict.items():
+        base_name = raw_name.split("/")[-1].split("\\")[-1]
+        if not base_name or base_name.startswith("."):
+            continue
+        low = base_name.lower()
+        if not any(low.endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+            continue
+        prefixo = extrair_prefixo_seccao(base_name)
+        if not prefixo:
+            continue
+        grupos.setdefault(prefixo, {})[base_name] = content
+
+    secoes_processadas = []
+    ultimo_relatorio = None
+
+    for prefixo, novos_arquivos in grupos.items():
+        raw_sec_dir = os.path.join(storage, "raw", prefixo)
+        os.makedirs(raw_sec_dir, exist_ok=True)
+
+        # Salva os novos arquivos brutos da seção
+        for fname, fbytes in novos_arquivos.items():
+            with open(os.path.join(raw_sec_dir, fname), "wb") as fp:
+                fp.write(fbytes)
+
+        # Carrega todos os arquivos disponíveis daquela seção (permitindo upload incremental de -log.jez)
+        pacote_completo: dict[str, bytes] = {}
+        for fname in os.listdir(raw_sec_dir):
+            fpath = os.path.join(raw_sec_dir, fname)
+            if os.path.isfile(fpath):
+                with open(fpath, "rb") as fp:
+                    pacote_completo[fname] = fp.read()
+
+        relatorio = analisar_pacote_seccao_tse(pacote_completo)
+        resumo = relatorio["resumo_consolidacao"]
+        catalogo[prefixo] = resumo
+
+        sec_json_path = os.path.join(storage, "secoes", f"{prefixo}.json")
+        with open(sec_json_path, "w", encoding="utf-8") as fp:
+            json.dump(relatorio, fp, ensure_ascii=False)
+
+        secoes_processadas.append(prefixo)
+        ultimo_relatorio = relatorio
+
+    # Propaga nomes de municípios aprendidos via IMGBU para seções da mesma cidade que só tinham log/rdv
+    for item in catalogo.values():
+        mc = item.get("municipio_codigo")
+        if mc in MUNICIPIOS_PR_TSE:
+            item["municipio_nome"] = MUNICIPIOS_PR_TSE[mc]
+
+    _salvar_catalogo_disco()
+
+    return {
+        "ok": True,
+        "secoes_processadas_neste_lote": len(secoes_processadas),
+        "prefixos_processados": secoes_processadas,
+        "total_secoes_no_catalogo": len(catalogo),
+        "ultimo_relatorio_individual": ultimo_relatorio,
+    }
+
+
+def obter_secao_individual_tse(prefixo: str) -> dict | None:
+    storage = _get_tse_storage_dir()
+    sec_json_path = os.path.join(storage, "secoes", f"{prefixo.lower()}.json")
+    if not os.path.exists(sec_json_path):
+        return None
+    with open(sec_json_path, "r", encoding="utf-8") as fp:
+        return json.load(fp)
+
+
+def limpar_catalogo_tse() -> dict:
+    global _CATALOGO_MEMORIA, _CATALOGO_CARREGADO
+    storage = _get_tse_storage_dir()
+    if os.path.exists(storage):
+        shutil.rmtree(storage, ignore_errors=True)
+    os.makedirs(os.path.join(storage, "secoes"), exist_ok=True)
+    os.makedirs(os.path.join(storage, "raw"), exist_ok=True)
+    _CATALOGO_MEMORIA = {}
+    _CATALOGO_CARREGADO = True
+    return {"ok": True, "total_secoes_no_catalogo": 0}
+
+
+def consolidar_secoes_tse(
+    municipio_filtro: str = "TODAS",
+    zona_filtro: str = "TODAS",
+    secao_filtro: str = "CONSOLIDADO",
+) -> dict:
+    """
+    Constrói a árvore de seletores (Cidade -> Zona -> Seção/Urna) e retorna:
+    - Os dados consolidados globais para o filtro selecionado (`CONSOLIDADO`), OU
+    - O dossiê completo da urna individual quando `secao_filtro` é o prefixo de uma seção.
+    """
+    catalogo = _carregar_catalogo_disco()
+    todas_secoes = list(catalogo.values())
+
+    # 1. Monta lista de Cidades disponíveis em todo o catálogo
+    cidades_map: dict[str, dict] = {}
+    for s in todas_secoes:
+        mc = s.get("municipio_codigo", "00000")
+        mn = MUNICIPIOS_PR_TSE.get(mc, s.get("municipio_nome", f"MUNICÍPIO {mc}"))
+        if mc not in cidades_map:
+            cidades_map[mc] = {
+                "codigo": mc,
+                "nome": mn,
+                "total_urnas": 0,
+                "total_votos": 0,
+                "total_aptos": 0,
+            }
+        cidades_map[mc]["total_urnas"] += 1
+        cidades_map[mc]["total_votos"] += s.get("comparecimento_efetivo", 0)
+        cidades_map[mc]["total_aptos"] += s.get("eleitores_aptos", 0)
+
+    lista_cidades = sorted(cidades_map.values(), key=lambda x: x["nome"])
+
+    # Filtra por Cidade
+    secoes_apos_cidade = [
+        s for s in todas_secoes
+        if municipio_filtro in ("TODAS", "", None) or s.get("municipio_codigo") == municipio_filtro
+    ]
+
+    # 2. Monta lista de Zonas disponíveis para a Cidade selecionada
+    zonas_map: dict[str, dict] = {}
+    for s in secoes_apos_cidade:
+        z = s.get("zona", "0000")
+        if z not in zonas_map:
+            zonas_map[z] = {
+                "zona": z,
+                "total_urnas": 0,
+                "total_votos": 0,
+                "total_aptos": 0,
+            }
+        zonas_map[z]["total_urnas"] += 1
+        zonas_map[z]["total_votos"] += s.get("comparecimento_efetivo", 0)
+        zonas_map[z]["total_aptos"] += s.get("eleitores_aptos", 0)
+
+    lista_zonas = sorted(zonas_map.values(), key=lambda x: x["zona"])
+
+    # Se a zona_filtro não existir na cidade atual, reseta para TODAS
+    if zona_filtro not in ("TODAS", "", None) and zona_filtro not in zonas_map:
+        zona_filtro = "TODAS"
+
+    # Filtra por Zona
+    secoes_filtradas = [
+        s for s in secoes_apos_cidade
+        if zona_filtro in ("TODAS", "", None) or s.get("zona") == zona_filtro
+    ]
+    secoes_filtradas.sort(key=lambda s: (s.get("municipio_nome", ""), s.get("zona", ""), s.get("secao", "")))
+
+    # 3. Monta lista de Seções/Urnas para os seletores
+    lista_secoes_seletor = [
+        {
+            "prefixo": s["prefixo"],
+            "secao": s.get("secao", "0000"),
+            "zona": s.get("zona", "0000"),
+            "municipio_codigo": s.get("municipio_codigo", "00000"),
+            "municipio_nome": s.get("municipio_nome", ""),
+            "serial_ue": s.get("serial_ue", "-"),
+            "votos": s.get("comparecimento_efetivo", 0),
+            "aptos": s.get("eleitores_aptos", 0),
+            "nivel_risco": s.get("nivel_risco", "BAIXO"),
+            "tem_log_jez": s.get("tem_log_jez", False),
+            "tem_imgbu": s.get("tem_imgbu", False),
+            "tem_rdv": s.get("tem_rdv", False),
+        }
+        for s in secoes_filtradas
+    ]
+
+    hierarquia = {
+        "total_geral_urnas": len(todas_secoes),
+        "municipio_selecionado": municipio_filtro,
+        "zona_selecionada": zona_filtro,
+        "secao_selecionada": secao_filtro,
+        "cidades": lista_cidades,
+        "zonas": lista_zonas,
+        "secoes": lista_secoes_seletor,
+    }
+
+    # Caso 1: Usuário selecionou uma Seção/Urna específica para inspeção profunda
+    if secao_filtro and secao_filtro != "CONSOLIDADO":
+        relatorio_sec = obter_secao_individual_tse(secao_filtro)
+        if relatorio_sec:
+            return {
+                "modo_visao": "SECAO_INDIVIDUAL",
+                "hierarquia": hierarquia,
+                "secao_individual": relatorio_sec,
+            }
+
+    # Caso 2: Consolidação Global das Urnas Filtradas (Estado / Cidade / Zona)
+    total_urnas = len(secoes_filtradas)
+    urnas_integras = sum(1 for s in secoes_filtradas if s.get("nivel_risco") == "BAIXO")
+    urnas_com_alerta = total_urnas - urnas_integras
+    urnas_com_log = sum(1 for s in secoes_filtradas if s.get("tem_log_jez"))
+    urnas_com_bu = sum(1 for s in secoes_filtradas if s.get("tem_imgbu"))
+    urnas_com_rdv = sum(1 for s in secoes_filtradas if s.get("tem_rdv"))
+
+    cidades_no_filtro = len(set(s.get("municipio_codigo") for s in secoes_filtradas))
+    zonas_no_filtro = len(set((s.get("municipio_codigo"), s.get("zona")) for s in secoes_filtradas))
+
+    aptos_total = sum(s.get("eleitores_aptos", 0) for s in secoes_filtradas)
+    faltosos_total = sum(s.get("faltosos", 0) for s in secoes_filtradas)
+    comp_bu_total = sum(s.get("comparecimento_bu", 0) for s in secoes_filtradas)
+    comp_log_total = sum(s.get("comparecimento_log", 0) for s in secoes_filtradas)
+    comp_rdv_total = sum(s.get("comparecimento_rdv", 0) for s in secoes_filtradas)
+    comp_efetivo_total = sum(s.get("comparecimento_efetivo", 0) for s in secoes_filtradas)
+
+    # Somas apenas nas urnas que possuem os pares correspondentes para batimento justo
+    comp_log_par_bu = sum(s.get("comparecimento_log", 0) for s in secoes_filtradas if s.get("tem_log_jez") and s.get("tem_imgbu"))
+    comp_bu_par_log = sum(s.get("comparecimento_bu", 0) for s in secoes_filtradas if s.get("tem_log_jez") and s.get("tem_imgbu"))
+
+    comp_rdv_par_bu = sum(s.get("comparecimento_rdv", 0) for s in secoes_filtradas if s.get("tem_rdv") and s.get("tem_imgbu"))
+    comp_bu_par_rdv = sum(s.get("comparecimento_bu", 0) for s in secoes_filtradas if s.get("tem_rdv") and s.get("tem_imgbu"))
+
+    bio_bu_par = sum(s.get("hab_biometrica_bu", 0) for s in secoes_filtradas if s.get("tem_log_jez") and s.get("tem_imgbu"))
+    bio_log_par = sum(s.get("hab_biometrica_log", 0) for s in secoes_filtradas if s.get("tem_log_jez") and s.get("tem_imgbu"))
+
+    biog_bu_par = sum(s.get("hab_biografica_bu", 0) for s in secoes_filtradas if s.get("tem_log_jez") and s.get("tem_imgbu"))
+    biog_log_par = sum(s.get("hab_biografica_log", 0) for s in secoes_filtradas if s.get("tem_log_jez") and s.get("tem_imgbu"))
+
+    sbio_bu_par = sum(s.get("hab_sem_bio_bu", 0) for s in secoes_filtradas if s.get("tem_log_jez") and s.get("tem_imgbu"))
+    sbio_log_par = sum(s.get("hab_sem_bio_log", 0) for s in secoes_filtradas if s.get("tem_log_jez") and s.get("tem_imgbu"))
+
+    brancos_bu_total = sum(s.get("brancos_bu", 0) for s in secoes_filtradas)
+    brancos_rdv_total = sum(s.get("brancos_rdv", 0) for s in secoes_filtradas)
+    nulos_bu_total = sum(s.get("nulos_bu", 0) for s in secoes_filtradas)
+    nulos_rdv_total = sum(s.get("nulos_rdv", 0) for s in secoes_filtradas)
+
+    # Consolida votos por candidato
+    cands_agregados: dict[str, dict] = {}
+    for s in secoes_filtradas:
+        for c in s.get("candidatos", []):
+            num = c["numero"]
+            if num not in cands_agregados:
+                cands_agregados[num] = {
+                    "numero": num,
+                    "nome": c["nome"],
+                    "votos_bu": 0,
+                    "votos_rdv": 0,
+                }
+            if c["nome"] and not c["nome"].startswith("CANDIDATO"):
+                cands_agregados[num]["nome"] = c["nome"]
+            cands_agregados[num]["votos_bu"] += c.get("votos_bu", 0)
+            cands_agregados[num]["votos_rdv"] += c.get("votos_rdv", 0)
+
+    total_nominais_consolidado = sum(
+        max(c["votos_bu"], c["votos_rdv"]) for c in cands_agregados.values()
+    )
+    placar_candidatos = []
+    for num, c in sorted(cands_agregados.items(), key=lambda x: max(x[1]["votos_bu"], x[1]["votos_rdv"]), reverse=True):
+        v_ref = c["votos_bu"] if urnas_com_bu > 0 else c["votos_rdv"]
+        pct = round((v_ref / max(total_nominais_consolidado, 1)) * 100.0, 2)
+        placar_candidatos.append({
+            "numero": num,
+            "nome": c["nome"],
+            "votos_bu": c["votos_bu"],
+            "votos_rdv": c["votos_rdv"],
+            "pct_validos": pct,
+            "status": "CONFERE_100%" if (urnas_com_bu == 0 or urnas_com_rdv == 0 or c["votos_bu"] == c["votos_rdv"]) else "DIVERGENTE",
+        })
+
+    # Batimentos Cruzados Consolidados
+    batimentos_consolidados = []
+    if urnas_com_log > 0 and urnas_com_bu > 0:
+        batimentos_consolidados.append({
+            "item": f"Comparecimento Consolidado nas {urnas_com_log} Urnas c/ Log (Log.jez vs BU)",
+            "valor_log": comp_log_par_bu,
+            "valor_bu": comp_bu_par_log,
+            "valor_rdv": comp_rdv_par_bu if urnas_com_rdv > 0 else "-",
+            "status": "CONFERE_100%" if comp_log_par_bu == comp_bu_par_log else "DIVERGENTE",
+        })
+    if urnas_com_rdv > 0 and urnas_com_bu > 0:
+        batimentos_consolidados.append({
+            "item": f"Total de Cédulas no RDV Binário ASN.1 vs BU ({urnas_com_rdv} Urnas)",
+            "valor_log": comp_log_par_bu if urnas_com_log > 0 else "-",
+            "valor_bu": comp_bu_par_rdv,
+            "valor_rdv": comp_rdv_par_bu,
+            "status": "CONFERE_100%" if comp_rdv_par_bu == comp_bu_par_rdv else "DIVERGENTE",
+        })
+    if urnas_com_log > 0 and urnas_com_bu > 0:
+        batimentos_consolidados.extend([
+            {
+                "item": "Habilitações Biométricas AFIS Consolidadas (Log vs BU)",
+                "valor_log": bio_log_par,
+                "valor_bu": bio_bu_par,
+                "valor_rdv": "-",
+                "status": "CONFERE_100%" if bio_log_par == bio_bu_par else "DIVERGENTE",
+            },
+            {
+                "item": "Habilitações Biográficas Consolidadas (Log vs BU)",
+                "valor_log": biog_log_par,
+                "valor_bu": biog_bu_par,
+                "valor_rdv": "-",
+                "status": "CONFERE_100%" if biog_log_par == biog_bu_par else "DIVERGENTE",
+            },
+            {
+                "item": "Habilitações Sem Biometria c/ Mesário Consolidadas (Log vs BU)",
+                "valor_log": sbio_log_par,
+                "valor_bu": sbio_bu_par,
+                "valor_rdv": "-",
+                "status": "CONFERE_100%" if sbio_log_par == sbio_bu_par else "DIVERGENTE",
+            },
+        ])
+
+    for pc in placar_candidatos:
+        batimentos_consolidados.append({
+            "item": f"Candidato {pc['nome']} ({pc['numero']}) — Soma BU vs Soma RDV ASN.1 ({pc['pct_validos']}%)",
+            "valor_log": "SIGILO_CONSTITUCIONAL",
+            "valor_bu": pc["votos_bu"] if urnas_com_bu > 0 else "-",
+            "valor_rdv": pc["votos_rdv"] if urnas_com_rdv > 0 else "-",
+            "status": pc["status"],
+        })
+
+    if urnas_com_bu > 0 or urnas_com_rdv > 0:
+        batimentos_consolidados.extend([
+            {
+                "item": "Votos em Branco Consolidados (BU vs RDV Binário ASN.1)",
+                "valor_log": "-",
+                "valor_bu": brancos_bu_total if urnas_com_bu > 0 else "-",
+                "valor_rdv": brancos_rdv_total if urnas_com_rdv > 0 else "-",
+                "status": "CONFERE_100%" if (urnas_com_bu == 0 or urnas_com_rdv == 0 or brancos_bu_total == brancos_rdv_total) else "DIVERGENTE",
+            },
+            {
+                "item": "Votos Nulos Consolidados (BU vs RDV Binário ASN.1)",
+                "valor_log": "-",
+                "valor_bu": nulos_bu_total if urnas_com_bu > 0 else "-",
+                "valor_rdv": nulos_rdv_total if urnas_com_rdv > 0 else "-",
+                "status": "CONFERE_100%" if (urnas_com_bu == 0 or urnas_com_rdv == 0 or nulos_bu_total == nulos_rdv_total) else "DIVERGENTE",
+            },
+        ])
+
+    # Soma de vazão horária e dígitos nulos
+    votos_por_hora_global = Counter()
+    nulos_digitados_global = Counter()
+    soma_ponderada_ciclo = 0.0
+    soma_ponderada_cabine = 0.0
+    total_votos_com_log = 0
+    total_linhas_logd = 0
+    total_macs_validos = 0
+    total_teclas_indevidas = 0
+    total_id_invalido = 0
+
+    for s in secoes_filtradas:
+        for hh, q in s.get("votos_por_hora", {}).items():
+            votos_por_hora_global[hh] += q
+        for dig, q in s.get("votos_nulos_numeros_rdv", {}).items():
+            nulos_digitados_global[dig] += q
+        v_log = s.get("comparecimento_log", 0)
+        if v_log > 0:
+            soma_ponderada_ciclo += s.get("tempo_medio_ciclo_s", 0.0) * v_log
+            soma_ponderada_cabine += s.get("tempo_medio_cabine_s", 0.0) * v_log
+            total_votos_com_log += v_log
+        total_linhas_logd += s.get("total_linhas_logd", 0)
+        total_macs_validos += s.get("macs_validos", 0)
+        total_teclas_indevidas += s.get("total_teclas_indevidas", 0)
+        total_id_invalido += s.get("total_id_invalido", 0)
+
+    tempo_medio_ciclo_global = round(soma_ponderada_ciclo / max(total_votos_com_log, 1), 1) if total_votos_com_log else 0.0
+    tempo_medio_cabine_global = round(soma_ponderada_cabine / max(total_votos_com_log, 1), 1) if total_votos_com_log else 0.0
+    pct_comp = round((comp_efetivo_total / max(aptos_total, 1)) * 100.0, 2) if aptos_total else 0.0
+
+    nivel_risco_global = "CRITICO" if urnas_com_alerta > 0 else "BAIXO"
+    veredito_consolidado = (
+        f"CONSOLIDAÇÃO GLOBAL ÍNTEGRA — {total_urnas} URNA(S) AUDITADA(S) EM {cidades_no_filtro} CIDADE(S) / {zonas_no_filtro} ZONA(S)"
+        if urnas_com_alerta == 0
+        else f"ALERTA FORENSE: {urnas_com_alerta} DE {total_urnas} URNA(S) APRESENTARAM DIVERGÊNCIA OU ANOMALIA"
+    )
+
+    return {
+        "modo_visao": "CONSOLIDADO_GLOBAL",
+        "hierarquia": hierarquia,
+        "consolidado": {
+            "nivel_risco": nivel_risco_global,
+            "veredito_geral": veredito_consolidado,
+            "total_urnas": total_urnas,
+            "urnas_integras": urnas_integras,
+            "urnas_com_alerta": urnas_com_alerta,
+            "urnas_com_log": urnas_com_log,
+            "urnas_com_bu": urnas_com_bu,
+            "urnas_com_rdv": urnas_com_rdv,
+            "cidades_no_filtro": cidades_no_filtro,
+            "zonas_no_filtro": zonas_no_filtro,
+            "eleitores_aptos_total": aptos_total,
+            "faltosos_total": faltosos_total,
+            "comparecimento_total": comp_efetivo_total,
+            "pct_comparecimento": pct_comp,
+            "brancos_total": brancos_bu_total or brancos_rdv_total,
+            "nulos_total": nulos_bu_total or nulos_rdv_total,
+            "votos_nulos_numeros_digitados": dict(nulos_digitados_global),
+            "tempo_medio_ciclo_s": tempo_medio_ciclo_global,
+            "tempo_medio_cabine_s": tempo_medio_cabine_global,
+            "total_linhas_logd": total_linhas_logd,
+            "total_macs_validos": total_macs_validos,
+            "total_teclas_indevidas": total_teclas_indevidas,
+            "total_id_invalido": total_id_invalido,
+            "placar_candidatos": placar_candidatos,
+            "batimentos_cruzados": batimentos_consolidados,
+            "votos_por_hora": dict(sorted(votos_por_hora_global.items())),
+            "lista_urnas": secoes_filtradas[:500],
+        },
+    }
+

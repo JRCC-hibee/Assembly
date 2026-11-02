@@ -31,7 +31,13 @@ from .thermal_printer import gerar_relatorio_zeresima, apurar_boletim_de_urna
 from .cartridge import gerar_cartucho_midia_resultado
 from .esp32_protocol import decode_esp32_vote_frame
 from .simulator_audit import executar_simulacao_cadencia_seccao, auditar_logs_independente
-from .tse_reverse_analyzer import analisar_pacote_seccao_tse
+from .tse_reverse_analyzer import (
+    analisar_pacote_seccao_tse,
+    processar_lote_arquivos_tse,
+    consolidar_secoes_tse,
+    obter_secao_individual_tse,
+    limpar_catalogo_tse,
+)
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -727,31 +733,94 @@ def api_auditar_logs_independente(payload: AuditoriaExternaLogsSchema, db: Sessi
 
 
 @app.post("/api/tse-reverso/upload")
-async def api_tse_reverso_upload(files: list[UploadFile] = File(...)):
+async def api_tse_reverso_upload(request: Request):
     """
-    Recebe o upload dos arquivos oficiais do TSE de uma seção eleitoral:
-    `-log.jez`, `-imgbu.dat`, `-rdv.dat`, `-bu.dat`, `-vota.vsc`
-    e executa a Engenharia Reversa + Batimento Forense Triplo.
+    Recebe o upload dos arquivos oficiais do TSE de uma ou mais seções eleitorais
+    (`-log.jez`, `-imgbu.dat`, `-rdv.dat`, `-bu.dat`, `-vota.vsc`),
+    registra no catálogo multi-urna e retorna o resultado.
     """
+    form = await request.form(max_files=5000, max_fields=5000)
+    files = form.getlist("files")
     if not files:
         raise HTTPException(status_code=400, detail="Nenhum arquivo enviado para análise reversa.")
 
     arquivos_dict = {}
     for f in files:
-        content = await f.read()
-        arquivos_dict[f.filename] = content
+        if hasattr(f, "read") and getattr(f, "filename", None):
+            content = await f.read()
+            arquivos_dict[f.filename] = content
+
+    if not arquivos_dict:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo válido encontrado no envio.")
 
     try:
-        return analisar_pacote_seccao_tse(arquivos_dict)
+        lote_res = processar_lote_arquivos_tse(arquivos_dict)
+        if lote_res.get("secoes_processadas_neste_lote") == 1 and lote_res.get("ultimo_relatorio_individual"):
+            return lote_res["ultimo_relatorio_individual"]
+        return consolidar_secoes_tse("TODAS", "TODAS", "CONSOLIDADO")
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Erro ao processar pacote TSE: {exc}")
+
+
+@app.post("/api/tse-reverso/upload-lote")
+async def api_tse_reverso_upload_lote(request: Request):
+    """
+    Endpoint otimizado para ingestão em lote (chunked) de dezenas, centenas ou milhares
+    de seções/urnas do estado (ex: Paraná inteiro). Agrupa por prefixo da seção,
+    persiste no catálogo e retorna o progresso.
+    """
+    form = await request.form(max_files=5000, max_fields=5000)
+    files = form.getlist("files")
+    if not files:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo enviado no lote.")
+
+    arquivos_dict = {}
+    for f in files:
+        if hasattr(f, "read") and getattr(f, "filename", None):
+            content = await f.read()
+            arquivos_dict[f.filename] = content
+
+    try:
+        lote_res = processar_lote_arquivos_tse(arquivos_dict)
+        return {
+            "ok": True,
+            "secoes_processadas_neste_lote": lote_res["secoes_processadas_neste_lote"],
+            "prefixos_processados": lote_res["prefixos_processados"],
+            "total_secoes_no_catalogo": lote_res["total_secoes_no_catalogo"],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Erro ao processar lote TSE: {exc}")
+
+
+@app.get("/api/tse-reverso/consolidar")
+def api_tse_reverso_consolidar(
+    municipio: str = "TODAS",
+    zona: str = "TODAS",
+    secao: str = "CONSOLIDADO",
+):
+    """
+    Retorna a hierarquia completa (Cidades -> Zonas -> Seções/Urnas) e:
+    - A consolidação global de todas as urnas do filtro (`secao=CONSOLIDADO`), OU
+    - O dossiê forense individual da urna escolhida (`secao=<prefixo>`).
+    """
+    return consolidar_secoes_tse(
+        municipio_filtro=municipio,
+        zona_filtro=zona,
+        secao_filtro=secao,
+    )
+
+
+@app.delete("/api/tse-reverso/catalogo")
+def api_tse_reverso_limpar_catalogo():
+    """Limpa todas as seções/urnas carregadas no catálogo de Engenharia Reversa TSE."""
+    return limpar_catalogo_tse()
 
 
 @app.post("/api/tse-reverso/amostra-pr")
 def api_tse_reverso_amostra_pr():
     """
     Carrega instantaneamente a Seção Oficial 0017 (Zona 0171 - Almirante Tamandaré/PR - 2º Turno 2026)
-    incluída no servidor para demonstração imediata da Análise Reversa.
+    incluída no servidor, indexa no catálogo estadual e retorna o dossiê.
     """
     sample_dir = os.path.join(BASE_DIR, "samples_tse_pr")
     paths = glob.glob(os.path.join(sample_dir, "o03221pr7407101710017-*"))
@@ -763,6 +832,8 @@ def api_tse_reverso_amostra_pr():
         with open(p, "rb") as fp:
             arquivos_dict[os.path.basename(p)] = fp.read()
 
-    return analisar_pacote_seccao_tse(arquivos_dict)
+    lote_res = processar_lote_arquivos_tse(arquivos_dict)
+    return lote_res["ultimo_relatorio_individual"]
+
 
 
