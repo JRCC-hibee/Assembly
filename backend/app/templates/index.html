@@ -875,6 +875,15 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
 
           <div class="flex flex-wrap items-center gap-2.5">
+            <button
+              id="btnVincularPastaLocalTse"
+              onclick="vincularPastaLocalTseShowDirectoryPicker()"
+              title="Vincula sua pasta local do PR (sem precisar listar 135 mil arquivos) para puxar o arquivo -log.jez automaticamente em 0,2s sempre que você clicar em uma urna na árvore!"
+              class="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs rounded-xl shadow-lg transition inline-flex items-center gap-2"
+            >
+              <span id="lblVincularPastaLocalTse">🔗 Vincular Pasta PR p/ Log.jez Automático</span>
+            </button>
+
             <label class="px-3.5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2">
               <span>📂 Selecionar Arquivos (.jez, .dat, .vsc)</span>
               <input id="tseFilesInput" type="file" multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
@@ -1089,13 +1098,13 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
 
-        <!-- BLOCO EXCLUSIVO DA VISÃO CONSOLIDADA: PLACAR TOTALIZADO DE CANDIDATOS -->
+        <!-- BLOCO DE PLACAR TOTALIZADO DE CANDIDATOS (EXIBIDO TANTO NO CONSOLIDADO QUANTO NA URNA INDIVIDUAL) -->
         <div id="tsePlacarConsolidadoBox" class="hidden bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
-            <h3 class="text-sm font-bold text-white">
-              🏆 Totalização Consolidada de Votos por Candidato no Filtro (`Soma BU` × `Soma RDV Binário ASN.1`)
+            <h3 id="tsePlacarTitle" class="text-sm font-bold text-white">
+              🏆 Totalização de Votos por Candidato (`Soma BU` × `Soma RDV Binário ASN.1`)
             </h3>
-            <span id="tsePlacarSubLabel" class="text-xs text-cyan-300 mono"></span>
+            <span id="tsePlacarSubLabel" class="text-xs text-cyan-300 mono font-bold"></span>
           </div>
           <div id="tsePlacarCandidatosGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
         </div>
@@ -2299,13 +2308,21 @@ o Boletim de Urna (apos encerramento da votacao).
       if (totalFaltantes === 0) {
         progBar.style.width = "100%";
         progPct.textContent = "100%";
-        progText.textContent = `✅ Todas as ${totalUrnasSelecionadas.toLocaleString("pt-BR")} urnas selecionadas já constam no catálogo (${arquivosPuladosJaExistentes.toLocaleString("pt-BR")} arquivos duplicados ignorados)!`;
+        progText.textContent = `✅ Todas as ${totalUrnasSelecionadas.toLocaleString("pt-BR")} urnas selecionadas já constam no catálogo (${arquivosPuladosJaExistentes.toLocaleString("pt-BR")} arquivos duplicados ignorados)! Pasta indexada na memória para carregar Log.jez ao clicar nas urnas.`;
         setTimeout(() => {
           progBox.classList.add("hidden");
-        }, 4000);
+        }, 4500);
         event.target.value = "";
         playBeepBiometriaOk();
-        await atualizarConsolidacaoTse(true, "TODAS", "TODAS", totalUrnasSelecionadas === 1 ? todosPrefixosSelecionados[0] : "CONSOLIDADO");
+        const secaoAtiva = window.arvoreTseState?.secao;
+        if (secaoAtiva && secaoAtiva !== "CONSOLIDADO") {
+          await garantirLogJezSobDemanda(secaoAtiva);
+          await atualizarConsolidacaoTse(true);
+        } else if (totalUrnasSelecionadas === 1) {
+          await selecionarNoArvoreTse("TODAS", "TODAS", "TODAS", "TODAS", todosPrefixosSelecionados[0]);
+        } else {
+          await atualizarConsolidacaoTse(true);
+        }
         return;
       }
 
@@ -2437,23 +2454,173 @@ o Boletim de Urna (apos encerramento da votacao).
       await atualizarConsolidacaoTse(true);
     }
 
-    async function garantirLogJezSobDemanda(prefixo) {
-      // Se o arquivo -log.jez desta seção estiver na memória local do navegador (Modo Turbo),
-      // envia automaticamente para o backend antes de abrir os detalhes da urna!
+    // =================================================================================
+    // VINCULAÇÃO DIRETA DE PASTA LOCAL (File System Access API + IndexedDB)
+    // Permite buscar apenas o arquivo "${prefixo}-log.jez" em O(1) (~2ms) sem precisar
+    // re-enumerar os 135.714 arquivos do Paraná quando o navegador é recarregado!
+    // =================================================================================
+    window.tseDirectoryHandle = null;
+
+    function abrirDbHandlePastaTse() {
+      return new Promise((resolve, reject) => {
+        if (!window.indexedDB) return resolve(null);
+        const req = indexedDB.open("UrnaForenseTseHandlesDB", 1);
+        req.onupgradeneeded = () => {
+          const db = req.result;
+          if (!db.objectStoreNames.contains("handles")) {
+            db.createObjectStore("handles");
+          }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => resolve(null);
+      });
+    }
+
+    async function salvarHandlePastaIndexedDB(handle) {
+      try {
+        const db = await abrirDbHandlePastaTse();
+        if (!db) return;
+        const tx = db.transaction("handles", "readwrite");
+        tx.objectStore("handles").put(handle, "pr_2026_folder");
+      } catch (e) {}
+    }
+
+    async function restaurarHandlePastaIndexedDB() {
+      try {
+        const db = await abrirDbHandlePastaTse();
+        if (!db) return null;
+        return await new Promise((resolve) => {
+          const tx = db.transaction("handles", "readonly");
+          const req = tx.objectStore("handles").get("pr_2026_folder");
+          req.onsuccess = () => resolve(req.result || null);
+          req.onerror = () => resolve(null);
+        });
+      } catch (e) {
+        return null;
+      }
+    }
+
+    function atualizarBotaoPastaVinculadaUI(nomePasta) {
+      const btn = document.getElementById("btnVincularPastaLocalTse");
+      const lbl = document.getElementById("lblVincularPastaLocalTse");
+      if (btn && lbl && nomePasta) {
+        btn.className = "px-3.5 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold text-xs rounded-xl shadow-lg transition inline-flex items-center gap-2";
+        lbl.textContent = `✅ Pasta Vinculada: ${nomePasta} (Log.jez Automático)`;
+      }
+    }
+
+    async function vincularPastaLocalTseShowDirectoryPicker(recarregarSecaoAtual = true) {
+      if (!window.showDirectoryPicker) {
+        // Fallback para navegadores sem showDirectoryPicker: abre o seletor de pasta tradicional
+        document.getElementById("tseFolderInput")?.click();
+        return;
+      }
+      try {
+        const dirHandle = await window.showDirectoryPicker({ mode: "read" });
+        window.tseDirectoryHandle = dirHandle;
+        await salvarHandlePastaIndexedDB(dirHandle);
+        atualizarBotaoPastaVinculadaUI(dirHandle.name);
+        showSecurityAlert(`Pasta "${dirHandle.name}" vinculada! Ao clicar em qualquer urna na árvore, o arquivo -log.jez será carregado automaticamente em ~0,2s.`, false);
+        playBeepBiometriaOk();
+
+        const secaoAtiva = window.arvoreTseState?.secao;
+        if (recarregarSecaoAtual && secaoAtiva && secaoAtiva !== "CONSOLIDADO") {
+          await garantirLogJezSobDemanda(secaoAtiva, true);
+          await atualizarConsolidacaoTse(true);
+        }
+      } catch (err) {
+        if (err && err.name !== "AbortError") {
+          showSecurityAlert(`Não foi possível vincular a pasta: ${err.message}`, true);
+        }
+      }
+    }
+
+    async function buscarArquivoJezNoDirectoryHandle(dirHandle, prefixo) {
+      if (!dirHandle) return null;
+      const targetName = `${prefixo}-log.jez`;
+      try {
+        if (dirHandle.queryPermission) {
+          let perm = await dirHandle.queryPermission({ mode: "read" });
+          if (perm !== "granted" && dirHandle.requestPermission) {
+            perm = await dirHandle.requestPermission({ mode: "read" });
+          }
+          if (perm !== "granted") return null;
+        }
+        // Busca O(1) direta pelo nome exato na raiz da pasta selecionada (~2ms mesmo com 135 mil arquivos!)
+        const fileHandle = await dirHandle.getFileHandle(targetName);
+        return await fileHandle.getFile();
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function selecionarArquivoJezManualDaUrna(prefixo) {
+      const inp = document.createElement("input");
+      inp.type = "file";
+      inp.accept = ".jez,.dat,.vsc";
+      inp.multiple = true;
+      inp.onchange = async (ev) => {
+        const files = Array.from(ev.target.files || []);
+        if (!files.length) return;
+        showSecurityAlert(`Enviando ${files.map(f => f.name).join(", ")}...`, false);
+        const fd = new FormData();
+        files.forEach(f => fd.append("files", f, f.name));
+        try {
+          const r = await fetch("/api/tse-reverso/upload-lote", { method: "POST", body: fd });
+          if (r.ok) {
+            hideSecurityAlert();
+            playBeepBiometriaOk();
+            await atualizarConsolidacaoTse(true);
+          } else {
+            showSecurityAlert("Erro ao enviar arquivo -log.jez.", true);
+          }
+        } catch (err) {
+          showSecurityAlert(`Falha no upload: ${err.message}`, true);
+        }
+      };
+      inp.click();
+    }
+
+    async function garantirLogJezSobDemanda(prefixo, forcarMesmoSeTentado = false) {
+      if (!prefixo || prefixo === "CONSOLIDADO") return;
+
+      // 1) Verifica se o arquivo -log.jez desta seção está na memória RAM (window.localTseFilesByPrefix)
+      let jezFile = null;
       const localMap = window.localTseFilesByPrefix[prefixo];
-      if (!localMap) return;
+      if (localMap) {
+        const jezEntry = Object.entries(localMap).find(([k]) => k.endsWith(".jez"));
+        if (jezEntry && (!jezEntry[1]._alreadyUploaded || forcarMesmoSeTentado)) {
+          jezFile = jezEntry[1];
+        } else if (jezEntry && jezEntry[1]._alreadyUploaded) {
+          return;
+        }
+      }
 
-      const jezEntry = Object.entries(localMap).find(([k]) => k.endsWith(".jez"));
-      if (!jezEntry || jezEntry[1]._alreadyUploaded) return;
+      // 2) Se não está na RAM (ex: página foi recarregada), busca em O(1) (~2ms) na pasta local vinculada (FileSystemDirectoryHandle)
+      if (!jezFile) {
+        if (!window.tseDirectoryHandle) {
+          const restored = await restaurarHandlePastaIndexedDB();
+          if (restored) {
+            window.tseDirectoryHandle = restored;
+            atualizarBotaoPastaVinculadaUI(restored.name);
+          }
+        }
+        if (window.tseDirectoryHandle) {
+          jezFile = await buscarArquivoJezNoDirectoryHandle(window.tseDirectoryHandle, prefixo);
+        }
+      }
 
-      const jezFile = jezEntry[1];
-      showSecurityAlert(`Carregando arquivo ${jezFile.name} para reconstruir os eleitores hora a hora desta urna...`, false);
+      if (!jezFile) return;
+
+      showSecurityAlert(`Carregando arquivo ${jezFile.name} para reconstruir o gráfico de eleitores hora a hora desta urna...`, false);
       const fd = new FormData();
       fd.append("files", jezFile, jezFile.name);
       try {
         const r = await fetch("/api/tse-reverso/upload-lote", { method: "POST", body: fd });
         if (r.ok) {
           jezFile._alreadyUploaded = true;
+          if (!window.localTseFilesByPrefix[prefixo]) window.localTseFilesByPrefix[prefixo] = {};
+          window.localTseFilesByPrefix[prefixo][jezFile.name.toLowerCase()] = jezFile;
         }
       } catch (e) {}
       hideSecurityAlert();
@@ -2498,7 +2665,8 @@ o Boletim de Urna (apos encerramento da votacao).
 
       if (payload.modo_visao === "SECAO_INDIVIDUAL" && payload.secao_individual) {
         document.getElementById("btnVoltarConsolidado").classList.remove("hidden");
-        document.getElementById("tsePlacarConsolidadoBox").classList.add("hidden");
+        // Mantém os cards totalizadores por candidato e resumo de Brancos/Nulos/Faltosos SEMPRE visíveis também na urna individual!
+        document.getElementById("tsePlacarConsolidadoBox").classList.remove("hidden");
         document.getElementById("tseListaUrnasConsolidadaBox").classList.add("hidden");
         document.getElementById("tseIndividualUrnaSection").classList.remove("hidden");
         renderizarLaudoTseReverso(payload.secao_individual);
@@ -2755,8 +2923,12 @@ o Boletim de Urna (apos encerramento da votacao).
       }
 
       // Placar Consolidado de Candidatos
+      const titleEl = document.getElementById("tsePlacarTitle");
+      if (titleEl) {
+        titleEl.textContent = "🏆 Totalização Consolidada de Votos por Candidato no Filtro (`Soma BU` × `Soma RDV Binário ASN.1`)";
+      }
       document.getElementById("tsePlacarSubLabel").textContent =
-        `Brancos: ${cons.brancos_total.toLocaleString("pt-BR")} • Nulos: ${cons.nulos_total.toLocaleString("pt-BR")} • Faltosos: ${cons.faltosos_total.toLocaleString("pt-BR")}`;
+        `Aptos: ${cons.eleitores_aptos_total.toLocaleString("pt-BR")} • Comparecimento: ${cons.comparecimento_total.toLocaleString("pt-BR")} • Brancos: ${cons.brancos_total.toLocaleString("pt-BR")} • Nulos: ${cons.nulos_total.toLocaleString("pt-BR")} • Faltosos: ${cons.faltosos_total.toLocaleString("pt-BR")}`;
 
       const gridCands = document.getElementById("tsePlacarCandidatosGrid");
       gridCands.innerHTML = (cons.placar_candidatos || []).map(c => `
@@ -2920,17 +3092,104 @@ o Boletim de Urna (apos encerramento da votacao).
       const meta = log.metadados_urna || {};
       const resLog = log.resumo_votacao_log || {};
       const rdv = data.rdv || {};
+      const resCons = data.resumo_consolidacao || {};
+      window.currentTsePrefixoAtivo = data.prefixo_seccao || window.arvoreTseState?.secao || "";
 
-      document.getElementById("tseMunVal").textContent = bu.municipio_nome
+      const munNome = bu.municipio_nome
         ? `${bu.municipio_nome} (${bu.municipio_codigo})`
-        : (meta.municipio || "-");
-      document.getElementById("tseZonaSecaoVal").textContent = `Z: ${bu.zona || meta.zona || "-"} / S: ${bu.secao || meta.secao || "-"}`;
-      document.getElementById("tseModeloSerialVal").textContent = `${meta.modelo_ue || "UE2020"} (#${meta.serial_ue || bu.codigo_ue || "-"})`;
-      document.getElementById("tseVersaoSwVal").textContent = meta.versao_aplicacao || "-";
-      document.getElementById("tseCompAptosVal").textContent = `${bu.comparecimento || resLog.total_votos_computados || "-"} / ${bu.eleitores_aptos || "-"}`;
+        : (resCons.municipio_nome ? `${resCons.municipio_nome} (${resCons.municipio_codigo})` : (meta.municipio || "-"));
+      const zonaNum = bu.zona || resCons.zona || meta.zona || "-";
+      const secaoNum = bu.secao || resCons.secao || meta.secao || "-";
+
+      document.getElementById("tseMunVal").textContent = munNome;
+      document.getElementById("tseZonaSecaoVal").textContent = `Z: ${zonaNum} / S: ${secaoNum}`;
+      document.getElementById("tseModeloSerialVal").textContent = `${meta.modelo_ue || "UE2020"} (#${meta.serial_ue || bu.codigo_ue || resCons.serial_ue || "-"})`;
+      document.getElementById("tseVersaoSwVal").textContent = meta.versao_aplicacao || (log.ciclos_eleitores ? "-" : "Modo Turbo (BU+RDV)");
+      document.getElementById("tseCompAptosVal").textContent = `${bu.comparecimento ?? resCons.comparecimento_efetivo ?? resLog.total_votos_computados ?? "-"} / ${bu.eleitores_aptos ?? resCons.eleitores_aptos ?? "-"}`;
       document.getElementById("tseCadenciaMediaVal").textContent = resLog.tempo_medio_ciclo_s
         ? `${resLog.tempo_medio_ciclo_s}s (Cabine: ${resLog.tempo_medio_cabine_s}s)`
-        : "-";
+        : "Clique p/ carregar .jez";
+
+      // =========================================================================
+      // CARDS TOTALIZADORES POR CANDIDATO + BRANCOS / NULOS / FALTOSOS DA URNA
+      // (Mantidos visíveis também quando uma urna específica está selecionada!)
+      // =========================================================================
+      const placarBox = document.getElementById("tsePlacarConsolidadoBox");
+      if (placarBox) placarBox.classList.remove("hidden");
+
+      const titleEl = document.getElementById("tsePlacarTitle");
+      if (titleEl) {
+        titleEl.textContent = `🏆 Totalização de Votos por Candidato na Urna (${munNome} — Zona ${zonaNum} / Seção ${secaoNum})`;
+      }
+
+      const aptosUrna = Number(bu.eleitores_aptos ?? resCons.eleitores_aptos ?? 0);
+      const compUrna = Number(bu.comparecimento ?? resCons.comparecimento_efetivo ?? rdv.total_votos_no_rdv ?? 0);
+      const faltososUrna = Number(bu.faltosos ?? resCons.faltosos ?? Math.max(0, aptosUrna - compUrna));
+      const brancosUrna = Number(bu.votos_brancos ?? resCons.brancos_bu ?? rdv.votos_brancos_rdv ?? 0);
+      const nulosUrna = Number(bu.votos_nulos ?? resCons.nulos_bu ?? rdv.votos_nulos_rdv ?? 0);
+
+      document.getElementById("tsePlacarSubLabel").textContent =
+        `Aptos: ${aptosUrna.toLocaleString("pt-BR")} • Comparecimento: ${compUrna.toLocaleString("pt-BR")} • Brancos: ${brancosUrna.toLocaleString("pt-BR")} • Nulos: ${nulosUrna.toLocaleString("pt-BR")} • Faltosos: ${faltososUrna.toLocaleString("pt-BR")}`;
+
+      // Monta lista de candidatos da urna combinando resumo_consolidacao, imgbu e rdv
+      let candsUrna = [];
+      if (Array.isArray(resCons.candidatos) && resCons.candidatos.length > 0) {
+        candsUrna = resCons.candidatos.map(c => ({
+          numero: String(c.numero),
+          nome: c.nome || `CANDIDATO ${c.numero}`,
+          votos_bu: Number(c.votos_bu ?? 0),
+          votos_rdv: Number(c.votos_rdv ?? 0)
+        }));
+      } else {
+        const mapC = new Map();
+        (bu.votos_nominais || []).forEach(c => {
+          mapC.set(String(c.numero), {
+            numero: String(c.numero),
+            nome: c.nome || `CANDIDATO ${c.numero}`,
+            votos_bu: Number(c.votos ?? 0),
+            votos_rdv: Number((rdv.votos_nominais_rdv || {})[String(c.numero)] ?? c.votos ?? 0)
+          });
+        });
+        Object.entries(rdv.votos_nominais_rdv || {}).forEach(([num, qtd]) => {
+          if (!mapC.has(String(num))) {
+            mapC.set(String(num), {
+              numero: String(num),
+              nome: `CANDIDATO ${num}`,
+              votos_bu: Number(qtd),
+              votos_rdv: Number(qtd)
+            });
+          }
+        });
+        candsUrna = Array.from(mapC.values());
+      }
+
+      candsUrna.sort((a, b) => Math.max(b.votos_bu, b.votos_rdv) - Math.max(a.votos_bu, a.votos_rdv));
+      const somaValidosUrna = candsUrna.reduce((acc, c) => acc + (c.votos_bu || c.votos_rdv || 0), 0);
+
+      document.getElementById("tsePlacarCandidatosGrid").innerHTML = candsUrna.map(c => {
+        const vRef = c.votos_bu || c.votos_rdv || 0;
+        const pct = somaValidosUrna > 0 ? ((vRef / somaValidosUrna) * 100).toFixed(2) : "0.00";
+        const confere = (c.votos_bu === c.votos_rdv) || !bu.votos_nominais || !rdv.votos_nominais_rdv;
+        return `
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 font-extrabold text-xs mono">Nº ${c.numero}</span>
+                <span class="font-extrabold text-white text-sm ml-1.5">${c.nome}</span>
+              </div>
+              <span class="text-lg font-extrabold text-emerald-400 mono">${pct}%</span>
+            </div>
+            <div class="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
+              <div style="width: ${Math.min(100, Math.round(Number(pct))) }%" class="bg-emerald-500 h-full"></div>
+            </div>
+            <div class="flex justify-between text-[11px] mono text-slate-400 pt-1">
+              <span>Votos BU: <strong class="text-amber-300">${c.votos_bu.toLocaleString("pt-BR")}</strong></span>
+              <span>Votos RDV ASN.1: <strong class="text-emerald-300">${c.votos_rdv.toLocaleString("pt-BR")}</strong></span>
+              <span class="${confere ? 'text-emerald-400' : 'text-rose-400'} font-bold">${confere ? '100% OK' : 'DIVERGENTE'}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
 
       if (log.macs_validos !== undefined) {
         document.getElementById("tseMacSummary").textContent =
@@ -2973,19 +3232,38 @@ o Boletim de Urna (apos encerramento da votacao).
       // Barras de Vazão Horária
       const hourlyContainer = document.getElementById("tseHourlyBars");
       const vph = resLog.votos_por_hora || {};
-      const maxHourCount = Math.max(...Object.values(vph), 1);
-      hourlyContainer.innerHTML = Object.entries(vph).map(([hh, qtd]) => {
-        const wPct = Math.round((qtd / maxHourCount) * 100);
-        return `
-          <div class="flex items-center gap-2">
-            <span class="w-10 text-slate-400 font-bold">${hh}</span>
-            <div class="flex-1 bg-slate-950 rounded h-4 overflow-hidden border border-slate-800">
-              <div style="width: ${wPct}%" class="bg-cyan-500 h-full"></div>
+      const entriesVph = Object.entries(vph);
+      if (entriesVph.length > 0) {
+        const maxHourCount = Math.max(...Object.values(vph), 1);
+        hourlyContainer.innerHTML = entriesVph.map(([hh, qtd]) => {
+          const wPct = Math.round((qtd / maxHourCount) * 100);
+          return `
+            <div class="flex items-center gap-2">
+              <span class="w-10 text-slate-400 font-bold">${hh}</span>
+              <div class="flex-1 bg-slate-950 rounded h-4 overflow-hidden border border-slate-800">
+                <div style="width: ${wPct}%" class="bg-cyan-500 h-full"></div>
+              </div>
+              <span class="w-16 text-right font-bold text-white">${qtd} votos</span>
             </div>
-            <span class="w-16 text-right font-bold text-white">${qtd} votos</span>
+          `;
+        }).join("");
+      } else {
+        const prefAtivo = window.currentTsePrefixoAtivo || "";
+        hourlyContainer.innerHTML = `
+          <div class="bg-slate-950 border border-amber-500/40 rounded-lg p-3 text-xs space-y-2">
+            <div class="text-amber-300 font-bold">⚡ Urna importada no Modo Turbo (BU + RDV já auditados).</div>
+            <div class="text-slate-300">Para exibir a vazão horária e o gráfico de logs por eleitor desta urna (<code>${prefAtivo}-log.jez</code>), vincule sua pasta local do PR abaixo (1 clique):</div>
+            <div class="flex flex-wrap gap-2 pt-1">
+              <button onclick="vincularPastaLocalTseShowDirectoryPicker(true)" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] transition">
+                🔗 Vincular Pasta PR e Carregar Log.jez Agora
+              </button>
+              <button onclick="selecionarArquivoJezManualDaUrna('${prefAtivo}')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-600/50 font-bold text-[11px] transition">
+                📂 Selecionar ${prefAtivo}-log.jez
+              </button>
+            </div>
           </div>
         `;
-      }).join("");
+      }
 
       const histDatas = meta.historico_votos_por_data_no_log
         ? Object.entries(meta.historico_votos_por_data_no_log).map(([dt, q]) => `${dt}: ${q} votos`).join(" | ")
@@ -3048,6 +3326,44 @@ o Boletim de Urna (apos encerramento da votacao).
       const horasVisiveis = Array.from(new Set(ciclosFiltrados.map(c => c.faixa_horaria || (c.hora_computado.slice(0, 2) + "h")))).sort();
 
       const barsEl = document.getElementById("tseRealVoterBars");
+      if (todosCiclos.length === 0) {
+        const prefAtivo = window.currentTsePrefixoAtivo || window.arvoreTseState?.secao || "";
+        barsEl.className = "grid grid-cols-1 gap-4";
+        barsEl.innerHTML = `
+          <div class="bg-slate-950 border-2 border-amber-500/50 rounded-xl p-5 space-y-3 text-xs mono">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <span class="px-2.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600 font-extrabold uppercase text-[10px]">
+                ⚡ Log.jez Sob Demanda (Modo Turbo Estadual)
+              </span>
+              <span class="text-slate-400">Arquivo esperado: <strong class="text-cyan-300">${prefAtivo}-log.jez</strong></span>
+            </div>
+            <div class="text-slate-200 text-sm font-bold">
+              Por que o gráfico de eleitores desta urna está com 0 eleitores?
+            </div>
+            <p class="text-slate-300 leading-relaxed">
+              Durante o carregamento em lote das <strong>19.650+ urnas do Paraná</strong> no <strong>Modo Turbo</strong>, o sistema subiu apenas os arquivos leves (<code>-imgbu.dat</code> e <code>-rdv.dat</code>) para não trafegar 16 GB de uma vez. Quando a página é recarregada, o navegador limpa a referência temporária da pasta local.
+            </p>
+            <div class="flex flex-wrap items-center gap-3 pt-1">
+              <button
+                onclick="vincularPastaLocalTseShowDirectoryPicker(true)"
+                class="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs shadow-lg transition inline-flex items-center gap-2"
+              >
+                🔗 Vincular Pasta Local do PR (Carrega ${prefAtivo}-log.jez em 0,2s e Automatiza Próximas Urnas)
+              </button>
+              <button
+                onclick="selecionarArquivoJezManualDaUrna('${prefAtivo}')"
+                class="px-4 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs shadow-lg transition inline-flex items-center gap-2"
+              >
+                📂 Ou Selecionar Arquivo ${prefAtivo}-log.jez Manualmente
+              </button>
+            </div>
+          </div>
+        `;
+        document.getElementById("tseTableCountLabel").textContent = "Aguardando arquivo -log.jez desta seção";
+        document.getElementById("tseCiclosTableBody").innerHTML = "";
+        return;
+      }
+
       if (filtro !== "TODAS") {
         barsEl.className = "grid grid-cols-1 gap-4";
       } else {
