@@ -805,16 +805,20 @@ async def api_tse_reverso_upload_lote(request: Request):
 
 @app.get("/api/tse-reverso/consolidar")
 def api_tse_reverso_consolidar(
+    regiao: str = "TODAS",
+    uf: str = "TODAS",
     municipio: str = "TODAS",
     zona: str = "TODAS",
     secao: str = "CONSOLIDADO",
 ):
     """
-    Retorna a hierarquia completa (Cidades -> Zonas -> Seções/Urnas) e:
-    - A consolidação global de todas as urnas do filtro (`secao=CONSOLIDADO`), OU
+    Retorna a hierarquia completa de 5 níveis (Região -> Estado -> Cidade -> Zona -> Seção/Urna) e:
+    - A consolidação global de todas as urnas do nível/filtro (`secao=CONSOLIDADO`), OU
     - O dossiê forense individual da urna escolhida (`secao=<prefixo>`).
     """
     return consolidar_secoes_tse(
+        regiao_filtro=regiao,
+        uf_filtro=uf,
         municipio_filtro=municipio,
         zona_filtro=zona,
         secao_filtro=secao,

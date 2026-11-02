@@ -935,67 +935,123 @@ o Boletim de Urna (apos encerramento da votacao).
         </div>
       </div>
 
-      <!-- SELETORA HIERÁRQUICA: CIDADE A CIDADE -> ZONA A ZONA -> URNA A URNA (CONSOLIDAÇÃO GLOBAL) -->
+      <!-- ÁRVORE DE NAVEGAÇÃO E CONSOLIDAÇÃO EM 5 NÍVEIS: REGIÃO > ESTADO > CIDADE > ZONA > SEÇÃO -->
       <div id="tseFilterBarContainer" class="hidden bg-slate-900 border-2 border-emerald-500/40 rounded-xl p-4 space-y-3">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-center gap-2">
+        <!-- Cabeçalho + Trilha Breadcrumb Interativa da Árvore -->
+        <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
+          <div class="flex flex-wrap items-center gap-2">
             <span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] font-extrabold mono uppercase">
-              Filtro & Consolidação Hierárquica
+              Árvore de Consolidação (5 Níveis)
             </span>
-            <span class="text-xs font-bold text-white">
-              Filtre por Cidade (Município), Zona Eleitoral ou Seção/Urna para Consolidação Global ou Inspeção Individual
-            </span>
+            <div id="tseTreeBreadcrumb" class="flex flex-wrap items-center gap-1 text-xs mono"></div>
           </div>
-          <button
-            onclick="voltarParaConsolidacaoFiltro()"
-            id="btnVoltarConsolidado"
-            class="hidden px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs mono transition"
-          >
-            📊 Ver Consolidação Global deste Filtro
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              onclick="voltarParaConsolidacaoFiltro()"
+              id="btnVoltarConsolidado"
+              class="hidden px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs mono transition"
+            >
+              📊 Voltar ao Consolidado do Nível Atual
+            </button>
+            <button
+              onclick="selecionarNoArvoreTse('TODAS', 'TODAS', 'TODAS', 'TODAS', 'CONSOLIDADO')"
+              class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-[11px] mono transition"
+            >
+              🔄 Resetar Filtros (Brasil)
+            </button>
+          </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-          <!-- Seletor 1: Cidade a Cidade -->
-          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5">
-            <label class="block text-[10px] font-extrabold text-slate-400 mono uppercase mb-1">
-              1. Seletora Cidade a Cidade (Município TSE)
-            </label>
-            <select
-              id="tseSelectCidade"
-              onchange="aoMudarFiltroCidadeTse()"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-white font-bold mono focus:border-cyan-400 outline-none"
-            >
-              <option value="TODAS">🌎 TODAS AS CIDADES CARREGADAS</option>
-            </select>
+        <!-- 5 Colunas da Árvore (Região > Estado > Cidade > Zona > Seção) cada uma com Busca Textual -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+          <!-- Nível 1: Região do País -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-[10px] font-extrabold text-cyan-400 mono uppercase">
+                1. Região do País
+              </label>
+              <span id="badgeCountRegiao" class="text-[10px] text-slate-500 mono"></span>
+            </div>
+            <input
+              id="searchRegiaoTse"
+              type="text"
+              oninput="filtrarColunaArvoreTse('regiao')"
+              placeholder="🔎 Buscar região (ex: Sul)..."
+              class="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500 rounded-lg px-2.5 py-1.5 text-[11px] text-white mono outline-none mb-2"
+            />
+            <div id="treeListRegiao" class="max-h-44 overflow-y-auto space-y-1 pr-0.5 text-[11px] mono"></div>
           </div>
 
-          <!-- Seletor 2: Zona a Zona -->
-          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5">
-            <label class="block text-[10px] font-extrabold text-slate-400 mono uppercase mb-1">
-              2. Seletora Zona a Zona (Zona Eleitoral)
-            </label>
-            <select
-              id="tseSelectZona"
-              onchange="aoMudarFiltroZonaTse()"
-              class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs text-cyan-300 font-bold mono focus:border-cyan-400 outline-none"
-            >
-              <option value="TODAS">📍 TODAS AS ZONAS DA SELEÇÃO</option>
-            </select>
+          <!-- Nível 2: Estado (UF) -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-[10px] font-extrabold text-cyan-400 mono uppercase">
+                2. Estado (UF)
+              </label>
+              <span id="badgeCountUf" class="text-[10px] text-slate-500 mono"></span>
+            </div>
+            <input
+              id="searchUfTse"
+              type="text"
+              oninput="filtrarColunaArvoreTse('uf')"
+              placeholder="🔎 Buscar estado (ex: PR, Paraná)..."
+              class="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500 rounded-lg px-2.5 py-1.5 text-[11px] text-white mono outline-none mb-2"
+            />
+            <div id="treeListUf" class="max-h-44 overflow-y-auto space-y-1 pr-0.5 text-[11px] mono"></div>
           </div>
 
-          <!-- Seletor 3: Urna a Urna / Consolidação Global -->
-          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5">
-            <label class="block text-[10px] font-extrabold text-slate-400 mono uppercase mb-1">
-              3. Seletora Urna a Urna / Modo de Visão
-            </label>
-            <select
-              id="tseSelectSecao"
-              onchange="aoMudarFiltroSecaoTse()"
-              class="w-full bg-slate-900 border border-emerald-600/60 rounded-lg px-3 py-2 text-xs text-emerald-300 font-bold mono focus:border-emerald-400 outline-none"
-            >
-              <option value="CONSOLIDADO">📊 CONSOLIDAÇÃO GLOBAL DO FILTRO (Soma das Urnas)</option>
-            </select>
+          <!-- Nível 3: Cidade (Município) -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-[10px] font-extrabold text-cyan-400 mono uppercase">
+                3. Cidade (Município)
+              </label>
+              <span id="badgeCountCidade" class="text-[10px] text-slate-500 mono"></span>
+            </div>
+            <input
+              id="searchCidadeTse"
+              type="text"
+              oninput="filtrarColunaArvoreTse('cidade')"
+              placeholder="🔎 Buscar cidade ou cód..."
+              class="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500 rounded-lg px-2.5 py-1.5 text-[11px] text-white mono outline-none mb-2"
+            />
+            <div id="treeListCidade" class="max-h-44 overflow-y-auto space-y-1 pr-0.5 text-[11px] mono"></div>
+          </div>
+
+          <!-- Nível 4: Zona Eleitoral -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-[10px] font-extrabold text-cyan-400 mono uppercase">
+                4. Zona Eleitoral
+              </label>
+              <span id="badgeCountZona" class="text-[10px] text-slate-500 mono"></span>
+            </div>
+            <input
+              id="searchZonaTse"
+              type="text"
+              oninput="filtrarColunaArvoreTse('zona')"
+              placeholder="🔎 Buscar zona (ex: 0171)..."
+              class="w-full bg-slate-900 border border-slate-800 focus:border-cyan-500 rounded-lg px-2.5 py-1.5 text-[11px] text-white mono outline-none mb-2"
+            />
+            <div id="treeListZona" class="max-h-44 overflow-y-auto space-y-1 pr-0.5 text-[11px] mono"></div>
+          </div>
+
+          <!-- Nível 5: Seção / Urna -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="text-[10px] font-extrabold text-emerald-400 mono uppercase">
+                5. Seção / Urna
+              </label>
+              <span id="badgeCountSecao" class="text-[10px] text-slate-500 mono"></span>
+            </div>
+            <input
+              id="searchSecaoTse"
+              type="text"
+              oninput="filtrarColunaArvoreTse('secao')"
+              placeholder="🔎 Buscar seção, serial, alerta..."
+              class="w-full bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-[11px] text-white mono outline-none mb-2"
+            />
+            <div id="treeListSecao" class="max-h-44 overflow-y-auto space-y-1 pr-0.5 text-[11px] mono"></div>
           </div>
         </div>
       </div>
@@ -2314,9 +2370,9 @@ o Boletim de Urna (apos encerramento da votacao).
       playBeepBiometriaOk();
 
       if (totalUrnasSelecionadas === 1) {
-        await atualizarConsolidacaoTse(true, "TODAS", "TODAS", todosPrefixosSelecionados[0]);
+        await selecionarNoArvoreTse("TODAS", "TODAS", "TODAS", "TODAS", todosPrefixosSelecionados[0]);
       } else {
-        await atualizarConsolidacaoTse(true, "TODAS", "TODAS", "CONSOLIDADO");
+        await selecionarNoArvoreTse("TODAS", "TODAS", "TODAS", "TODAS", "CONSOLIDADO");
       }
     }
 
@@ -2330,7 +2386,7 @@ o Boletim de Urna (apos encerramento da votacao).
       }
       hideSecurityAlert();
       playBeepBiometriaOk();
-      await atualizarConsolidacaoTse(true, "TODAS", "TODAS", data.prefixo_seccao || "o03221pr7407101710017");
+      await selecionarNoArvoreTse("SUL", "PR", "74071", "0171", data.prefixo_seccao || "o03221pr7407101710017");
     }
 
     async function limparBaseTseReverso() {
@@ -2344,39 +2400,41 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
-    async function aoMudarFiltroCidadeTse() {
-      const cid = document.getElementById("tseSelectCidade").value;
-      await atualizarConsolidacaoTse(true, cid, "TODAS", "CONSOLIDADO");
-    }
+    // Estado atual dos 5 níveis da Árvore (Região > Estado > Cidade > Zona > Seção)
+    window.arvoreTseState = {
+      regiao: "TODAS",
+      uf: "TODAS",
+      municipio: "TODAS",
+      zona: "TODAS",
+      secao: "CONSOLIDADO",
+      hierarquia: null
+    };
 
-    async function aoMudarFiltroZonaTse() {
-      const cid = document.getElementById("tseSelectCidade").value;
-      const zona = document.getElementById("tseSelectZona").value;
-      await atualizarConsolidacaoTse(true, cid, zona, "CONSOLIDADO");
-    }
-
-    async function aoMudarFiltroSecaoTse() {
-      const cid = document.getElementById("tseSelectCidade").value;
-      const zona = document.getElementById("tseSelectZona").value;
-      const secao = document.getElementById("tseSelectSecao").value;
-      if (secao !== "CONSOLIDADO") {
+    async function selecionarNoArvoreTse(regiao, uf, municipio, zona, secao) {
+      if (secao && secao !== "CONSOLIDADO") {
         await garantirLogJezSobDemanda(secao);
       }
-      await atualizarConsolidacaoTse(true, cid, zona, secao);
+      window.arvoreTseState.regiao = regiao || "TODAS";
+      window.arvoreTseState.uf = uf || "TODAS";
+      window.arvoreTseState.municipio = municipio || "TODAS";
+      window.arvoreTseState.zona = zona || "TODAS";
+      window.arvoreTseState.secao = secao || "CONSOLIDADO";
+      await atualizarConsolidacaoTse(true);
     }
 
     async function voltarParaConsolidacaoFiltro() {
-      const cid = document.getElementById("tseSelectCidade").value;
-      const zona = document.getElementById("tseSelectZona").value;
-      document.getElementById("tseSelectSecao").value = "CONSOLIDADO";
-      await atualizarConsolidacaoTse(true, cid, zona, "CONSOLIDADO");
+      window.arvoreTseState.secao = "CONSOLIDADO";
+      await atualizarConsolidacaoTse(true);
     }
 
-    async function inspecionarUrnaIndividualTse(prefixo) {
+    async function inspecionarUrnaIndividualTse(prefixo, regiao = null, uf = null, mun = null, zona = null) {
       await garantirLogJezSobDemanda(prefixo);
-      const cid = document.getElementById("tseSelectCidade").value || "TODAS";
-      const zona = document.getElementById("tseSelectZona").value || "TODAS";
-      await atualizarConsolidacaoTse(true, cid, zona, prefixo);
+      if (regiao) window.arvoreTseState.regiao = regiao;
+      if (uf) window.arvoreTseState.uf = uf;
+      if (mun) window.arvoreTseState.municipio = mun;
+      if (zona) window.arvoreTseState.zona = zona;
+      window.arvoreTseState.secao = prefixo;
+      await atualizarConsolidacaoTse(true);
     }
 
     async function garantirLogJezSobDemanda(prefixo) {
@@ -2401,15 +2459,14 @@ o Boletim de Urna (apos encerramento da votacao).
       hideSecurityAlert();
     }
 
-    async function atualizarConsolidacaoTse(mostrarAlertaSeVazio = false, municipio = null, zona = null, secao = null) {
-      const cidVal = municipio !== null ? municipio : (document.getElementById("tseSelectCidade")?.value || "TODAS");
-      const zonaVal = zona !== null ? zona : (document.getElementById("tseSelectZona")?.value || "TODAS");
-      const secVal = secao !== null ? secao : (document.getElementById("tseSelectSecao")?.value || "CONSOLIDADO");
-
+    async function atualizarConsolidacaoTse(mostrarAlertaSeVazio = false) {
+      const st = window.arvoreTseState;
       const qs = new URLSearchParams({
-        municipio: cidVal,
-        zona: zonaVal,
-        secao: secVal
+        regiao: st.regiao || "TODAS",
+        uf: st.uf || "TODAS",
+        municipio: st.municipio || "TODAS",
+        zona: st.zona || "TODAS",
+        secao: st.secao || "CONSOLIDADO"
       });
 
       const res = await fetch(`/api/tse-reverso/consolidar?${qs.toString()}`);
@@ -2417,9 +2474,16 @@ o Boletim de Urna (apos encerramento da votacao).
       const payload = await res.json();
 
       const hier = payload.hierarquia || {};
+      window.arvoreTseState.hierarquia = hier;
+      window.arvoreTseState.regiao = hier.regiao_selecionada || "TODAS";
+      window.arvoreTseState.uf = hier.uf_selecionada || "TODAS";
+      window.arvoreTseState.municipio = hier.municipio_selecionado || "TODAS";
+      window.arvoreTseState.zona = hier.zona_selecionada || "TODAS";
+      window.arvoreTseState.secao = hier.secao_selecionada || "CONSOLIDADO";
+
       const totalGeral = hier.total_geral_urnas || 0;
       document.getElementById("tseCatalogCountBadge").textContent =
-        totalGeral > 0 ? `📦 ${totalGeral} Urna(s) / Seção(ões) carregada(s) no Catálogo` : "";
+        totalGeral > 0 ? `📦 ${totalGeral.toLocaleString("pt-BR")} Urna(s) / Seção(ões) carregada(s) no Catálogo` : "";
 
       if (totalGeral === 0) {
         document.getElementById("tseFilterBarContainer").classList.add("hidden");
@@ -2448,31 +2512,207 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     function popularSeletoresHierarquicosTse(hier) {
-      const selCidade = document.getElementById("tseSelectCidade");
-      const selZona = document.getElementById("tseSelectZona");
-      const selSecao = document.getElementById("tseSelectSecao");
+      renderizarBreadcrumbArvoreTse(hier);
+      filtrarColunaArvoreTse("regiao");
+      filtrarColunaArvoreTse("uf");
+      filtrarColunaArvoreTse("cidade");
+      filtrarColunaArvoreTse("zona");
+      filtrarColunaArvoreTse("secao");
+    }
 
-      const totalUrnasCat = hier.total_geral_urnas || 0;
-      const cidades = hier.cidades || [];
-      const zonas = hier.zonas || [];
-      const secoes = hier.secoes || [];
+    function renderizarBreadcrumbArvoreTse(hier) {
+      const bc = document.getElementById("tseTreeBreadcrumb");
+      const rSel = hier.regiao_selecionada || "TODAS";
+      const uSel = hier.uf_selecionada || "TODAS";
+      const cSel = hier.municipio_selecionado || "TODAS";
+      const zSel = hier.zona_selecionada || "TODAS";
+      const sSel = hier.secao_selecionada || "CONSOLIDADO";
 
-      selCidade.innerHTML = `<option value="TODAS">🌎 TODAS AS CIDADES CARREGADAS (${cidades.length} cidades / ${totalUrnasCat} urnas)</option>` +
-        cidades.map(c =>
-          `<option value="${c.codigo}" ${hier.municipio_selecionado === c.codigo ? "selected" : ""}>🏙️ ${c.nome} (${c.codigo}) — ${c.total_urnas} urna(s) / ${c.total_votos} votos</option>`
-        ).join("");
+      const parts = [];
+      parts.push(`<button onclick="selecionarNoArvoreTse('TODAS','TODAS','TODAS','TODAS','CONSOLIDADO')" class="px-2 py-0.5 rounded ${rSel === 'TODAS' ? 'bg-cyan-500 text-slate-950 font-extrabold' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">🌎 Brasil (${(hier.total_geral_urnas || 0).toLocaleString("pt-BR")})</button>`);
 
-      const urnasNaCidade = zonas.reduce((acc, z) => acc + z.total_urnas, 0);
-      selZona.innerHTML = `<option value="TODAS">📍 TODAS AS ZONAS DA SELEÇÃO (${zonas.length} zonas / ${urnasNaCidade} urnas)</option>` +
-        zonas.map(z =>
-          `<option value="${z.zona}" ${hier.zona_selecionada === z.zona ? "selected" : ""}>Zona ${z.zona} — ${z.total_urnas} urna(s) / ${z.total_votos} votos</option>`
-        ).join("");
+      if (rSel !== "TODAS") {
+        parts.push(`<span class="text-slate-600">▸</span>`);
+        parts.push(`<button onclick="selecionarNoArvoreTse('${rSel}','TODAS','TODAS','TODAS','CONSOLIDADO')" class="px-2 py-0.5 rounded ${uSel === 'TODAS' ? 'bg-cyan-500 text-slate-950 font-extrabold' : 'bg-slate-800 text-cyan-300 hover:bg-slate-700'}">📍 Região ${rSel}</button>`);
+      }
 
-      const totalNoFiltro = hier.total_secoes_no_filtro || secoes.length;
-      selSecao.innerHTML = `<option value="CONSOLIDADO" ${hier.secao_selecionada === "CONSOLIDADO" ? "selected" : ""}>📊 CONSOLIDAÇÃO GLOBAL DO FILTRO (${totalNoFiltro.toLocaleString("pt-BR")} urnas somadas)</option>` +
-        secoes.map(s =>
-          `<option value="${s.prefixo}" ${hier.secao_selecionada === s.prefixo ? "selected" : ""}>🗳️ Seção ${s.secao} (Z:${s.zona} - ${s.municipio_nome}) — ${s.votos} votos ${s.tem_log_jez ? "[c/ Log]" : "[BU+RDV]"}</option>`
-        ).join("");
+      if (uSel !== "TODAS") {
+        const ufObj = (hier.estados || []).find(e => e.uf === uSel);
+        parts.push(`<span class="text-slate-600">▸</span>`);
+        parts.push(`<button onclick="selecionarNoArvoreTse('${rSel}','${uSel}','TODAS','TODAS','CONSOLIDADO')" class="px-2 py-0.5 rounded ${cSel === 'TODAS' ? 'bg-cyan-500 text-slate-950 font-extrabold' : 'bg-slate-800 text-cyan-300 hover:bg-slate-700'}">🏛️ ${uSel} — ${ufObj ? ufObj.nome : uSel}</button>`);
+      }
+
+      if (cSel !== "TODAS") {
+        const cidObj = (hier.cidades || []).find(c => c.codigo === cSel);
+        parts.push(`<span class="text-slate-600">▸</span>`);
+        parts.push(`<button onclick="selecionarNoArvoreTse('${rSel}','${uSel}','${cSel}','TODAS','CONSOLIDADO')" class="px-2 py-0.5 rounded ${zSel === 'TODAS' ? 'bg-cyan-500 text-slate-950 font-extrabold' : 'bg-slate-800 text-cyan-300 hover:bg-slate-700'}">🏙️ ${cidObj ? cidObj.nome : cSel} (${cSel})</button>`);
+      }
+
+      if (zSel !== "TODAS") {
+        parts.push(`<span class="text-slate-600">▸</span>`);
+        parts.push(`<button onclick="selecionarNoArvoreTse('${rSel}','${uSel}','${cSel}','${zSel}','CONSOLIDADO')" class="px-2 py-0.5 rounded ${sSel === 'CONSOLIDADO' ? 'bg-cyan-500 text-slate-950 font-extrabold' : 'bg-slate-800 text-cyan-300 hover:bg-slate-700'}">📍 Zona ${zSel}</button>`);
+      }
+
+      if (sSel !== "CONSOLIDADO") {
+        const secObj = (hier.secoes || []).find(s => s.prefixo === sSel);
+        parts.push(`<span class="text-slate-600">▸</span>`);
+        parts.push(`<span class="px-2 py-0.5 rounded bg-emerald-500 text-slate-950 font-extrabold">🗳️ Seção ${secObj ? secObj.secao : sSel}</span>`);
+      }
+
+      bc.innerHTML = parts.join("");
+    }
+
+    function filtrarColunaArvoreTse(coluna) {
+      const hier = window.arvoreTseState.hierarquia;
+      if (!hier) return;
+
+      const rSel = hier.regiao_selecionada || "TODAS";
+      const uSel = hier.uf_selecionada || "TODAS";
+      const cSel = hier.municipio_selecionado || "TODAS";
+      const zSel = hier.zona_selecionada || "TODAS";
+      const sSel = hier.secao_selecionada || "CONSOLIDADO";
+
+      if (coluna === "regiao") {
+        const q = (document.getElementById("searchRegiaoTse")?.value || "").trim().toLowerCase();
+        const regioes = (hier.regioes || []).filter(r => !q || r.regiao.toLowerCase().includes(q));
+        document.getElementById("badgeCountRegiao").textContent = `${regioes.length} reg`;
+
+        let html = `<button onclick="selecionarNoArvoreTse('TODAS','TODAS','TODAS','TODAS','CONSOLIDADO')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
+          rSel === "TODAS" ? "bg-cyan-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-slate-200"
+        }">
+          <span>🌎 Todas (Brasil)</span>
+          <span class="text-[10px] opacity-80">${(hier.total_geral_urnas || 0).toLocaleString("pt-BR")}u</span>
+        </button>`;
+
+        html += regioes.map(r => {
+          const active = rSel === r.regiao;
+          return `<button onclick="selecionarNoArvoreTse('${r.regiao}','TODAS','TODAS','TODAS','CONSOLIDADO')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
+            active ? "bg-cyan-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-slate-200"
+          }">
+            <span class="truncate">▸ 📍 ${r.regiao}</span>
+            <span class="text-[10px] opacity-80">${r.total_urnas.toLocaleString("pt-BR")}u</span>
+          </button>`;
+        }).join("");
+        document.getElementById("treeListRegiao").innerHTML = html;
+      }
+
+      if (coluna === "uf") {
+        const q = (document.getElementById("searchUfTse")?.value || "").trim().toLowerCase();
+        const estados = (hier.estados || []).filter(e =>
+          !q || e.uf.toLowerCase().includes(q) || e.nome.toLowerCase().includes(q)
+        );
+        document.getElementById("badgeCountUf").textContent = `${estados.length} UF`;
+
+        const totalUrnasUf = (hier.estados || []).reduce((a, b) => a + b.total_urnas, 0);
+        let html = `<button onclick="selecionarNoArvoreTse('${rSel}','TODAS','TODAS','TODAS','CONSOLIDADO')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
+          uSel === "TODAS" ? "bg-cyan-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-slate-200"
+        }">
+          <span>🏳️ Todos os Estados</span>
+          <span class="text-[10px] opacity-80">${totalUrnasUf.toLocaleString("pt-BR")}u</span>
+        </button>`;
+
+        html += estados.map(e => {
+          const active = uSel === e.uf;
+          return `<button onclick="selecionarNoArvoreTse('${e.regiao}','${e.uf}','TODAS','TODAS','CONSOLIDADO')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
+            active ? "bg-cyan-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-slate-200"
+          }">
+            <span class="truncate">▸ 🏛️ ${e.uf} — ${e.nome}</span>
+            <span class="text-[10px] opacity-80">${e.total_cidades}cid / ${e.total_urnas.toLocaleString("pt-BR")}u</span>
+          </button>`;
+        }).join("");
+        document.getElementById("treeListUf").innerHTML = html;
+      }
+
+      if (coluna === "cidade") {
+        const q = (document.getElementById("searchCidadeTse")?.value || "").trim().toLowerCase();
+        const cidades = (hier.cidades || []).filter(c =>
+          !q || c.nome.toLowerCase().includes(q) || c.codigo.toLowerCase().includes(q)
+        );
+        document.getElementById("badgeCountCidade").textContent = `${cidades.length} cid`;
+
+        const totalUrnasCid = (hier.cidades || []).reduce((a, b) => a + b.total_urnas, 0);
+        let html = `<button onclick="selecionarNoArvoreTse('${rSel}','${uSel}','TODAS','TODAS','CONSOLIDADO')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
+          cSel === "TODAS" ? "bg-cyan-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-slate-200"
+        }">
+          <span>🏙️ Todas as Cidades</span>
+          <span class="text-[10px] opacity-80">${totalUrnasCid.toLocaleString("pt-BR")}u</span>
+        </button>`;
+
+        html += cidades.map(c => {
+          const active = cSel === c.codigo;
+          return `<button onclick="selecionarNoArvoreTse('${c.regiao || rSel}','${c.uf || uSel}','${c.codigo}','TODAS','CONSOLIDADO')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
+            active ? "bg-cyan-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-slate-200"
+          }" title="${c.nome} (Código TSE: ${c.codigo}) — ${c.total_urnas} urnas / ${c.total_votos} votos">
+            <span class="truncate">▸ ${c.nome} <span class="opacity-60">(${c.codigo})</span></span>
+            <span class="text-[10px] opacity-80 ml-1 shrink-0">${c.total_urnas}u</span>
+          </button>`;
+        }).join("");
+        document.getElementById("treeListCidade").innerHTML = html;
+      }
+
+      if (coluna === "zona") {
+        const q = (document.getElementById("searchZonaTse")?.value || "").trim().toLowerCase();
+        const zonas = (hier.zonas || []).filter(z =>
+          !q || z.zona.toLowerCase().includes(q) || (`zona ${z.zona}`).includes(q)
+        );
+        document.getElementById("badgeCountZona").textContent = `${zonas.length} zonas`;
+
+        const totalUrnasZona = (hier.zonas || []).reduce((a, b) => a + b.total_urnas, 0);
+        let html = `<button onclick="selecionarNoArvoreTse('${rSel}','${uSel}','${cSel}','TODAS','CONSOLIDADO')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
+          zSel === "TODAS" ? "bg-cyan-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-slate-200"
+        }">
+          <span>📍 Todas as Zonas</span>
+          <span class="text-[10px] opacity-80">${totalUrnasZona.toLocaleString("pt-BR")}u</span>
+        </button>`;
+
+        html += zonas.map(z => {
+          const active = zSel === z.zona;
+          return `<button onclick="selecionarNoArvoreTse('${rSel}','${uSel}','${cSel}','${z.zona}','CONSOLIDADO')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
+            active ? "bg-cyan-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-slate-200"
+          }">
+            <span>▸ Zona ${z.zona}</span>
+            <span class="text-[10px] opacity-80">${z.total_urnas}u / ${z.total_votos.toLocaleString("pt-BR")}v</span>
+          </button>`;
+        }).join("");
+        document.getElementById("treeListZona").innerHTML = html;
+      }
+
+      if (coluna === "secao") {
+        const q = (document.getElementById("searchSecaoTse")?.value || "").trim().toLowerCase();
+        const secoes = (hier.secoes || []).filter(s => {
+          if (!q) return true;
+          const statusTxt = s.nivel_risco === "BAIXO" ? "integra" : "alerta divergente";
+          return (
+            s.secao.toLowerCase().includes(q) ||
+            s.zona.toLowerCase().includes(q) ||
+            (s.municipio_nome || "").toLowerCase().includes(q) ||
+            (s.serial_ue || "").toLowerCase().includes(q) ||
+            s.prefixo.toLowerCase().includes(q) ||
+            statusTxt.includes(q)
+          );
+        });
+        const totalNoFiltro = hier.total_secoes_no_filtro || secoes.length;
+        document.getElementById("badgeCountSecao").textContent = `${totalNoFiltro.toLocaleString("pt-BR")} urnas`;
+
+        let html = `<button onclick="selecionarNoArvoreTse('${rSel}','${uSel}','${cSel}','${zSel}','CONSOLIDADO')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
+          sSel === "CONSOLIDADO" ? "bg-emerald-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-emerald-300"
+        }">
+          <span>📊 Consolidar Nível</span>
+          <span class="text-[10px] opacity-90">${totalNoFiltro.toLocaleString("pt-BR")}u</span>
+        </button>`;
+
+        html += secoes.slice(0, 300).map(s => {
+          const active = sSel === s.prefixo;
+          const riscoBadge = s.nivel_risco !== "BAIXO" ? "🚨" : "🗳️";
+          return `<button onclick="selecionarNoArvoreTse('${s.regiao || rSel}','${s.uf || uSel}','${s.municipio_codigo || cSel}','${s.zona || zSel}','${s.prefixo}')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
+            active ? "bg-emerald-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-slate-200"
+          }" title="Seção ${s.secao} | Zona ${s.zona} | ${s.municipio_nome} | UE #${s.serial_ue}">
+            <span class="truncate">${riscoBadge} S:${s.secao} <span class="opacity-60">(Z:${s.zona})</span></span>
+            <span class="text-[10px] opacity-80 ml-1 shrink-0">${s.votos}v</span>
+          </button>`;
+        }).join("");
+        document.getElementById("treeListSecao").innerHTML = html;
+      }
     }
 
     function renderizarVisaoConsolidadaTse(cons, hier) {
@@ -2642,7 +2882,7 @@ o Boletim de Urna (apos encerramento da votacao).
             </td>
             <td class="py-2 text-right">
               <button
-                onclick="inspecionarUrnaIndividualTse('${u.prefixo}')"
+                onclick="inspecionarUrnaIndividualTse('${u.prefixo}','${u.regiao || 'SUL'}','${u.uf || 'PR'}','${u.municipio_codigo || ''}','${u.zona || ''}')"
                 class="px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-[11px] transition"
               >
                 🔍 Abrir Urna & Eleitores

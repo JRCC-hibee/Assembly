@@ -63,6 +63,37 @@ MUNICIPIOS_PR_TSE = {
     "76171": "IRATI",
 }
 
+ESTADOS_E_REGIOES_BR = {
+    "AC": {"nome": "Acre", "regiao": "NORTE"},
+    "AL": {"nome": "Alagoas", "regiao": "NORDESTE"},
+    "AM": {"nome": "Amazonas", "regiao": "NORTE"},
+    "AP": {"nome": "Amapá", "regiao": "NORTE"},
+    "BA": {"nome": "Bahia", "regiao": "NORDESTE"},
+    "CE": {"nome": "Ceará", "regiao": "NORDESTE"},
+    "DF": {"nome": "Distrito Federal", "regiao": "CENTRO-OESTE"},
+    "ES": {"nome": "Espírito Santo", "regiao": "SUDESTE"},
+    "GO": {"nome": "Goiás", "regiao": "CENTRO-OESTE"},
+    "MA": {"nome": "Maranhão", "regiao": "NORDESTE"},
+    "MG": {"nome": "Minas Gerais", "regiao": "SUDESTE"},
+    "MS": {"nome": "Mato Grosso do Sul", "regiao": "CENTRO-OESTE"},
+    "MT": {"nome": "Mato Grosso", "regiao": "CENTRO-OESTE"},
+    "PA": {"nome": "Pará", "regiao": "NORTE"},
+    "PB": {"nome": "Paraíba", "regiao": "NORDESTE"},
+    "PE": {"nome": "Pernambuco", "regiao": "NORDESTE"},
+    "PI": {"nome": "Piauí", "regiao": "NORDESTE"},
+    "PR": {"nome": "Paraná", "regiao": "SUL"},
+    "RJ": {"nome": "Rio de Janeiro", "regiao": "SUDESTE"},
+    "RN": {"nome": "Rio Grande do Norte", "regiao": "NORDESTE"},
+    "RO": {"nome": "Rondônia", "regiao": "NORTE"},
+    "RR": {"nome": "Roraima", "regiao": "NORTE"},
+    "RS": {"nome": "Rio Grande do Sul", "regiao": "SUL"},
+    "SC": {"nome": "Santa Catarina", "regiao": "SUL"},
+    "SE": {"nome": "Sergipe", "regiao": "NORDESTE"},
+    "SP": {"nome": "São Paulo", "regiao": "SUDESTE"},
+    "TO": {"nome": "Tocantins", "regiao": "NORTE"},
+    "ZZ": {"nome": "Exterior", "regiao": "EXTERIOR"},
+}
+
 
 def extrair_prefixo_seccao(filename: str) -> str:
     """
@@ -1099,44 +1130,137 @@ def limpar_catalogo_tse() -> dict:
 
 
 def consolidar_secoes_tse(
+    regiao_filtro: str = "TODAS",
+    uf_filtro: str = "TODAS",
     municipio_filtro: str = "TODAS",
     zona_filtro: str = "TODAS",
     secao_filtro: str = "CONSOLIDADO",
 ) -> dict:
     """
-    Constrói a árvore de seletores (Cidade -> Zona -> Seção/Urna) e retorna:
-    - Os dados consolidados globais para o filtro selecionado (`CONSOLIDADO`), OU
+    Constrói a árvore de 5 níveis (Região do País -> Estado -> Cidade -> Zona -> Seção/Urna) e retorna:
+    - Os dados consolidados globais para o nível/filtro selecionado (`CONSOLIDADO`), OU
     - O dossiê completo da urna individual quando `secao_filtro` é o prefixo de uma seção.
     """
     catalogo = _carregar_catalogo_disco()
     todas_secoes = list(catalogo.values())
 
-    # 1. Monta lista de Cidades disponíveis em todo o catálogo
-    cidades_map: dict[str, dict] = {}
+    # Enriquecimento em tempo real de Região e Estado (UF) para todas as seções carregadas
     for s in todas_secoes:
+        uf_sigla = (s.get("uf") or "PR").upper()
+        info_est = ESTADOS_E_REGIOES_BR.get(uf_sigla, {"nome": uf_sigla, "regiao": "SUL"})
+        s["uf"] = uf_sigla
+        s["uf_nome"] = info_est["nome"]
+        s["regiao"] = info_est["regiao"]
+
+    # 1. Nível 1: Regiões do País disponíveis no catálogo
+    regioes_map: dict[str, dict] = {}
+    estados_por_regiao: dict[str, set] = {}
+    cidades_por_regiao: dict[str, set] = {}
+    for s in todas_secoes:
+        reg = s["regiao"]
+        if reg not in regioes_map:
+            regioes_map[reg] = {
+                "regiao": reg,
+                "total_estados": 0,
+                "total_cidades": 0,
+                "total_urnas": 0,
+                "total_votos": 0,
+                "total_aptos": 0,
+            }
+            estados_por_regiao[reg] = set()
+            cidades_por_regiao[reg] = set()
+        regioes_map[reg]["total_urnas"] += 1
+        regioes_map[reg]["total_votos"] += s.get("comparecimento_efetivo", 0)
+        regioes_map[reg]["total_aptos"] += s.get("eleitores_aptos", 0)
+        estados_por_regiao[reg].add(s["uf"])
+        cidades_por_regiao[reg].add(s.get("municipio_codigo", "00000"))
+
+    for reg, d in regioes_map.items():
+        d["total_estados"] = len(estados_por_regiao[reg])
+        d["total_cidades"] = len(cidades_por_regiao[reg])
+
+    lista_regioes = sorted(regioes_map.values(), key=lambda x: x["regiao"])
+
+    if regiao_filtro not in ("TODAS", "", None) and regiao_filtro not in regioes_map:
+        regiao_filtro = "TODAS"
+
+    secoes_apos_regiao = [
+        s for s in todas_secoes
+        if regiao_filtro in ("TODAS", "", None) or s["regiao"] == regiao_filtro
+    ]
+
+    # 2. Nível 2: Estados (UFs) disponíveis na Região selecionada
+    estados_map: dict[str, dict] = {}
+    cidades_por_uf: dict[str, set] = {}
+    for s in secoes_apos_regiao:
+        uf = s["uf"]
+        if uf not in estados_map:
+            estados_map[uf] = {
+                "uf": uf,
+                "nome": s["uf_nome"],
+                "regiao": s["regiao"],
+                "total_cidades": 0,
+                "total_urnas": 0,
+                "total_votos": 0,
+                "total_aptos": 0,
+            }
+            cidades_por_uf[uf] = set()
+        estados_map[uf]["total_urnas"] += 1
+        estados_map[uf]["total_votos"] += s.get("comparecimento_efetivo", 0)
+        estados_map[uf]["total_aptos"] += s.get("eleitores_aptos", 0)
+        cidades_por_uf[uf].add(s.get("municipio_codigo", "00000"))
+
+    for uf, d in estados_map.items():
+        d["total_cidades"] = len(cidades_por_uf[uf])
+
+    lista_estados = sorted(estados_map.values(), key=lambda x: x["nome"])
+
+    if uf_filtro not in ("TODAS", "", None) and uf_filtro not in estados_map:
+        uf_filtro = "TODAS"
+
+    secoes_apos_uf = [
+        s for s in secoes_apos_regiao
+        if uf_filtro in ("TODAS", "", None) or s["uf"] == uf_filtro
+    ]
+
+    # 3. Nível 3: Cidades disponíveis no Estado selecionado
+    cidades_map: dict[str, dict] = {}
+    zonas_por_cidade: dict[str, set] = {}
+    for s in secoes_apos_uf:
         mc = s.get("municipio_codigo", "00000")
         mn = MUNICIPIOS_PR_TSE.get(mc, s.get("municipio_nome", f"MUNICÍPIO {mc}"))
         if mc not in cidades_map:
             cidades_map[mc] = {
                 "codigo": mc,
                 "nome": mn,
+                "uf": s["uf"],
+                "regiao": s["regiao"],
+                "total_zonas": 0,
                 "total_urnas": 0,
                 "total_votos": 0,
                 "total_aptos": 0,
             }
+            zonas_por_cidade[mc] = set()
         cidades_map[mc]["total_urnas"] += 1
         cidades_map[mc]["total_votos"] += s.get("comparecimento_efetivo", 0)
         cidades_map[mc]["total_aptos"] += s.get("eleitores_aptos", 0)
+        zonas_por_cidade[mc].add(s.get("zona", "0000"))
+
+    for mc, d in cidades_map.items():
+        d["total_zonas"] = len(zonas_por_cidade[mc])
 
     lista_cidades = sorted(cidades_map.values(), key=lambda x: x["nome"])
 
+    if municipio_filtro not in ("TODAS", "", None) and municipio_filtro not in cidades_map:
+        municipio_filtro = "TODAS"
+
     # Filtra por Cidade
     secoes_apos_cidade = [
-        s for s in todas_secoes
+        s for s in secoes_apos_uf
         if municipio_filtro in ("TODAS", "", None) or s.get("municipio_codigo") == municipio_filtro
     ]
 
-    # 2. Monta lista de Zonas disponíveis para a Cidade selecionada
+    # 4. Nível 4: Zonas disponíveis para a Cidade/Estado selecionado
     zonas_map: dict[str, dict] = {}
     for s in secoes_apos_cidade:
         z = s.get("zona", "0000")
@@ -1164,13 +1288,15 @@ def consolidar_secoes_tse(
     ]
     secoes_filtradas.sort(key=lambda s: (s.get("municipio_nome", ""), s.get("zona", ""), s.get("secao", "")))
 
-    # 3. Monta lista de Seções/Urnas para os seletores (limita a 1.000 opções no dropdown para performance quando TODAS as 27.000 urnas estão ativas)
+    # 5. Nível 5: Seções/Urnas (limita a 1.000 opções no seletor quando o estado inteiro está ativo)
     secoes_para_dropdown = secoes_filtradas[:1000]
     lista_secoes_seletor = [
         {
             "prefixo": s["prefixo"],
             "secao": s.get("secao", "0000"),
             "zona": s.get("zona", "0000"),
+            "uf": s.get("uf", "PR"),
+            "regiao": s.get("regiao", "SUL"),
             "municipio_codigo": s.get("municipio_codigo", "00000"),
             "municipio_nome": s.get("municipio_nome", ""),
             "serial_ue": s.get("serial_ue", "-"),
@@ -1187,9 +1313,13 @@ def consolidar_secoes_tse(
     hierarquia = {
         "total_geral_urnas": len(todas_secoes),
         "total_secoes_no_filtro": len(secoes_filtradas),
+        "regiao_selecionada": regiao_filtro,
+        "uf_selecionada": uf_filtro,
         "municipio_selecionado": municipio_filtro,
         "zona_selecionada": zona_filtro,
         "secao_selecionada": secao_filtro,
+        "regioes": lista_regioes,
+        "estados": lista_estados,
         "cidades": lista_cidades,
         "zonas": lista_zonas,
         "secoes": lista_secoes_seletor,
