@@ -957,32 +957,40 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
 
-        <!-- Espectrograma Cronológico dos Eleitores Reais Extraídos do logd.dat -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-          <div class="flex flex-wrap items-center justify-between gap-2">
+        <!-- Espectrograma Cronológico Separado Hora a Hora (08h às 17h) com Clique para Modal -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 class="text-sm font-bold text-white">
-                ⏱️ Linha do Tempo Individual de Cada Eleitor da Seção (Reconstruída do `logd.dat`)
+                ⏱️ Linha do Tempo Separada Hora a Hora (08h às 16h/17h) — Clique na Barra para Inspecionar o Eleitor
               </h3>
               <p class="text-xs text-slate-400">
-                Cada barra representa 1 eleitor real da seção. Passe o mouse ou clique para ver o horário exato, se digitou Título ou CPF, quantas tentativas de digital (1 a 4), tempo de mesa e tempo na cabine.
+                Os eleitores estão agrupados por faixa horária (`08h`, `09h`, ..., `16h`). <strong>Clique em qualquer barra do gráfico (ou linha da tabela abaixo)</strong> para abrir o dossiê forense completo daquele eleitor no `logd.dat`.
               </p>
             </div>
-            <div class="flex gap-3 text-[11px] mono">
-              <span class="text-emerald-400">🟢 Habilitação Biométrica AFIS</span>
-              <span class="text-amber-300">🟡 Habilitação Biográfica / Mesário</span>
-              <span class="text-blue-400">🔵 3 ou 4 Tentativas de Digital</span>
+            <div class="flex flex-wrap items-center gap-3 text-[11px] mono">
+              <span class="text-emerald-400">🟢 Biométrica AFIS (1-2 tent.)</span>
+              <span class="text-blue-400">🔵 Biométrica (3-4 tent.)</span>
+              <span class="text-amber-300">🟡 Biográfica / Mesário</span>
             </div>
           </div>
-          <div id="tseRealVoterBars" class="h-40 flex items-end gap-0.5 overflow-x-auto pt-4 pb-1 px-2 bg-slate-950 rounded-lg border border-slate-800"></div>
+
+          <!-- Botões de Filtro Rápido por Hora -->
+          <div id="tseHourFilterButtons" class="flex flex-wrap gap-1.5"></div>
+
+          <!-- Container dos Blocos Horários (08h..16h) -->
+          <div id="tseRealVoterBars" class="grid grid-cols-1 md:grid-cols-3 gap-4"></div>
         </div>
 
         <!-- Tabelas Lado a Lado: Ciclos de Eleitores Reconstruídos vs Espelho Original do Boletim de Urna -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-            <h3 class="text-sm font-bold text-white">
-              👥 Tabela Auditável dos Eleitores da Seção (`VOTA` no `logd.dat`)
-            </h3>
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-white">
+                👥 Tabela Auditável dos Eleitores da Seção (Clique em um eleitor para abrir o Modal)
+              </h3>
+              <span id="tseTableCountLabel" class="text-xs text-cyan-300 mono"></span>
+            </div>
             <div class="max-h-96 overflow-y-auto">
               <table class="w-full text-left text-[11px] mono">
                 <thead class="text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-900">
@@ -1004,13 +1012,73 @@ o Boletim de Urna (apos encerramento da votacao).
 
           <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col items-center">
             <h3 class="text-sm font-bold text-white w-full mb-3">
-              🧾 Espelho Original Extraído do `-imgbu.dat`
+              🧾 Espelho Oficial Limpo do Boletim de Urna (`-imgbu.dat`)
             </h3>
             <pre id="tseEspelhoBuPre" class="thermal-paper mono text-[10px] leading-snug p-4 w-full max-h-96 overflow-y-auto whitespace-pre"></pre>
           </div>
         </div>
       </div>
     </section>
+
+    <!-- MODAL FORENSE DE DETALHAMENTO INDIVIDUAL DO ELEITOR NO LOGD.DAT -->
+    <div id="voterDetailModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" onclick="fecharModalEleitorTse(event)">
+      <div class="bg-slate-900 border-2 border-cyan-500/60 rounded-2xl max-w-3xl w-full p-6 space-y-4 shadow-2xl" onclick="event.stopPropagation()">
+        <div class="flex items-start justify-between border-b border-slate-800 pb-3">
+          <div>
+            <span id="modalVoterBadge" class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
+              AUDITORIA INDIVIDUAL DE CICLO DE VOTAÇÃO
+            </span>
+            <h3 id="modalVoterTitle" class="text-lg font-extrabold text-white mt-1">Eleitor #1</h3>
+            <p id="modalVoterSubtitle" class="text-xs text-slate-400 mono"></p>
+          </div>
+          <button onclick="fecharModalEleitorTse()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs">
+            ✕ Fechar (ESC)
+          </button>
+        </div>
+
+        <!-- Cartões de Métricas do Eleitor no Modal -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mono">
+          <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
+            <div class="text-[10px] text-slate-400">DOCUMENTO / HABILITAÇÃO</div>
+            <div id="modalDocHab" class="font-bold text-emerald-400 mt-0.5">-</div>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
+            <div class="text-[10px] text-slate-400">TENTATIVAS BIOMÉTRICAS</div>
+            <div id="modalTentBio" class="font-bold text-cyan-300 mt-0.5">-</div>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
+            <div class="text-[10px] text-slate-400">TEMPO MESA / BIOMETRIA</div>
+            <div id="modalTempoMesa" class="font-bold text-amber-300 mt-0.5">-</div>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
+            <div class="text-[10px] text-slate-400">TEMPO NA CABINE (VOTO)</div>
+            <div id="modalTempoCabine" class="font-bold text-white mt-0.5">-</div>
+          </div>
+        </div>
+
+        <!-- Trilha Cronológica Completa de Eventos do Eleitor no logd.dat -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-bold text-slate-200 mono">📜 Linhas Originais do Ciclo no `logd.dat` (Subsistema `VOTA`):</span>
+            <span id="modalMacVoto" class="mono text-[11px] text-emerald-400"></span>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 rounded-xl max-h-72 overflow-y-auto p-3">
+            <table class="w-full text-left text-[11px] mono">
+              <thead class="text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th class="py-1">Linha</th>
+                  <th class="py-1">Horário</th>
+                  <th class="py-1">Nível</th>
+                  <th class="py-1">Evento Registrado pela Urna (`UE2020`)</th>
+                  <th class="py-1 text-right">Assinatura MAC</th>
+                </tr>
+              </thead>
+              <tbody id="modalEventosBody" class="divide-y divide-slate-800/50"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 
   <script>
@@ -1992,49 +2060,163 @@ o Boletim de Urna (apos encerramento da votacao).
         <div>• Etapas de Assinatura Digital Verificadas no Boot: <strong class="text-emerald-400">${log.etapas_assinatura_software_ok || 0} [SUCESSO]</strong></div>
       `;
 
-      // Espectrograma Individual de Eleitores Reais do Log
-      const ciclos = log.ciclos_eleitores || [];
-      const maxCicloS = Math.max(...ciclos.map(c => c.tempo_ciclo_total_s), 90);
-      const barsEl = document.getElementById("tseRealVoterBars");
-      barsEl.innerHTML = ciclos.map(c => {
-        const pct = Math.max(8, Math.min(100, Math.round((c.tempo_ciclo_total_s / maxCicloS) * 100)));
-        let color = "bg-emerald-500 hover:bg-emerald-400";
-        if (c.tipo_habilitacao !== "BIOMETRICA") {
-          color = "bg-amber-400 hover:bg-amber-300";
-        } else if (c.tentativas_digital >= 3) {
-          color = "bg-blue-500 hover:bg-blue-400";
-        }
-        return `<div
-          style="height: ${pct}%; min-width: 4px;"
-          class="flex-1 rounded-t ${color} transition"
-          title="Eleitor #${c.seq} (${c.hora_inicio} -> ${c.hora_computado}) | Doc: ${c.documento} | Hab: ${c.tipo_habilitacao} (${c.tentativas_digital} tent. bio) | Mesa: ${c.tempo_mesa_bio_s}s + Cabine: ${c.tempo_cabine_s}s = ${c.tempo_ciclo_total_s}s"
-        ></div>`;
-      }).join("");
+      // Espectrograma Individual de Eleitores Reais Separado Hora a Hora + Modal Interativo
+      window.currentTseCiclos = log.ciclos_eleitores || [];
+      window.currentTseHourFilter = "TODAS";
 
-      // Tabela de Ciclos Individuais
-      document.getElementById("tseCiclosTableBody").innerHTML = ciclos.map(c => `
-        <tr>
-          <td class="py-1 font-bold text-cyan-300">#${c.seq}</td>
-          <td class="py-1">${c.hora_inicio} → <strong>${c.hora_computado}</strong></td>
-          <td class="py-1">${c.documento}</td>
-          <td class="py-1">
-            ${c.tipo_habilitacao === "BIOMETRICA"
-              ? `<span class="text-emerald-400 font-bold">BIOMÉTRICA</span>`
-              : `<span class="text-amber-300 font-bold">${c.tipo_habilitacao}</span>`}
-          </td>
-          <td class="py-1 text-center">${c.tentativas_digital}/4</td>
-          <td class="py-1">${c.tempo_mesa_bio_s}s</td>
-          <td class="py-1 font-bold text-white">${c.tempo_cabine_s}s</td>
-          <td class="py-1 text-slate-500">${c.mac_voto}</td>
-        </tr>
-      `).join("");
+      renderizarFiltroHorasTse();
+      renderizarGraficoETabelaPorHoraTse();
 
-      // Espelho Original do Boletim de Urna
+      // Espelho Original Limpo do Boletim de Urna
       document.getElementById("tseEspelhoBuPre").textContent =
         bu.espelho_bobina || "Suba o arquivo -imgbu.dat da seção para visualizar a bobina original.";
     }
 
+    function filtrarHoraTse(horaKey) {
+      window.currentTseHourFilter = horaKey;
+      renderizarFiltroHorasTse();
+      renderizarGraficoETabelaPorHoraTse();
+    }
+
+    function renderizarFiltroHorasTse() {
+      const ciclos = window.currentTseCiclos || [];
+      const container = document.getElementById("tseHourFilterButtons");
+      const horasSet = Array.from(new Set(ciclos.map(c => c.faixa_horaria || (c.hora_computado.slice(0, 2) + "h")))).sort();
+
+      let html = `<button onclick="filtrarHoraTse('TODAS')" class="px-3 py-1 rounded-lg text-xs font-bold mono transition ${
+        window.currentTseHourFilter === "TODAS"
+          ? "bg-cyan-500 text-slate-950"
+          : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+      }">Todas as Horas (${ciclos.length} eleitores)</button>`;
+
+      horasSet.forEach(hh => {
+        const count = ciclos.filter(c => (c.faixa_horaria || (c.hora_computado.slice(0, 2) + "h")) === hh).length;
+        const active = window.currentTseHourFilter === hh;
+        html += `<button onclick="filtrarHoraTse('${hh}')" class="px-3 py-1 rounded-lg text-xs font-bold mono transition ${
+          active ? "bg-cyan-500 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+        }">${hh} (${count})</button>`;
+      });
+      container.innerHTML = html;
+    }
+
+    function renderizarGraficoETabelaPorHoraTse() {
+      const todosCiclos = window.currentTseCiclos || [];
+      const filtro = window.currentTseHourFilter || "TODAS";
+      const ciclosFiltrados = filtro === "TODAS"
+        ? todosCiclos
+        : todosCiclos.filter(c => (c.faixa_horaria || (c.hora_computado.slice(0, 2) + "h")) === filtro);
+
+      const maxCicloS = Math.max(...todosCiclos.map(c => c.tempo_ciclo_total_s), 90);
+      const horasVisiveis = Array.from(new Set(ciclosFiltrados.map(c => c.faixa_horaria || (c.hora_computado.slice(0, 2) + "h")))).sort();
+
+      const barsEl = document.getElementById("tseRealVoterBars");
+      if (filtro !== "TODAS") {
+        barsEl.className = "grid grid-cols-1 gap-4";
+      } else {
+        barsEl.className = "grid grid-cols-1 md:grid-cols-3 gap-4";
+      }
+
+      barsEl.innerHTML = horasVisiveis.map(hh => {
+        const listaHora = ciclosFiltrados.filter(c => (c.faixa_horaria || (c.hora_computado.slice(0, 2) + "h")) === hh);
+        const mediaHora = (listaHora.reduce((acc, x) => acc + x.tempo_ciclo_total_s, 0) / Math.max(listaHora.length, 1)).toFixed(1);
+
+        const barrasHtml = listaHora.map(c => {
+          const pct = Math.max(10, Math.min(100, Math.round((c.tempo_ciclo_total_s / maxCicloS) * 100)));
+          let color = "bg-emerald-500 hover:bg-emerald-300";
+          if (c.tipo_habilitacao !== "BIOMETRICA") {
+            color = "bg-amber-400 hover:bg-amber-200";
+          } else if (c.tentativas_digital >= 3) {
+            color = "bg-blue-500 hover:bg-blue-300";
+          }
+          return `<div
+            onclick="abrirModalEleitorTse(${c.seq})"
+            style="height: ${pct}%; min-width: 6px;"
+            class="flex-1 rounded-t cursor-pointer ${color} transition transform hover:scale-y-105"
+            title="Clique para abrir dossiê do Eleitor #${c.seq} (${c.hora_computado}) — Total: ${c.tempo_ciclo_total_s}s"
+          ></div>`;
+        }).join("");
+
+        return `
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 flex flex-col justify-between">
+            <div class="flex items-center justify-between text-xs mono mb-2 border-b border-slate-800/80 pb-1.5">
+              <span class="font-extrabold text-cyan-300">🕒 Faixa ${hh} (${hh.replace('h', ':00')} - ${hh.replace('h', ':59')})</span>
+              <span class="text-[11px] text-slate-400"><strong>${listaHora.length}</strong> votos • méd: ${mediaHora}s</span>
+            </div>
+            <div class="h-28 flex items-end gap-1 pt-2 pb-1 px-1">
+              ${barrasHtml}
+            </div>
+            <div class="flex justify-between text-[10px] mono text-slate-500 pt-1">
+              <span>#${listaHora[0]?.seq || '-'} (${listaHora[0]?.hora_computado || ''})</span>
+              <span>#${listaHora[listaHora.length - 1]?.seq || '-'} (${listaHora[listaHora.length - 1]?.hora_computado || ''})</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      document.getElementById("tseTableCountLabel").textContent = `Exibindo ${ciclosFiltrados.length} eleitor(es)`;
+      document.getElementById("tseCiclosTableBody").innerHTML = ciclosFiltrados.map(c => `
+        <tr onclick="abrirModalEleitorTse(${c.seq})" class="hover:bg-slate-800/70 cursor-pointer transition">
+          <td class="py-1.5 font-bold text-cyan-300 underline">#${c.seq}</td>
+          <td class="py-1.5">${c.hora_inicio} → <strong>${c.hora_computado}</strong></td>
+          <td class="py-1.5">${c.documento}</td>
+          <td class="py-1.5">
+            ${c.tipo_habilitacao === "BIOMETRICA"
+              ? `<span class="text-emerald-400 font-bold">BIOMÉTRICA</span>`
+              : `<span class="text-amber-300 font-bold">${c.tipo_habilitacao}</span>`}
+          </td>
+          <td class="py-1.5 text-center">${c.tentativas_digital}/4</td>
+          <td class="py-1.5">${c.tempo_mesa_bio_s}s</td>
+          <td class="py-1.5 font-bold text-white">${c.tempo_cabine_s}s</td>
+          <td class="py-1.5 text-slate-500">${c.mac_voto}</td>
+        </tr>
+      `).join("");
+    }
+
+    function abrirModalEleitorTse(seqNum) {
+      const ciclos = window.currentTseCiclos || [];
+      const item = ciclos.find(c => c.seq === seqNum);
+      if (!item) return;
+
+      playBeepKey();
+      document.getElementById("voterDetailModal").classList.remove("hidden");
+      document.getElementById("modalVoterTitle").textContent =
+        `Eleitor #${item.seq} — Voto Computado às ${item.hora_computado}`;
+      document.getElementById("modalVoterSubtitle").textContent =
+        `Data: ${item.data_eleicao || '25/10/2026'} | Faixa Horária: ${item.faixa_horaria || '-'} | Início Atendimento: ${item.hora_inicio} → Habilitação: ${item.hora_habilitacao} → Voto: ${item.hora_computado}`;
+
+      document.getElementById("modalDocHab").textContent = `${item.documento} / ${item.tipo_habilitacao}`;
+      document.getElementById("modalTentBio").textContent = `${item.tentativas_digital} de 4 tentativa(s)`;
+      document.getElementById("modalTempoMesa").textContent = `${item.tempo_mesa_bio_s} seg`;
+      document.getElementById("modalTempoCabine").textContent =
+        `${item.tempo_cabine_s} seg (Total: ${item.tempo_ciclo_total_s}s)`;
+      document.getElementById("modalMacVoto").textContent = `MAC Conclusão: ${item.mac_voto}`;
+
+      const evs = item.eventos_detalhados || [];
+      document.getElementById("modalEventosBody").innerHTML = evs.map(ev => `
+        <tr>
+          <td class="py-1 text-slate-500">#${ev.linha}</td>
+          <td class="py-1 font-bold text-cyan-300">${ev.hora}</td>
+          <td class="py-1">
+            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${
+              ev.nivel === 'INFO' ? 'bg-slate-800 text-slate-300' : 'bg-amber-900/70 text-amber-300'
+            }">${ev.nivel}</span>
+          </td>
+          <td class="py-1 text-slate-200">${ev.mensagem}</td>
+          <td class="py-1 text-right text-slate-500">${ev.mac}</td>
+        </tr>
+      `).join("");
+    }
+
+    function fecharModalEleitorTse(event) {
+      if (event && event.target && event.target.id !== "voterDetailModal") return;
+      document.getElementById("voterDetailModal").classList.add("hidden");
+    }
+
     window.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        fecharModalEleitorTse();
+        return;
+      }
       if (document.getElementById("tab-urna").classList.contains("hidden")) return;
       if (document.activeElement && document.activeElement.tagName === "INPUT") return;
       if (e.key >= "0" && e.key <= "9") pressKey(e.key);

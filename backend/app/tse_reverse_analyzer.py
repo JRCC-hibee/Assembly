@@ -123,12 +123,38 @@ def decodificar_imgbu_tse(imgbu_bytes: bytes) -> dict:
     idx_justica = raw_text.find("Justiça Eleitoral")
     if idx_justica == -1:
         idx_justica = raw_text.find("Boletim de Urna")
-    clean_text = raw_text[max(0, idx_justica - 10):] if idx_justica != -1 else raw_text
+    clean_text = raw_text[max(0, idx_justica):] if idx_justica != -1 else raw_text
+
+    # Corta o dump binário de matriz gráfica do QR Code / Certificado X.509 após "============= BU DIGITAL ============="
+    idx_bu_digital = clean_text.find("============= BU DIGITAL =============")
+    bloco_binario_qr_bytes = b""
+    if idx_bu_digital != -1:
+        pos_raw_bin = imgbu_bytes.find(b"============= BU DIGITAL =============")
+        if pos_raw_bin != -1:
+            bloco_binario_qr_bytes = imgbu_bytes[pos_raw_bin:]
+        clean_text = clean_text[:idx_bu_digital].rstrip()
 
     clean_lines = []
     for line in clean_text.splitlines():
-        sanitized = "".join(ch for ch in line if ch >= " " or ch == "\t")
+        # Mantém apenas caracteres ASCII imprimíveis e Latin-1 legíveis (evitando símbolos de controle 0x80..0x9F)
+        sanitized = "".join(
+            ch for ch in line if (32 <= ord(ch) <= 126) or (160 <= ord(ch) <= 255) or ch == "\t"
+        )
         clean_lines.append(sanitized)
+
+    if bloco_binario_qr_bytes:
+        qr_sha256 = hashlib.sha256(bloco_binario_qr_bytes).hexdigest().upper()
+        clean_lines.extend([
+            "",
+            "============= BU DIGITAL =============",
+            "[BLOCO BINÁRIO QR CODE E CERTIFICADO ICP-BRASIL/TSE]",
+            f"Tamanho do Payload Binário : {len(bloco_binario_qr_bytes)} bytes",
+            "Assinatura SHA-256 do Bloco QR/Certificado:",
+            f"  {qr_sha256[:32]}",
+            f"  {qr_sha256[32:]}",
+            "======================================",
+        ])
+
     espelho_bu = "\n".join(clean_lines)
 
     def _find_int(regex_pat: str, default: int = 0) -> int:
@@ -273,6 +299,7 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
     tipo_habilitacao = ""
     teclas_indevidas_ciclo = 0
     cargos_confirmados = []
+    eventos_ciclo_atual = []
     macs_validos = 0
     macs_invalidos = 0
 
@@ -366,8 +393,23 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                 tipo_habilitacao = ""
                 teclas_indevidas_ciclo = 0
                 cargos_confirmados = []
+                eventos_ciclo_atual = [{
+                    "linha": line_num,
+                    "hora": dt.strftime("%H:%M:%S"),
+                    "nivel": nivel,
+                    "mensagem": msg,
+                    "mac": mac_hex,
+                }]
+            else:
+                eventos_ciclo_atual.append({
+                    "linha": line_num,
+                    "hora": dt.strftime("%H:%M:%S"),
+                    "nivel": nivel,
+                    "mensagem": msg,
+                    "mac": mac_hex,
+                })
 
-            elif "Identificador do eleitor digitado pelo mesário" in msg:
+            if "Identificador do eleitor digitado pelo mesário" in msg:
                 t_id_digitado = dt
 
             elif "Identificador digitado pelo mesário foi:" in msg:
@@ -427,6 +469,9 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                 ciclos_votacao.append({
                     "seq": len(ciclos_votacao) + 1,
                     "linha_log": line_num,
+                    "data_eleicao": data_eleicao_principal,
+                    "faixa_horaria": t_computado.strftime("%H") + "h",
+                    "hora_aguardando": t_aguardando.strftime("%H:%M:%S") if t_aguardando else inicio_ref.strftime("%H:%M:%S"),
                     "hora_inicio": inicio_ref.strftime("%H:%M:%S"),
                     "hora_habilitacao": hab_ref.strftime("%H:%M:%S"),
                     "hora_computado": t_computado.strftime("%H:%M:%S"),
@@ -439,6 +484,7 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                     "tempo_cabine_s": round(tempo_cabine_s, 1),
                     "tempo_ciclo_total_s": round(tempo_ciclo_total_s, 1),
                     "mac_voto": mac_hex,
+                    "eventos_detalhados": list(eventos_ciclo_atual),
                 })
 
     tempos_cabine = [c["tempo_cabine_s"] for c in ciclos_votacao]
