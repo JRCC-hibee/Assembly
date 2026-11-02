@@ -1,8 +1,9 @@
 import os
+import glob
 import hashlib
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Request
+from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -30,6 +31,7 @@ from .thermal_printer import gerar_relatorio_zeresima, apurar_boletim_de_urna
 from .cartridge import gerar_cartucho_midia_resultado
 from .esp32_protocol import decode_esp32_vote_frame
 from .simulator_audit import executar_simulacao_cadencia_seccao, auditar_logs_independente
+from .tse_reverse_analyzer import analisar_pacote_seccao_tse
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -722,4 +724,45 @@ def api_auditar_logs_independente(payload: AuditoriaExternaLogsSchema, db: Sessi
             for l in logs_db
         ]
     return auditar_logs_independente(logs_input)
+
+
+@app.post("/api/tse-reverso/upload")
+async def api_tse_reverso_upload(files: list[UploadFile] = File(...)):
+    """
+    Recebe o upload dos arquivos oficiais do TSE de uma seção eleitoral:
+    `-log.jez`, `-imgbu.dat`, `-rdv.dat`, `-bu.dat`, `-vota.vsc`
+    e executa a Engenharia Reversa + Batimento Forense Triplo.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo enviado para análise reversa.")
+
+    arquivos_dict = {}
+    for f in files:
+        content = await f.read()
+        arquivos_dict[f.filename] = content
+
+    try:
+        return analisar_pacote_seccao_tse(arquivos_dict)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Erro ao processar pacote TSE: {exc}")
+
+
+@app.post("/api/tse-reverso/amostra-pr")
+def api_tse_reverso_amostra_pr():
+    """
+    Carrega instantaneamente a Seção Oficial 0017 (Zona 0171 - Almirante Tamandaré/PR - 2º Turno 2026)
+    incluída no servidor para demonstração imediata da Análise Reversa.
+    """
+    sample_dir = os.path.join(BASE_DIR, "samples_tse_pr")
+    paths = glob.glob(os.path.join(sample_dir, "o03221pr7407101710017-*"))
+    if not paths:
+        raise HTTPException(status_code=404, detail="Arquivos de amostra PR não encontrados no container.")
+
+    arquivos_dict = {}
+    for p in paths:
+        with open(p, "rb") as fp:
+            arquivos_dict[os.path.basename(p)] = fp.read()
+
+    return analisar_pacote_seccao_tse(arquivos_dict)
+
 

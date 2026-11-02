@@ -166,6 +166,9 @@
       <button onclick="switchTab('tab-simulacao')" id="btn-tab-simulacao" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-500/30">
         5. Simulador de Cadência & Auditoria Forense de Logs
       </button>
+      <button onclick="switchTab('tab-tse-reverso')" id="btn-tab-tse-reverso" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-cyan-300 hover:bg-slate-700 border border-cyan-500/30">
+        6. Engenharia Reversa Oficial TSE (PR 2026: .jez / .dat / .vsc)
+      </button>
     </div>
   </div>
 
@@ -853,6 +856,161 @@ o Boletim de Urna (apos encerramento da votacao).
         </div>
       </div>
     </section>
+
+    <!-- TAB 6: ENGENHARIA REVERSA OFICIAL TSE (.LOG.JEZ / .IMGBU.DAT / .RDV.DAT / .BU.DAT / .VOTA.VSC) -->
+    <section id="tab-tse-reverso" class="hidden space-y-6">
+      <!-- Barra de Upload e Amostra Oficial PR 2026 -->
+      <div class="bg-slate-900 border-2 border-cyan-500/40 rounded-xl p-5 flex flex-wrap items-center justify-between gap-4">
+        <div class="max-w-2xl">
+          <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
+            Motor Forense de Engenharia Reversa TSE — Eleições Gerais 2026 (2º Turno PR)
+          </span>
+          <h2 class="text-base font-bold text-white mt-1">
+            Leitura Reversa e Batimento Triplo (`-log.jez` × `-imgbu.dat` × `-rdv.dat` ASN.1 DER)
+          </h2>
+          <p class="text-xs text-slate-400 mt-0.5">
+            Selecione os arquivos de qualquer seção da sua pasta <code class="text-cyan-300">bu_imgbu_logjez_rdv_vscmr_2026_2t_PR</code> (ex: os 5 arquivos <code class="text-slate-200">o03221pr...-bu.dat, -imgbu.dat, -log.jez, -rdv.dat, -vota.vsc</code>) ou carregue com 1 clique a Seção 0017 de Almirante Tamandaré/PR já integrada.
+          </p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <label class="px-4 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2">
+            <span>📂 Subir Arquivos da Seção TSE (.jez, .dat, .vsc)</span>
+            <input id="tseFilesInput" type="file" multiple onchange="subirArquivosTseReverso(event)" class="hidden" />
+          </label>
+
+          <button
+            onclick="carregarAmostraOficialPR()"
+            class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-cyan-500/50 text-cyan-300 font-bold text-xs rounded-xl transition"
+          >
+            ⚡ Carregar Seção 0017 — Almirante Tamandaré/PR (2ºT 2026)
+          </button>
+        </div>
+      </div>
+
+      <!-- Painel de Resultados da Engenharia Reversa -->
+      <div id="tseReversoResultContainer" class="hidden space-y-6">
+        <!-- Veredito + Metadados da Urna UE2020 -->
+        <div id="tseVereditoBox" class="p-4 rounded-xl border-2 text-xs"></div>
+
+        <!-- Cartões de Identificação Física da Seção e Urna -->
+        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-xs mono">
+          <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
+            <div class="text-[10px] text-slate-400">MUNICÍPIO / UF</div>
+            <div id="tseMunVal" class="font-bold text-white mt-0.5 truncate">-</div>
+          </div>
+          <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
+            <div class="text-[10px] text-slate-400">ZONA / SEÇÃO</div>
+            <div id="tseZonaSecaoVal" class="font-bold text-cyan-300 mt-0.5">-</div>
+          </div>
+          <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
+            <div class="text-[10px] text-slate-400">MODELO / SERIAL UE</div>
+            <div id="tseModeloSerialVal" class="font-bold text-emerald-400 mt-0.5">-</div>
+          </div>
+          <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
+            <div class="text-[10px] text-slate-400">VERSÃO SOFTWARE TSE</div>
+            <div id="tseVersaoSwVal" class="font-bold text-amber-300 mt-0.5 truncate">-</div>
+          </div>
+          <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
+            <div class="text-[10px] text-slate-400">COMPARECIMENTO / APTOS</div>
+            <div id="tseCompAptosVal" class="font-bold text-white mt-0.5">-</div>
+          </div>
+          <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
+            <div class="text-[10px] text-slate-400">CADÊNCIA MÉDIA REAL</div>
+            <div id="tseCadenciaMediaVal" class="font-bold text-emerald-300 mt-0.5">-</div>
+          </div>
+        </div>
+
+        <!-- Tabela de Batimento Forense Triplo (logd.dat x imgbu.dat x rdv.dat ASN.1) -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+            <div class="flex items-center justify-between">
+              <h3 class="text-sm font-bold text-white">
+                🔬 Batimento Forense Triplo (`logd.dat` × `imgbu.dat` × `rdv.dat` ASN.1 DER)
+              </h3>
+              <span id="tseMacSummary" class="mono text-[11px] text-emerald-400"></span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs mono">
+                <thead class="text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th class="py-2">Métrica Auditada</th>
+                    <th class="py-2">Log (`-log.jez`)</th>
+                    <th class="py-2">BU (`-imgbu.dat`)</th>
+                    <th class="py-2">RDV (`-rdv.dat`)</th>
+                    <th class="py-2 text-right">Resultado</th>
+                  </tr>
+                </thead>
+                <tbody id="tseBatimentoTableBody" class="divide-y divide-slate-800/60"></tbody>
+              </table>
+            </div>
+
+            <!-- Detalhamento de Nulos Extraídos da Árvore ASN.1 do RDV -->
+            <div id="tseRdvNulosBox" class="bg-slate-950 border border-slate-800 rounded-lg p-3 text-xs mono"></div>
+          </div>
+
+          <!-- Distribuição Horária & Estatísticas Operacionais do Log -->
+          <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <h3 class="text-sm font-bold text-white">📊 Vazão Horária de Eleitores (08h às 17h) & Biometria</h3>
+            <div id="tseHourlyBars" class="space-y-2 text-xs mono"></div>
+            <div id="tseOperationalStats" class="bg-slate-950 border border-slate-800 rounded-lg p-3 space-y-1 text-xs mono text-slate-300"></div>
+          </div>
+        </div>
+
+        <!-- Espectrograma Cronológico dos Eleitores Reais Extraídos do logd.dat -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-bold text-white">
+                ⏱️ Linha do Tempo Individual de Cada Eleitor da Seção (Reconstruída do `logd.dat`)
+              </h3>
+              <p class="text-xs text-slate-400">
+                Cada barra representa 1 eleitor real da seção. Passe o mouse ou clique para ver o horário exato, se digitou Título ou CPF, quantas tentativas de digital (1 a 4), tempo de mesa e tempo na cabine.
+              </p>
+            </div>
+            <div class="flex gap-3 text-[11px] mono">
+              <span class="text-emerald-400">🟢 Habilitação Biométrica AFIS</span>
+              <span class="text-amber-300">🟡 Habilitação Biográfica / Mesário</span>
+              <span class="text-blue-400">🔵 3 ou 4 Tentativas de Digital</span>
+            </div>
+          </div>
+          <div id="tseRealVoterBars" class="h-40 flex items-end gap-0.5 overflow-x-auto pt-4 pb-1 px-2 bg-slate-950 rounded-lg border border-slate-800"></div>
+        </div>
+
+        <!-- Tabelas Lado a Lado: Ciclos de Eleitores Reconstruídos vs Espelho Original do Boletim de Urna -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+            <h3 class="text-sm font-bold text-white">
+              👥 Tabela Auditável dos Eleitores da Seção (`VOTA` no `logd.dat`)
+            </h3>
+            <div class="max-h-96 overflow-y-auto">
+              <table class="w-full text-left text-[11px] mono">
+                <thead class="text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-900">
+                  <tr>
+                    <th class="py-1.5">#Seq</th>
+                    <th class="py-1.5">Início → Voto</th>
+                    <th class="py-1.5">Doc.</th>
+                    <th class="py-1.5">Habilitação</th>
+                    <th class="py-1.5">Tent. Bio</th>
+                    <th class="py-1.5">Mesa(s)</th>
+                    <th class="py-1.5">Cabine(s)</th>
+                    <th class="py-1.5">MAC 16-Hex</th>
+                  </tr>
+                </thead>
+                <tbody id="tseCiclosTableBody" class="divide-y divide-slate-800/60"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col items-center">
+            <h3 class="text-sm font-bold text-white w-full mb-3">
+              🧾 Espelho Original Extraído do `-imgbu.dat`
+            </h3>
+            <pre id="tseEspelhoBuPre" class="thermal-paper mono text-[10px] leading-snug p-4 w-full max-h-96 overflow-y-auto whitespace-pre"></pre>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -946,7 +1104,7 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     function switchTab(tabId) {
-      ["tab-urna", "tab-candidatos", "tab-relatorios", "tab-assembly", "tab-simulacao"].forEach(id => {
+      ["tab-urna", "tab-candidatos", "tab-relatorios", "tab-assembly", "tab-simulacao", "tab-tse-reverso"].forEach(id => {
         document.getElementById(id).classList.add("hidden");
         const btn = document.getElementById("btn-" + id);
         btn.className = "tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-slate-300 hover:bg-slate-700";
@@ -1700,6 +1858,180 @@ o Boletim de Urna (apos encerramento da votacao).
       } else {
         anomBox.classList.add("hidden");
       }
+    }
+
+    async function subirArquivosTseReverso(event) {
+      const files = event.target.files;
+      if (!files || files.length === 0) return;
+
+      const formData = new FormData();
+      for (let i = 0; i < files.length; i++) {
+        formData.append("files", files[i]);
+      }
+
+      showSecurityAlert(`Processando engenharia reversa de ${files.length} arquivo(s) oficiais do TSE...`, false);
+      const res = await fetch("/api/tse-reverso/upload", {
+        method: "POST",
+        body: formData
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showSecurityAlert(data.detail || "Falha ao analisar arquivos do TSE.", true);
+        return;
+      }
+      hideSecurityAlert();
+      playBeepBiometriaOk();
+      renderizarLaudoTseReverso(data);
+    }
+
+    async function carregarAmostraOficialPR() {
+      showSecurityAlert("Carregando Seção 0017 (Almirante Tamandaré/PR - 2º Turno 2026)...", false);
+      const res = await fetch("/api/tse-reverso/amostra-pr", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        showSecurityAlert(data.detail || "Falha ao carregar amostra PR.", true);
+        return;
+      }
+      hideSecurityAlert();
+      playBeepBiometriaOk();
+      renderizarLaudoTseReverso(data);
+    }
+
+    function renderizarLaudoTseReverso(data) {
+      document.getElementById("tseReversoResultContainer").classList.remove("hidden");
+
+      const verBox = document.getElementById("tseVereditoBox");
+      if (data.nivel_risco === "BAIXO") {
+        verBox.className = "p-4 rounded-xl border-2 bg-emerald-950/90 border-emerald-500 text-emerald-100 text-xs";
+        verBox.innerHTML = `<div class="font-extrabold text-sm text-emerald-300 uppercase">✅ ${data.veredito_geral}</div>
+          <div class="mt-1 mono">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos processados: <strong>${data.arquivos_recebidos.join(", ")}</strong></div>`;
+      } else {
+        verBox.className = "p-4 rounded-xl border-2 bg-rose-950/90 border-rose-500 text-rose-100 text-xs";
+        verBox.innerHTML = `<div class="font-extrabold text-sm text-rose-300 uppercase">🚨 ${data.veredito_geral}</div>
+          <div class="mt-1 mono">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos: <strong>${data.arquivos_recebidos.join(", ")}</strong></div>`;
+      }
+
+      const bu = data.imgbu || {};
+      const log = data.log_jez || {};
+      const meta = log.metadados_urna || {};
+      const resLog = log.resumo_votacao_log || {};
+      const rdv = data.rdv || {};
+
+      document.getElementById("tseMunVal").textContent = bu.municipio_nome
+        ? `${bu.municipio_nome} (${bu.municipio_codigo})`
+        : (meta.municipio || "-");
+      document.getElementById("tseZonaSecaoVal").textContent = `Z: ${bu.zona || meta.zona || "-"} / S: ${bu.secao || meta.secao || "-"}`;
+      document.getElementById("tseModeloSerialVal").textContent = `${meta.modelo_ue || "UE2020"} (#${meta.serial_ue || bu.codigo_ue || "-"})`;
+      document.getElementById("tseVersaoSwVal").textContent = meta.versao_aplicacao || "-";
+      document.getElementById("tseCompAptosVal").textContent = `${bu.comparecimento || resLog.total_votos_computados || "-"} / ${bu.eleitores_aptos || "-"}`;
+      document.getElementById("tseCadenciaMediaVal").textContent = resLog.tempo_medio_ciclo_s
+        ? `${resLog.tempo_medio_ciclo_s}s (Cabine: ${resLog.tempo_medio_cabine_s}s)`
+        : "-";
+
+      if (log.macs_validos !== undefined) {
+        document.getElementById("tseMacSummary").textContent =
+          `${log.total_linhas_logd} linhas no logd.dat | ${log.macs_validos} Assinaturas MAC 16-Hex íntegras`;
+      }
+
+      // Tabela de Batimentos
+      const tbodyBat = document.getElementById("tseBatimentoTableBody");
+      tbodyBat.innerHTML = (data.batimentos_cruzados || []).map(b => `
+        <tr>
+          <td class="py-2 font-semibold text-slate-200">${b.item}</td>
+          <td class="py-2 text-cyan-300 font-bold">${b.valor_log}</td>
+          <td class="py-2 text-amber-300 font-bold">${b.valor_bu}</td>
+          <td class="py-2 text-emerald-300 font-bold">${b.valor_rdv}</td>
+          <td class="py-2 text-right">
+            ${b.status === "CONFERE_100%"
+              ? `<span class="px-2 py-0.5 rounded bg-emerald-900/70 text-emerald-300 font-extrabold text-[10px]">CONFERE 100%</span>`
+              : `<span class="px-2 py-0.5 rounded bg-rose-900/70 text-rose-300 font-extrabold text-[10px]">${b.status}</span>`}
+          </td>
+        </tr>
+      `).join("");
+
+      // Detalhe ASN.1 do RDV (incluindo quais dígitos nulos os eleitores teclaram!)
+      const rdvNulosBox = document.getElementById("tseRdvNulosBox");
+      if (rdv.total_votos_no_rdv) {
+        const nulosStr = Object.entries(rdv.votos_nulos_numeros_digitados || {})
+          .map(([num, qtd]) => `Número "${num}": ${qtd} voto(s)`)
+          .join(" • ") || "Nenhum voto nulo";
+        rdvNulosBox.innerHTML = `
+          <div class="font-bold text-cyan-300 mb-1">Decodificação Binária ASN.1 DER do Arquivo <code>-rdv.dat</code> (SHA256: ${rdv.sha256.slice(0, 20)}...):</div>
+          <div class="text-slate-300">• Cédulas extraídas da árvore ASN.1: <strong>${rdv.total_votos_no_rdv}</strong></div>
+          <div class="text-slate-300">• Números digitados nos Votos Nulos: <strong class="text-amber-300">${nulosStr}</strong></div>
+        `;
+      } else {
+        rdvNulosBox.innerHTML = `<span class="text-slate-500">Envie também o arquivo <code>-rdv.dat</code> para decodificar a árvore binária ASN.1 DER.</span>`;
+      }
+
+      // Barras de Vazão Horária
+      const hourlyContainer = document.getElementById("tseHourlyBars");
+      const vph = resLog.votos_por_hora || {};
+      const maxHourCount = Math.max(...Object.values(vph), 1);
+      hourlyContainer.innerHTML = Object.entries(vph).map(([hh, qtd]) => {
+        const wPct = Math.round((qtd / maxHourCount) * 100);
+        return `
+          <div class="flex items-center gap-2">
+            <span class="w-10 text-slate-400 font-bold">${hh}</span>
+            <div class="flex-1 bg-slate-950 rounded h-4 overflow-hidden border border-slate-800">
+              <div style="width: ${wPct}%" class="bg-cyan-500 h-full"></div>
+            </div>
+            <span class="w-16 text-right font-bold text-white">${qtd} votos</span>
+          </div>
+        `;
+      }).join("");
+
+      const histDatas = meta.historico_votos_por_data_no_log
+        ? Object.entries(meta.historico_votos_por_data_no_log).map(([dt, q]) => `${dt}: ${q} votos`).join(" | ")
+        : "-";
+
+      document.getElementById("tseOperationalStats").innerHTML = `
+        <div>• Histórico acumulado na Mídia (1ºT e 2ºT): <strong class="text-amber-300">${histDatas}</strong></div>
+        <div>• Teclas Indevidas Pressionadas no 2ºT: <strong class="text-white">${resLog.total_teclas_indevidas || 0}</strong></div>
+        <div>• Títulos Digitados Inválidos pelo Mesário: <strong class="text-white">${resLog.total_identificador_invalido || 0}</strong></div>
+        <div>• Etapas de Assinatura Digital Verificadas no Boot: <strong class="text-emerald-400">${log.etapas_assinatura_software_ok || 0} [SUCESSO]</strong></div>
+      `;
+
+      // Espectrograma Individual de Eleitores Reais do Log
+      const ciclos = log.ciclos_eleitores || [];
+      const maxCicloS = Math.max(...ciclos.map(c => c.tempo_ciclo_total_s), 90);
+      const barsEl = document.getElementById("tseRealVoterBars");
+      barsEl.innerHTML = ciclos.map(c => {
+        const pct = Math.max(8, Math.min(100, Math.round((c.tempo_ciclo_total_s / maxCicloS) * 100)));
+        let color = "bg-emerald-500 hover:bg-emerald-400";
+        if (c.tipo_habilitacao !== "BIOMETRICA") {
+          color = "bg-amber-400 hover:bg-amber-300";
+        } else if (c.tentativas_digital >= 3) {
+          color = "bg-blue-500 hover:bg-blue-400";
+        }
+        return `<div
+          style="height: ${pct}%; min-width: 4px;"
+          class="flex-1 rounded-t ${color} transition"
+          title="Eleitor #${c.seq} (${c.hora_inicio} -> ${c.hora_computado}) | Doc: ${c.documento} | Hab: ${c.tipo_habilitacao} (${c.tentativas_digital} tent. bio) | Mesa: ${c.tempo_mesa_bio_s}s + Cabine: ${c.tempo_cabine_s}s = ${c.tempo_ciclo_total_s}s"
+        ></div>`;
+      }).join("");
+
+      // Tabela de Ciclos Individuais
+      document.getElementById("tseCiclosTableBody").innerHTML = ciclos.map(c => `
+        <tr>
+          <td class="py-1 font-bold text-cyan-300">#${c.seq}</td>
+          <td class="py-1">${c.hora_inicio} → <strong>${c.hora_computado}</strong></td>
+          <td class="py-1">${c.documento}</td>
+          <td class="py-1">
+            ${c.tipo_habilitacao === "BIOMETRICA"
+              ? `<span class="text-emerald-400 font-bold">BIOMÉTRICA</span>`
+              : `<span class="text-amber-300 font-bold">${c.tipo_habilitacao}</span>`}
+          </td>
+          <td class="py-1 text-center">${c.tentativas_digital}/4</td>
+          <td class="py-1">${c.tempo_mesa_bio_s}s</td>
+          <td class="py-1 font-bold text-white">${c.tempo_cabine_s}s</td>
+          <td class="py-1 text-slate-500">${c.mac_voto}</td>
+        </tr>
+      `).join("");
+
+      // Espelho Original do Boletim de Urna
+      document.getElementById("tseEspelhoBuPre").textContent =
+        bu.espelho_bobina || "Suba o arquivo -imgbu.dat da seção para visualizar a bobina original.";
     }
 
     window.addEventListener("keydown", (e) => {
