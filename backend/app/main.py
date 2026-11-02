@@ -36,6 +36,7 @@ from .tse_reverse_analyzer import (
     processar_lote_arquivos_tse,
     consolidar_secoes_tse,
     obter_secao_individual_tse,
+    obter_indice_secoes_carregadas,
     limpar_catalogo_tse,
 )
 
@@ -762,12 +763,21 @@ async def api_tse_reverso_upload(request: Request):
         raise HTTPException(status_code=400, detail=f"Erro ao processar pacote TSE: {exc}")
 
 
+@app.get("/api/tse-reverso/indice-ja-carregados")
+def api_tse_reverso_indice_ja_carregados():
+    """
+    Retorna a máscara de bits de todas as seções já carregadas no servidor
+    para que o navegador pule 100% dos arquivos já processados em uploads anteriores.
+    """
+    return obter_indice_secoes_carregadas()
+
+
 @app.post("/api/tse-reverso/upload-lote")
 async def api_tse_reverso_upload_lote(request: Request):
     """
     Endpoint otimizado para ingestão em lote (chunked) de dezenas, centenas ou milhares
     de seções/urnas do estado (ex: Paraná inteiro). Agrupa por prefixo da seção,
-    persiste no catálogo e retorna o progresso.
+    ignora arquivos duplicados, persiste no catálogo e retorna o progresso.
     """
     form = await request.form(max_files=5000, max_fields=5000)
     files = form.getlist("files")
@@ -785,6 +795,7 @@ async def api_tse_reverso_upload_lote(request: Request):
         return {
             "ok": True,
             "secoes_processadas_neste_lote": lote_res["secoes_processadas_neste_lote"],
+            "secoes_ignoradas_duplicadas": lote_res.get("secoes_ignoradas_duplicadas", 0),
             "prefixos_processados": lote_res["prefixos_processados"],
             "total_secoes_no_catalogo": lote_res["total_secoes_no_catalogo"],
         }

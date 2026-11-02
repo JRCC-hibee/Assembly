@@ -2122,9 +2122,18 @@ o Boletim de Urna (apos encerramento da votacao).
       const fileList = event.target.files;
       if (!fileList || fileList.length === 0) return;
 
+      const progBox = document.getElementById("tseBatchProgressBox");
+      const progBar = document.getElementById("tseBatchProgressBar");
+      const progText = document.getElementById("tseBatchProgressText");
+      const progPct = document.getElementById("tseBatchProgressPct");
+
+      progBox.classList.remove("hidden");
+      progBar.style.width = "2%";
+      progPct.textContent = "0%";
+      progText.textContent = `🔍 Lendo ${fileList.length.toLocaleString("pt-BR")} arquivo(s) e consultando o catálogo do servidor para ignorar duplicados...`;
+
       // 1. Filtra arquivos oficiais TSE (.jez, .dat, .vsc) e agrupa por prefixo de seção
       const gruposPorPrefixo = new Map();
-      let totalArquivosValidos = 0;
 
       for (let i = 0; i < fileList.length; i++) {
         const f = fileList[i];
@@ -2144,70 +2153,135 @@ o Boletim de Urna (apos encerramento da votacao).
           window.localTseFilesByPrefix[prefixo] = {};
         }
         window.localTseFilesByPrefix[prefixo][base] = f;
-        totalArquivosValidos++;
       }
 
-      const listaPrefixos = Array.from(gruposPorPrefixo.keys()).sort();
-      const totalUrnas = listaPrefixos.length;
+      const todosPrefixosSelecionados = Array.from(gruposPorPrefixo.keys()).sort();
+      const totalUrnasSelecionadas = todosPrefixosSelecionados.length;
 
-      if (totalUrnas === 0) {
+      if (totalUrnasSelecionadas === 0) {
+        progBox.classList.add("hidden");
         showSecurityAlert("Nenhum arquivo oficial do TSE (.jez, .dat, .vsc) foi identificado na seleção.", true);
         return;
       }
 
-      // 2. Define estratégia: Turbo (BU+RDV no lote e .jez ao abrir urna) ou Completo
+      // 2. Consulta o índice de seções/arquivos já carregados no servidor para NÃO enviar duplicado
+      let indiceMascaras = {};
+      try {
+        const resIdx = await fetch("/api/tse-reverso/indice-ja-carregados");
+        if (resIdx.ok) {
+          const dataIdx = await resIdx.json();
+          indiceMascaras = dataIdx.indice_mascaras || {};
+        }
+      } catch (e) {}
+
+      // Define estratégia: Turbo (BU+RDV no lote e .jez ao abrir urna) ou Completo
       const stratSelect = document.getElementById("tseUploadStrategy").value;
-      const usarModoTurbo = stratSelect === "TURBO" || (stratSelect === "AUTO" && totalUrnas > 15);
+      const usarModoTurbo = stratSelect === "TURBO" || (stratSelect === "AUTO" && totalUrnasSelecionadas > 15);
+
+      // 3. Filtra APENAS as urnas e os arquivos que AINDA NÃO foram carregados no servidor
+      const gruposFaltantes = new Map();
+      let urnasPuladasJaExistentes = 0;
+      let arquivosPuladosJaExistentes = 0;
+
+      for (const pref of todosPrefixosSelecionados) {
+        const mask = indiceMascaras[pref] || 0;
+        const arqsDaSecao = gruposPorPrefixo.get(pref) || [];
+        const temBuOuRdvLocal = arqsDaSecao.some(a => {
+          const n = a.name.toLowerCase();
+          return n.endsWith("imgbu.dat") || n.endsWith("rdv.dat");
+        });
+        const jaTemBuOuRdvServidor = (mask & 1) !== 0 || (mask & 2) !== 0;
+
+        const arqsNovos = [];
+        for (const arq of arqsDaSecao) {
+          const low = arq.name.toLowerCase();
+
+          // Verifica pela máscara de bits se este arquivo específico já foi carregado anteriormente:
+          // 1 = imgbu.dat, 2 = rdv.dat, 4 = .jez, 8 = -bu.dat, 16 = .vsc
+          if (low.endsWith("imgbu.dat") && (mask & 1)) {
+            arquivosPuladosJaExistentes++;
+            continue;
+          }
+          if (low.endsWith("rdv.dat") && (mask & 2)) {
+            arquivosPuladosJaExistentes++;
+            continue;
+          }
+          if (low.endsWith(".jez")) {
+            if (mask & 4) {
+              arq._alreadyUploaded = true;
+              arquivosPuladosJaExistentes++;
+              continue;
+            }
+            if (usarModoTurbo && (temBuOuRdvLocal || jaTemBuOuRdvServidor)) {
+              // No modo Turbo, mantém referência local para envio sob demanda ao clicar na urna
+              continue;
+            }
+          }
+          if ((low.endsWith("-bu.dat") || low === "bu.dat") && (mask & 8)) {
+            arquivosPuladosJaExistentes++;
+            continue;
+          }
+          if (low.endsWith(".vsc") && (mask & 16)) {
+            arquivosPuladosJaExistentes++;
+            continue;
+          }
+
+          arqsNovos.push(arq);
+        }
+
+        if (arqsNovos.length > 0) {
+          gruposFaltantes.set(pref, arqsNovos);
+        } else {
+          urnasPuladasJaExistentes++;
+        }
+      }
+
+      const listaPrefixosFaltantes = Array.from(gruposFaltantes.keys());
+      const totalFaltantes = listaPrefixosFaltantes.length;
+
+      // Caso todas as urnas selecionadas já tenham sido carregadas anteriormente:
+      if (totalFaltantes === 0) {
+        progBar.style.width = "100%";
+        progPct.textContent = "100%";
+        progText.textContent = `✅ Todas as ${totalUrnasSelecionadas.toLocaleString("pt-BR")} urnas selecionadas já constam no catálogo (${arquivosPuladosJaExistentes.toLocaleString("pt-BR")} arquivos duplicados ignorados)!`;
+        setTimeout(() => {
+          progBox.classList.add("hidden");
+        }, 4000);
+        event.target.value = "";
+        playBeepBiometriaOk();
+        await atualizarConsolidacaoTse(true, "TODAS", "TODAS", totalUrnasSelecionadas === 1 ? todosPrefixosSelecionados[0] : "CONSOLIDADO");
+        return;
+      }
 
       // Quantas seções enviamos por requisição HTTP POST:
-      // No modo Turbo (só -imgbu.dat e -rdv.dat ~ 9 KB/urna), enviamos 25 urnas por POST (~225 KB/req)
-      // No modo Completo (com -log.jez ~ 880 KB/urna), enviamos 2 urnas por POST (~1.7 MB/req)
-      const urnasPorRequisicao = usarModoTurbo ? 25 : 2;
-
+      // No modo Turbo (~9 KB/urna), enviamos 50 urnas por POST (~450 KB/req) para velocidade máxima
+      const urnasPorRequisicao = usarModoTurbo ? 50 : 2;
       window.cancelarLoteTseFlag = false;
-      const progBox = document.getElementById("tseBatchProgressBox");
-      const progBar = document.getElementById("tseBatchProgressBar");
-      const progText = document.getElementById("tseBatchProgressText");
-      const progPct = document.getElementById("tseBatchProgressPct");
-
-      progBox.classList.remove("hidden");
-      progBar.style.width = "2%";
-      progPct.textContent = "0%";
-
       let urnasEnviadas = 0;
 
-      for (let idx = 0; idx < totalUrnas; idx += urnasPorRequisicao) {
+      for (let idx = 0; idx < totalFaltantes; idx += urnasPorRequisicao) {
         if (window.cancelarLoteTseFlag) break;
 
-        const fatiaPrefixos = listaPrefixos.slice(idx, idx + urnasPorRequisicao);
+        const fatiaPrefixos = listaPrefixosFaltantes.slice(idx, idx + urnasPorRequisicao);
         const formData = new FormData();
         let arquivosNaFatia = 0;
 
         for (const pref of fatiaPrefixos) {
-          const arqs = gruposPorPrefixo.get(pref) || [];
-          const temBuOuRdv = arqs.some(a => {
-            const n = a.name.toLowerCase();
-            return n.endsWith("imgbu.dat") || n.endsWith("rdv.dat");
-          });
-
-          for (const arq of arqs) {
-            const low = arq.name.toLowerCase();
-            // No modo Turbo, pula o .jez pesado durante o lote massivo se a seção já tiver BU ou RDV
-            if (usarModoTurbo && temBuOuRdv && low.endsWith(".jez")) {
-              continue;
-            }
+          const arqsNovos = gruposFaltantes.get(pref) || [];
+          for (const arq of arqsNovos) {
             formData.append("files", arq, arq.name);
             arquivosNaFatia++;
           }
         }
 
         if (arquivosNaFatia > 0) {
-          const pctAtual = Math.round((urnasEnviadas / totalUrnas) * 100);
+          const pctAtual = Math.round((urnasEnviadas / totalFaltantes) * 100);
           progBar.style.width = `${Math.max(3, pctAtual)}%`;
           progPct.textContent = `${pctAtual}%`;
-          progText.textContent = usarModoTurbo
-            ? `⚡ Modo Turbo Estadual: Consolidando Urnas ${urnasEnviadas + 1} a ${Math.min(urnasEnviadas + fatiaPrefixos.length, totalUrnas)} de ${totalUrnas} (${fatiaPrefixos[0]})...`
-            : `🔬 Modo Completo Forense: Processando Urnas ${urnasEnviadas + 1} a ${Math.min(urnasEnviadas + fatiaPrefixos.length, totalUrnas)} de ${totalUrnas} (${fatiaPrefixos[0]})...`;
+          const msgPuladas = urnasPuladasJaExistentes > 0
+            ? `⏭️ ${urnasPuladasJaExistentes.toLocaleString("pt-BR")} já existentes ignoradas • `
+            : "";
+          progText.textContent = `${msgPuladas}Enviando apenas faltantes: ${urnasEnviadas + 1} a ${Math.min(urnasEnviadas + fatiaPrefixos.length, totalFaltantes)} de ${totalFaltantes.toLocaleString("pt-BR")} (${fatiaPrefixos[0]})...`;
 
           try {
             const res = await fetch("/api/tse-reverso/upload-lote", {
@@ -2230,18 +2304,17 @@ o Boletim de Urna (apos encerramento da votacao).
 
       progBar.style.width = "100%";
       progPct.textContent = "100%";
-      progText.textContent = `✅ Importação concluída! ${urnasEnviadas} urna(s) processada(s) e indexada(s) por Cidade, Zona e Seção.`;
+      progText.textContent = `✅ Upload incremental concluído! ${urnasEnviadas.toLocaleString("pt-BR")} novas urnas adicionadas (${urnasPuladasJaExistentes.toLocaleString("pt-BR")} duplicadas ignoradas).`;
       setTimeout(() => {
         progBox.classList.add("hidden");
-      }, 2800);
+      }, 3500);
 
       event.target.value = "";
       hideSecurityAlert();
       playBeepBiometriaOk();
 
-      // Se subiu apenas 1 seção, abre direto a seção; se subiu várias, abre a Consolidação Global
-      if (totalUrnas === 1) {
-        await atualizarConsolidacaoTse(true, "TODAS", "TODAS", listaPrefixos[0]);
+      if (totalUrnasSelecionadas === 1) {
+        await atualizarConsolidacaoTse(true, "TODAS", "TODAS", todosPrefixosSelecionados[0]);
       } else {
         await atualizarConsolidacaoTse(true, "TODAS", "TODAS", "CONSOLIDADO");
       }
@@ -2395,7 +2468,8 @@ o Boletim de Urna (apos encerramento da votacao).
           `<option value="${z.zona}" ${hier.zona_selecionada === z.zona ? "selected" : ""}>Zona ${z.zona} — ${z.total_urnas} urna(s) / ${z.total_votos} votos</option>`
         ).join("");
 
-      selSecao.innerHTML = `<option value="CONSOLIDADO" ${hier.secao_selecionada === "CONSOLIDADO" ? "selected" : ""}>📊 CONSOLIDAÇÃO GLOBAL DO FILTRO (${secoes.length} urnas somadas)</option>` +
+      const totalNoFiltro = hier.total_secoes_no_filtro || secoes.length;
+      selSecao.innerHTML = `<option value="CONSOLIDADO" ${hier.secao_selecionada === "CONSOLIDADO" ? "selected" : ""}>📊 CONSOLIDAÇÃO GLOBAL DO FILTRO (${totalNoFiltro.toLocaleString("pt-BR")} urnas somadas)</option>` +
         secoes.map(s =>
           `<option value="${s.prefixo}" ${hier.secao_selecionada === s.prefixo ? "selected" : ""}>🗳️ Seção ${s.secao} (Z:${s.zona} - ${s.municipio_nome}) — ${s.votos} votos ${s.tem_log_jez ? "[c/ Log]" : "[BU+RDV]"}</option>`
         ).join("");

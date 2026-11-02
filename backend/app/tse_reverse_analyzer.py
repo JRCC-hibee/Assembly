@@ -918,30 +918,86 @@ def _carregar_catalogo_disco() -> dict[str, dict]:
         try:
             with open(cat_path, "r", encoding="utf-8") as f:
                 _CATALOGO_MEMORIA = json.load(f)
-                # Atualiza nomes de municípios aprendidos
-                for item in _CATALOGO_MEMORIA.values():
-                    mc = item.get("municipio_codigo")
-                    mn = item.get("municipio_nome")
-                    if mc and mn and not mn.startswith("MUNICÍPIO"):
-                        MUNICIPIOS_PR_TSE[mc] = mn
         except Exception:
             _CATALOGO_MEMORIA = {}
+
+    # Carrega também o log incremental append-only (.jsonl) para lotes rápidos
+    jsonl_path = os.path.join(storage, "catalogo_secoes.jsonl")
+    if os.path.exists(jsonl_path):
+        try:
+            with open(jsonl_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    item = json.loads(line)
+                    pref = item.get("prefixo")
+                    if pref:
+                        _CATALOGO_MEMORIA[pref] = item
+        except Exception:
+            pass
+
+    for item in _CATALOGO_MEMORIA.values():
+        mc = item.get("municipio_codigo")
+        mn = item.get("municipio_nome")
+        if mc and mn and not mn.startswith("MUNICÍPIO"):
+            MUNICIPIOS_PR_TSE[mc] = mn
+
     _CATALOGO_CARREGADO = True
     return _CATALOGO_MEMORIA
 
 
-def _salvar_catalogo_disco() -> None:
+def _append_catalogo_disco(resumos_novos: list[dict]) -> None:
+    if not resumos_novos:
+        return
     storage = _get_tse_storage_dir()
-    cat_path = os.path.join(storage, "catalogo_secoes.json")
-    with open(cat_path, "w", encoding="utf-8") as f:
-        json.dump(_CATALOGO_MEMORIA, f, ensure_ascii=False)
+    jsonl_path = os.path.join(storage, "catalogo_secoes.jsonl")
+    with open(jsonl_path, "a", encoding="utf-8") as f:
+        for r in resumos_novos:
+            f.write(json.dumps(r, ensure_ascii=False) + "\n")
+
+
+def obter_indice_secoes_carregadas() -> dict:
+    """
+    Retorna um índice ultracompacto de todas as seções já carregadas no servidor
+    usando máscara de bits por prefixo de seção:
+      1 = -imgbu.dat já carregado
+      2 = -rdv.dat já carregado
+      4 = -log.jez já carregado
+      8 = -bu.dat já carregado
+     16 = -vota.vsc / -vscmr.vsc já carregado
+    Permite ao navegador pular 100% dos arquivos já enviados anteriormente sem duplicar!
+    """
+    catalogo = _carregar_catalogo_disco()
+    indice: dict[str, int] = {}
+    for pref, item in catalogo.items():
+        mask = 0
+        if item.get("tem_imgbu"):
+            mask |= 1
+        if item.get("tem_rdv"):
+            mask |= 2
+        if item.get("tem_log_jez"):
+            mask |= 4
+        for arq in item.get("arquivos_recebidos", []):
+            low = arq.lower()
+            if low.endswith("-bu.dat") or low == "bu.dat":
+                mask |= 8
+            elif low.endswith(".vsc"):
+                mask |= 16
+        indice[pref] = mask
+
+    return {
+        "total_secoes_no_catalogo": len(catalogo),
+        "indice_mascaras": indice,
+    }
 
 
 def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
     """
     Recebe um lote contendo 1 ou N arquivos de 1 ou várias seções eleitorais do TSE,
-    agrupa pelo prefixo da seção (`o03221pr7407101710017`), mescla com arquivos já
-    recebidos daquela seção, salva o relatório completo em disco e atualiza o catálogo global.
+    agrupa pelo prefixo da seção (`o03221pr7407101710017`), ignora arquivos que já
+    foram carregados anteriormente para aquela seção, mescla apenas os arquivos novos
+    e salva incrementalmente em disco.
     """
     catalogo = _carregar_catalogo_disco()
     storage = _get_tse_storage_dir()
@@ -960,13 +1016,26 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
         grupos.setdefault(prefixo, {})[base_name] = content
 
     secoes_processadas = []
+    secoes_ignoradas_duplicadas = 0
+    resumos_para_append = []
     ultimo_relatorio = None
 
     for prefixo, novos_arquivos in grupos.items():
+        existente = catalogo.get(prefixo)
+        if existente:
+            ja_recebidos_set = {a.lower() for a in existente.get("arquivos_recebidos", [])}
+            arquivos_realmente_novos = {
+                k: v for k, v in novos_arquivos.items() if k.lower() not in ja_recebidos_set
+            }
+            if not arquivos_realmente_novos:
+                secoes_ignoradas_duplicadas += 1
+                continue
+            novos_arquivos = arquivos_realmente_novos
+
         raw_sec_dir = os.path.join(storage, "raw", prefixo)
         os.makedirs(raw_sec_dir, exist_ok=True)
 
-        # Salva os novos arquivos brutos da seção
+        # Salva apenas os arquivos novos da seção
         for fname, fbytes in novos_arquivos.items():
             with open(os.path.join(raw_sec_dir, fname), "wb") as fp:
                 fp.write(fbytes)
@@ -981,7 +1050,12 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
 
         relatorio = analisar_pacote_seccao_tse(pacote_completo)
         resumo = relatorio["resumo_consolidacao"]
+        mc = resumo.get("municipio_codigo")
+        if mc in MUNICIPIOS_PR_TSE:
+            resumo["municipio_nome"] = MUNICIPIOS_PR_TSE[mc]
+
         catalogo[prefixo] = resumo
+        resumos_para_append.append(resumo)
 
         sec_json_path = os.path.join(storage, "secoes", f"{prefixo}.json")
         with open(sec_json_path, "w", encoding="utf-8") as fp:
@@ -990,17 +1064,13 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
         secoes_processadas.append(prefixo)
         ultimo_relatorio = relatorio
 
-    # Propaga nomes de municípios aprendidos via IMGBU para seções da mesma cidade que só tinham log/rdv
-    for item in catalogo.values():
-        mc = item.get("municipio_codigo")
-        if mc in MUNICIPIOS_PR_TSE:
-            item["municipio_nome"] = MUNICIPIOS_PR_TSE[mc]
-
-    _salvar_catalogo_disco()
+    # Grava apenas o delta no arquivo .jsonl em < 1ms (sem reescrever os 25MB do catálogo inteiro a cada lote)
+    _append_catalogo_disco(resumos_para_append)
 
     return {
         "ok": True,
         "secoes_processadas_neste_lote": len(secoes_processadas),
+        "secoes_ignoradas_duplicadas": secoes_ignoradas_duplicadas,
         "prefixos_processados": secoes_processadas,
         "total_secoes_no_catalogo": len(catalogo),
         "ultimo_relatorio_individual": ultimo_relatorio,
@@ -1094,7 +1164,8 @@ def consolidar_secoes_tse(
     ]
     secoes_filtradas.sort(key=lambda s: (s.get("municipio_nome", ""), s.get("zona", ""), s.get("secao", "")))
 
-    # 3. Monta lista de Seções/Urnas para os seletores
+    # 3. Monta lista de Seções/Urnas para os seletores (limita a 1.000 opções no dropdown para performance quando TODAS as 27.000 urnas estão ativas)
+    secoes_para_dropdown = secoes_filtradas[:1000]
     lista_secoes_seletor = [
         {
             "prefixo": s["prefixo"],
@@ -1110,11 +1181,12 @@ def consolidar_secoes_tse(
             "tem_imgbu": s.get("tem_imgbu", False),
             "tem_rdv": s.get("tem_rdv", False),
         }
-        for s in secoes_filtradas
+        for s in secoes_para_dropdown
     ]
 
     hierarquia = {
         "total_geral_urnas": len(todas_secoes),
+        "total_secoes_no_filtro": len(secoes_filtradas),
         "municipio_selecionado": municipio_filtro,
         "zona_selecionada": zona_filtro,
         "secao_selecionada": secao_filtro,
@@ -1312,6 +1384,11 @@ def consolidar_secoes_tse(
         else f"ALERTA FORENSE: {urnas_com_alerta} DE {total_urnas} URNA(S) APRESENTARAM DIVERGÊNCIA OU ANOMALIA"
     )
 
+    # Garante que todas as urnas com ALERTA apareçam na lista da tabela consolidada + até 500 urnas
+    urnas_alerta_lista = [s for s in secoes_filtradas if s.get("nivel_risco") != "BAIXO"]
+    urnas_normais_lista = [s for s in secoes_filtradas if s.get("nivel_risco") == "BAIXO"]
+    lista_urnas_tabela = (urnas_alerta_lista + urnas_normais_lista)[:600]
+
     return {
         "modo_visao": "CONSOLIDADO_GLOBAL",
         "hierarquia": hierarquia,
@@ -1342,7 +1419,7 @@ def consolidar_secoes_tse(
             "placar_candidatos": placar_candidatos,
             "batimentos_cruzados": batimentos_consolidados,
             "votos_por_hora": dict(sorted(votos_por_hora_global.items())),
-            "lista_urnas": secoes_filtradas[:500],
+            "lista_urnas": lista_urnas_tabela,
         },
     }
 
