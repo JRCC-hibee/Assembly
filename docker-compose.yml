@@ -3,7 +3,7 @@ version: "3.8"
 # ==============================================================================
 # STACK PORTAINER + TRAEFIK — Urna Eletrônica Brasileira
 # Domínio: urnassembly.hibeeapps.com.br
-# Arquitetura: ESP32 RISC-V Assembly (ILI9341 320x240) + Python FastAPI + Postgres 16
+# Rede Externa Criada no Portainer: urnassembly
 # ==============================================================================
 
 services:
@@ -61,10 +61,10 @@ services:
       - urna_data:/app/data
     networks:
       - urna_internal
-      - traefik_public
+      - urnassembly
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=${TRAEFIK_NETWORK:-traefik_public}"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:-urnassembly}"
       - "traefik.http.routers.urnassembly.rule=Host(`${APP_DOMAIN:-urnassembly.hibeeapps.com.br}`)"
       - "traefik.http.routers.urnassembly.priority=10000"
       - "traefik.http.routers.urnassembly.entrypoints=${TRAEFIK_ENTRYPOINT:-websecure}"
@@ -83,6 +83,6 @@ volumes:
 networks:
   urna_internal:
     driver: bridge
-  traefik_public:
+  urnassembly:
     external: true
-    name: ${TRAEFIK_NETWORK:-traefik_public}
+    name: ${TRAEFIK_NETWORK:-urnassembly}
