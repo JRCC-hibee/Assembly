@@ -37,6 +37,7 @@ from .tse_reverse_analyzer import (
     consolidar_secoes_tse,
     obter_secao_individual_tse,
     obter_indice_secoes_carregadas,
+    reauditar_urnas_divergentes_catalogo,
     limpar_catalogo_tse,
 )
 
@@ -810,11 +811,13 @@ def api_tse_reverso_consolidar(
     municipio: str = "TODAS",
     zona: str = "TODAS",
     secao: str = "CONSOLIDADO",
+    filtro_forense: str = "TODAS",
 ):
     """
     Retorna a hierarquia completa de 5 níveis (Região -> Estado -> Cidade -> Zona -> Seção/Urna) e:
     - A consolidação global de todas as urnas do nível/filtro (`secao=CONSOLIDADO`), OU
     - O dossiê forense individual da urna escolhida (`secao=<prefixo>`).
+    Suporta `filtro_forense` (`TODAS`, `APENAS_DIVERGENTES`, `CAND:<num>`, `DIV_CAND:<num>`).
     """
     return consolidar_secoes_tse(
         regiao_filtro=regiao,
@@ -822,7 +825,17 @@ def api_tse_reverso_consolidar(
         municipio_filtro=municipio,
         zona_filtro=zona,
         secao_filtro=secao,
+        filtro_forense=filtro_forense,
     )
+
+
+@app.post("/api/tse-reverso/reauditar-divergentes")
+def api_tse_reverso_reauditar_divergentes():
+    """
+    Reprocessa as urnas marcadas com divergência isolando cada container `VotosCargo`
+    (`81 01 01` = Presidente vs 2º cargo/consulta popular), sem exigir novo upload.
+    """
+    return reauditar_urnas_divergentes_catalogo()
 
 
 @app.delete("/api/tse-reverso/catalogo")

@@ -1106,6 +1106,19 @@ o Boletim de Urna (apos encerramento da votacao).
             </h3>
             <span id="tsePlacarSubLabel" class="text-xs text-cyan-300 mono font-bold"></span>
           </div>
+
+          <!-- Barra de Rastreamento Forense de Divergências / 2º Cargo / Consulta Popular -->
+          <div id="tseFiltroForenseBar" class="flex flex-wrap items-center justify-between gap-2 pt-1 pb-2 border-b border-slate-800 text-xs mono">
+            <div id="tseFiltroForenseButtons" class="flex flex-wrap items-center gap-1.5"></div>
+            <button
+              onclick="reauditarUrnasDivergentesNoServidor()"
+              title="Reprocessa no servidor as urnas com divergência separando o container ASN.1 do 1º Cargo (Presidente) de eventuais 2ºs Cargos Municipais / Consultas Populares (1, 2, 55)"
+              class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] transition shrink-0"
+            >
+              🔄 Isolar 1º Cargo (Presidente) de 2º Cargo/Consulta nas Urnas Divergentes
+            </button>
+          </div>
+
           <div id="tsePlacarCandidatosGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
         </div>
 
@@ -2417,15 +2430,43 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
-    // Estado atual dos 5 níveis da Árvore (Região > Estado > Cidade > Zona > Seção)
+    // Estado atual dos 5 níveis da Árvore (Região > Estado > Cidade > Zona > Seção) + Filtro Forense de Divergências
     window.arvoreTseState = {
       regiao: "TODAS",
       uf: "TODAS",
       municipio: "TODAS",
       zona: "TODAS",
       secao: "CONSOLIDADO",
+      filtro_forense: "TODAS",
       hierarquia: null
     };
+
+    async function aplicarFiltroForenseTse(novoFiltroForense) {
+      window.arvoreTseState.filtro_forense = novoFiltroForense || "TODAS";
+      window.arvoreTseState.secao = "CONSOLIDADO";
+      await atualizarConsolidacaoTse(true);
+    }
+
+    async function reauditarUrnasDivergentesNoServidor() {
+      showSecurityAlert("Reprocessando urnas com divergência no servidor para separar o container ASN.1 do 1º Cargo (Presidente) de 2ºs Cargos / Consultas Populares...", false);
+      try {
+        const res = await fetch("/api/tse-reverso/reauditar-divergentes", { method: "POST" });
+        const data = await res.json();
+        hideSecurityAlert();
+        if (res.ok) {
+          playBeepBiometriaOk();
+          showSecurityAlert(
+            `Reauditoria concluída: ${data.urnas_reprocessadas} urna(s) reanalisada(s) (${data.urnas_validadas_apos_isolamento_cargo} validadas após isolamento do cargo Presidente).`,
+            false
+          );
+          await atualizarConsolidacaoTse(true);
+        } else {
+          showSecurityAlert(data.detail || "Falha ao reauditar urnas divergentes.", true);
+        }
+      } catch (err) {
+        showSecurityAlert(`Erro ao reauditar urnas: ${err.message}`, true);
+      }
+    }
 
     async function selecionarNoArvoreTse(regiao, uf, municipio, zona, secao) {
       if (secao && secao !== "CONSOLIDADO") {
@@ -2633,7 +2674,8 @@ o Boletim de Urna (apos encerramento da votacao).
         uf: st.uf || "TODAS",
         municipio: st.municipio || "TODAS",
         zona: st.zona || "TODAS",
-        secao: st.secao || "CONSOLIDADO"
+        secao: st.secao || "CONSOLIDADO",
+        filtro_forense: st.filtro_forense || "TODAS"
       });
 
       const res = await fetch(`/api/tse-reverso/consolidar?${qs.toString()}`);
@@ -2647,6 +2689,7 @@ o Boletim de Urna (apos encerramento da votacao).
       window.arvoreTseState.municipio = hier.municipio_selecionado || "TODAS";
       window.arvoreTseState.zona = hier.zona_selecionada || "TODAS";
       window.arvoreTseState.secao = hier.secao_selecionada || "CONSOLIDADO";
+      window.arvoreTseState.filtro_forense = hier.filtro_forense_selecionado || "TODAS";
 
       const totalGeral = hier.total_geral_urnas || 0;
       document.getElementById("tseCatalogCountBadge").textContent =
@@ -2922,7 +2965,7 @@ o Boletim de Urna (apos encerramento da votacao).
           <div class="mt-1 mono">Filtro Ativo: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong> • Verifique as urnas sinalizadas na tabela abaixo.</div>`;
       }
 
-      // Placar Consolidado de Candidatos
+      // Placar Consolidado de Candidatos + Barra Forense de Rastreamento de Divergências
       const titleEl = document.getElementById("tsePlacarTitle");
       if (titleEl) {
         titleEl.textContent = "🏆 Totalização Consolidada de Votos por Candidato no Filtro (`Soma BU` × `Soma RDV Binário ASN.1`)";
@@ -2930,26 +2973,75 @@ o Boletim de Urna (apos encerramento da votacao).
       document.getElementById("tsePlacarSubLabel").textContent =
         `Aptos: ${cons.eleitores_aptos_total.toLocaleString("pt-BR")} • Comparecimento: ${cons.comparecimento_total.toLocaleString("pt-BR")} • Brancos: ${cons.brancos_total.toLocaleString("pt-BR")} • Nulos: ${cons.nulos_total.toLocaleString("pt-BR")} • Faltosos: ${cons.faltosos_total.toLocaleString("pt-BR")}`;
 
+      const ffAtivo = window.arvoreTseState.filtro_forense || "TODAS";
+      const ffBarEl = document.getElementById("tseFiltroForenseButtons");
+      if (ffBarEl) {
+        const pills = [
+          `<button onclick="aplicarFiltroForenseTse('TODAS')" class="px-2.5 py-1 rounded-lg font-extrabold text-[11px] transition ${
+            ffAtivo === "TODAS" ? "bg-cyan-500 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
+          }">📋 Todas as Urnas</button>`,
+          `<button onclick="aplicarFiltroForenseTse('APENAS_DIVERGENTES')" class="px-2.5 py-1 rounded-lg font-extrabold text-[11px] transition ${
+            ffAtivo === "APENAS_DIVERGENTES" ? "bg-rose-500 text-white" : "bg-slate-800 text-rose-300 hover:bg-slate-700"
+          }">🚨 Apenas Urnas c/ Divergência (${cons.urnas_com_alerta || 0})</button>`
+        ];
+        (cons.placar_candidatos || []).forEach(c => {
+          if (c.urnas_divergentes > 0 || (c.numero !== "13" && c.numero !== "22")) {
+            const keyDiv = `DIV_CAND:${c.numero}`;
+            pills.push(
+              `<button onclick="aplicarFiltroForenseTse('${keyDiv}')" class="px-2.5 py-1 rounded-lg font-extrabold text-[11px] transition ${
+                ffAtivo === keyDiv ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-amber-300 hover:bg-slate-700"
+              }">🕵️ Rastrear Nº ${c.numero} (${c.urnas_divergentes || c.urnas_com_voto || 0}u)</button>`
+            );
+          }
+        });
+        ffBarEl.innerHTML = pills.join("");
+      }
+
       const gridCands = document.getElementById("tsePlacarCandidatosGrid");
-      gridCands.innerHTML = (cons.placar_candidatos || []).map(c => `
-        <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
-          <div class="flex items-center justify-between">
-            <div>
-              <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 font-extrabold text-xs mono">Nº ${c.numero}</span>
-              <span class="font-extrabold text-white text-sm ml-1.5">${c.nome}</span>
+      gridCands.innerHTML = (cons.placar_candidatos || []).map(c => {
+        const diff = (c.votos_rdv || 0) - (c.votos_bu || 0);
+        const diffStr = diff === 0 ? "0" : (diff > 0 ? `+${diff.toLocaleString("pt-BR")} no RDV` : `${diff.toLocaleString("pt-BR")} no RDV`);
+        const cidadesDiv = c.cidades_divergentes || [];
+        const cidadesHtml = cidadesDiv.length > 0
+          ? `<div class="mt-2 pt-2 border-t border-slate-800/80 space-y-1 text-[10px] mono">
+               <div class="text-rose-300 font-bold">📍 Cidades onde ocorre a diferença (${c.urnas_divergentes} urna[s]):</div>
+               <div class="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
+                 ${cidadesDiv.map(cd => {
+                   const dCid = (cd.votos_rdv || 0) - (cd.votos_bu || 0);
+                   return `<button onclick="selecionarNoArvoreTse('SUL','PR','${cd.codigo}','TODAS','CONSOLIDADO')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-rose-500/40 text-slate-200 transition" title="Clique para filtrar ${cd.nome}">
+                     <strong>${cd.nome}</strong>: ${cd.urnas_divergentes}u (${dCid >= 0 ? '+' + dCid : dCid}v)
+                   </button>`;
+                 }).join("")}
+               </div>
+               <div class="pt-1 flex flex-wrap gap-1.5">
+                 <button onclick="aplicarFiltroForenseTse('DIV_CAND:${c.numero}')" class="px-2.5 py-1 rounded bg-rose-600/80 hover:bg-rose-500 text-white font-extrabold text-[10px] transition">
+                   🕵️ Filtrar Só as ${c.urnas_divergentes} Urna(s) Divergente(s) do Nº ${c.numero}
+                 </button>
+               </div>
+             </div>`
+          : "";
+
+        return `
+          <div class="bg-slate-950 border ${c.status === 'CONFERE_100%' ? 'border-slate-800' : 'border-rose-500/60'} rounded-xl p-4 space-y-2">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 font-extrabold text-xs mono">Nº ${c.numero}</span>
+                <span class="font-extrabold text-white text-sm ml-1.5">${c.nome}</span>
+              </div>
+              <span class="text-lg font-extrabold text-emerald-400 mono">${c.pct_validos}%</span>
             </div>
-            <span class="text-lg font-extrabold text-emerald-400 mono">${c.pct_validos}%</span>
+            <div class="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
+              <div style="width: ${Math.min(100, Math.round(c.pct_validos))}%" class="bg-emerald-500 h-full"></div>
+            </div>
+            <div class="flex flex-wrap justify-between gap-1 text-[11px] mono text-slate-400 pt-1">
+              <span>Soma BU: <strong class="text-amber-300">${c.votos_bu.toLocaleString("pt-BR")}</strong></span>
+              <span>Soma RDV ASN.1: <strong class="text-emerald-300">${c.votos_rdv.toLocaleString("pt-BR")}</strong></span>
+              <span class="${c.status === 'CONFERE_100%' ? 'text-emerald-400' : 'text-rose-400'} font-bold">${c.status === 'CONFERE_100%' ? '100% OK' : `DIVERGENTE (${diffStr})`}</span>
+            </div>
+            ${cidadesHtml}
           </div>
-          <div class="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
-            <div style="width: ${Math.min(100, Math.round(c.pct_validos))}%" class="bg-emerald-500 h-full"></div>
-          </div>
-          <div class="flex justify-between text-[11px] mono text-slate-400 pt-1">
-            <span>Soma BU: <strong class="text-amber-300">${c.votos_bu.toLocaleString("pt-BR")}</strong></span>
-            <span>Soma RDV ASN.1: <strong class="text-emerald-300">${c.votos_rdv.toLocaleString("pt-BR")}</strong></span>
-            <span class="${c.status === 'CONFERE_100%' ? 'text-emerald-400' : 'text-rose-400'} font-bold">${c.status === 'CONFERE_100%' ? '100% OK' : 'DIVERGENTE'}</span>
-          </div>
-        </div>
-      `).join("");
+        `;
+      }).join("");
 
       document.getElementById("tseMacSummary").textContent =
         `${cons.total_linhas_logd.toLocaleString("pt-BR")} linhas logd.dat | ${cons.total_macs_validos.toLocaleString("pt-BR")} MACs íntegros`;
@@ -3214,16 +3306,26 @@ o Boletim de Urna (apos encerramento da votacao).
         </tr>
       `).join("");
 
-      // Detalhe ASN.1 do RDV (incluindo quais dígitos nulos os eleitores teclaram!)
+      // Detalhe ASN.1 do RDV (incluindo quais dígitos nulos os eleitores teclaram + containers VotosCargo!)
       const rdvNulosBox = document.getElementById("tseRdvNulosBox");
       if (rdv.total_votos_no_rdv) {
         const nulosStr = Object.entries(rdv.votos_nulos_numeros_digitados || {})
           .map(([num, qtd]) => `Número "${num}": ${qtd} voto(s)`)
           .join(" • ") || "Nenhum voto nulo";
+        const cargosRdvHtml = (rdv.cargos_rdv || []).map((cg, idx) => {
+          const nomStr = Object.entries(cg.votos_nominais_por_numero || {})
+            .map(([n, q]) => `Nº ${n}: <strong>${q}</strong>`)
+            .join(", ") || "0";
+          return `<div class="mt-1 pl-2 border-l-2 border-cyan-500/50 text-[11px] text-slate-300">
+            <strong>Bloco ASN.1 #${idx + 1} [${cg.nome_cargo} — Cód. ${cg.codigo_cargo}]</strong>: ${cg.total_cedulas} cédulas | Nominais: ${nomStr} | Brancos: ${cg.resumo_tipos?.BRANCO || 0} | Nulos: ${cg.resumo_tipos?.NULO || 0}
+          </div>`;
+        }).join("");
+
         rdvNulosBox.innerHTML = `
           <div class="font-bold text-cyan-300 mb-1">Decodificação Binária ASN.1 DER do Arquivo <code>-rdv.dat</code> (SHA256: ${rdv.sha256.slice(0, 20)}...):</div>
-          <div class="text-slate-300">• Cédulas extraídas da árvore ASN.1: <strong>${rdv.total_votos_no_rdv}</strong></div>
+          <div class="text-slate-300">• Cédulas extraídas do Cargo Principal (Presidente): <strong>${rdv.total_votos_no_rdv}</strong></div>
           <div class="text-slate-300">• Números digitados nos Votos Nulos: <strong class="text-amber-300">${nulosStr}</strong></div>
+          ${cargosRdvHtml}
         `;
       } else {
         rdvNulosBox.innerHTML = `<span class="text-slate-500">Envie também o arquivo <code>-rdv.dat</code> para decodificar a árvore binária ASN.1 DER.</span>`;

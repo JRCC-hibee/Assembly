@@ -138,67 +138,168 @@ def extrair_identificacao_arquivo_tse(filename: str) -> dict:
     }
 
 
+CARGO_ASN1_NOMES = {
+    1: "PRESIDENTE",
+    3: "GOVERNADOR",
+    5: "SENADOR",
+    6: "DEPUTADO FEDERAL",
+    7: "DEPUTADO ESTADUAL",
+    11: "PREFEITO",
+    13: "VEREADOR",
+}
+
+
+def _ler_asn1_len(data: bytes, offset: int) -> tuple[int, int]:
+    """Lê o campo de tamanho ASN.1 DER em `offset` e retorna `(tamanho, proximo_offset)`."""
+    if offset >= len(data):
+        return 0, offset
+    first = data[offset]
+    if first < 0x80:
+        return first, offset + 1
+    num_bytes = first & 0x7F
+    if num_bytes == 0 or offset + 1 + num_bytes > len(data):
+        return 0, offset + 1
+    val = int.from_bytes(data[offset + 1 : offset + 1 + num_bytes], "big")
+    return val, offset + 1 + num_bytes
+
+
 def decodificar_rdv_asn1_der(rdv_bytes: bytes) -> dict:
     """
     Decodifica diretamente os registros binários ASN.1 DER do arquivo `-rdv.dat` do TSE.
-    Estrutura ASN.1 de cada VotoDigitado no RDV da UE2020:
-      0x30 <len: 0x03..0x0C>
-        0x0A 0x01 <tipo_voto: 1=Legenda, 2=Nominal, 3=Branco, 4=Nulo>
-        [0x12 <len_digitos> <ascii_digits: ex '13', '22', '00', '23'>]
-    Retorna a contagem exata de votos nominais, brancos, nulos, legendas e até quais números nulos foram digitados!
+    Identifica cada bloco `VotosCargo` (`81 01 <idCargo>` para cargos constitucionais como
+    `1 = Presidente`, `3 = Governador`, `11 = Prefeito`, ou `82 <len> <idPergunta>` para
+    Consultas Populares / Plebiscitos Municipais) e separa os votos do Cargo Principal
+    (Presidente) de eventuais 2ºs Cargos / Consultas Populares na mesma urna!
     """
     sha256_hex = hashlib.sha256(rdv_bytes).hexdigest().upper()
 
     # Extrai strings ASCII de cabeçalho (timestamp de geração, versão da aplicação, código de carga)
     ascii_headers = [s.decode("ascii", errors="ignore") for s in re.findall(rb"[ -~]{6,}", rdv_bytes[:260])]
 
+    n = len(rdv_bytes)
+    blocos_cargo_detectados = []
+
+    # Localiza todos os containers VotosCargo:
+    # Tag 0x81 (idCargo constitucional) ou 0x82 (idPergunta consulta popular) seguido de 0x02 0x01 <qtdEscolhas> 0x30 <len_votos>
+    idx = 0
+    while idx < n - 8:
+        if rdv_bytes[idx] in (0x81, 0x82) and 1 <= rdv_bytes[idx + 1] <= 4:
+            tag_tipo_cargo = rdv_bytes[idx]
+            id_len = rdv_bytes[idx + 1]
+            after_id = idx + 2 + id_len
+            if after_id + 4 < n and rdv_bytes[after_id] == 0x02 and rdv_bytes[after_id + 1] == 0x01 and rdv_bytes[after_id + 3] == 0x30:
+                codigo_cargo = int.from_bytes(rdv_bytes[idx + 2 : after_id], "big")
+                qtd_escolhas = rdv_bytes[after_id + 2]
+                votos_seq_len, votos_start = _ler_asn1_len(rdv_bytes, after_id + 4)
+                votos_end = min(n, votos_start + votos_seq_len)
+                if votos_end > votos_start:
+                    nome_cargo = (
+                        CARGO_ASN1_NOMES.get(codigo_cargo, f"CARGO_{codigo_cargo}")
+                        if tag_tipo_cargo == 0x81
+                        else f"CONSULTA_POPULAR_{codigo_cargo}"
+                    )
+                    blocos_cargo_detectados.append({
+                        "codigo_cargo": codigo_cargo,
+                        "nome_cargo": nome_cargo,
+                        "tipo_container": "CARGO_CONSTITUCIONAL" if tag_tipo_cargo == 0x81 else "CONSULTA_POPULAR",
+                        "qtd_escolhas": qtd_escolhas,
+                        "start": votos_start,
+                        "end": votos_end,
+                    })
+                    idx = votos_end
+                    continue
+        idx += 1
+
+    # Caso o arquivo não tenha cabeçalho VotosCargo padrão (ex: RDV simulado), analisa o range completo
+    if not blocos_cargo_detectados:
+        blocos_cargo_detectados.append({
+            "codigo_cargo": 1,
+            "nome_cargo": "PRESIDENTE",
+            "tipo_container": "CARGO_CONSTITUCIONAL",
+            "qtd_escolhas": 1,
+            "start": 0,
+            "end": n,
+        })
+
     votos_extraidos = []
     contagem_por_tipo = Counter()
     contagem_nominais = Counter()
     detalhe_nulos_digitados = Counter()
     contagem_legendas = Counter()
+    resumo_por_cargo = []
 
-    pos = 0
-    n = len(rdv_bytes)
-    while pos < n - 4:
-        if rdv_bytes[pos] == 0x30 and rdv_bytes[pos + 2] == 0x0A and rdv_bytes[pos + 3] == 0x01:
-            seq_len = rdv_bytes[pos + 1]
-            tipo_code = rdv_bytes[pos + 4]
+    for idx_bloco, bloco in enumerate(blocos_cargo_detectados):
+        c_tipo = Counter()
+        c_nom = Counter()
+        c_nul = Counter()
+        c_leg = Counter()
+        pos = bloco["start"]
+        end_pos = bloco["end"]
 
-            # Caso 1: Voto sem dígitos (ex: BRANCO -> 30 03 0a 01 03)
-            if seq_len == 3 and tipo_code in (1, 2, 3, 4, 5):
-                tipo_str = TIPO_VOTO_ASN1_MAP.get(tipo_code, f"TIPO_{tipo_code}")
-                votos_extraidos.append({
-                    "ordem_embaralhada_rdv": len(votos_extraidos) + 1,
-                    "tipo_voto": tipo_str,
-                    "numero_digitado": None,
-                })
-                contagem_por_tipo[tipo_str] += 1
-                pos += 5
-                continue
+        while pos < end_pos - 4:
+            if rdv_bytes[pos] == 0x30 and rdv_bytes[pos + 2] == 0x0A and rdv_bytes[pos + 3] == 0x01:
+                seq_len = rdv_bytes[pos + 1]
+                tipo_code = rdv_bytes[pos + 4]
 
-            # Caso 2: Voto com NumericString (0x12 <dig_len> <digits>)
-            if 5 <= seq_len <= 10 and pos + 2 + seq_len <= n and rdv_bytes[pos + 5] == 0x12:
-                dig_len = rdv_bytes[pos + 6]
-                if 3 + 2 + dig_len == seq_len and tipo_code in (1, 2, 3, 4, 5):
-                    dig_str = rdv_bytes[pos + 7 : pos + 7 + dig_len].decode("ascii", errors="ignore")
-                    if dig_str.isdigit():
-                        tipo_str = TIPO_VOTO_ASN1_MAP.get(tipo_code, f"TIPO_{tipo_code}")
+                # Caso 1: Voto sem dígitos (ex: BRANCO -> 30 03 0a 01 03)
+                if seq_len == 3 and tipo_code in (1, 2, 3, 4, 5):
+                    tipo_str = TIPO_VOTO_ASN1_MAP.get(tipo_code, f"TIPO_{tipo_code}")
+                    c_tipo[tipo_str] += 1
+                    # Contabiliza no placar principal o 1º cargo (Presidente) ou todos se houver apenas 1 cargo
+                    if idx_bloco == 0:
                         votos_extraidos.append({
                             "ordem_embaralhada_rdv": len(votos_extraidos) + 1,
+                            "cargo": bloco["nome_cargo"],
                             "tipo_voto": tipo_str,
-                            "numero_digitado": dig_str,
+                            "numero_digitado": None,
                         })
                         contagem_por_tipo[tipo_str] += 1
-                        if tipo_str == "NOMINAL":
-                            contagem_nominais[dig_str] += 1
-                        elif tipo_str == "NULO":
-                            detalhe_nulos_digitados[dig_str] += 1
-                        elif tipo_str == "LEGENDA":
-                            contagem_legendas[dig_str] += 1
-                        pos += 2 + seq_len
-                        continue
-        pos += 1
+                    pos += 5
+                    continue
+
+                # Caso 2: Voto com NumericString (0x12 <dig_len> <digits>)
+                if 5 <= seq_len <= 10 and pos + 2 + seq_len <= end_pos and rdv_bytes[pos + 5] == 0x12:
+                    dig_len = rdv_bytes[pos + 6]
+                    if 3 + 2 + dig_len == seq_len and tipo_code in (1, 2, 3, 4, 5):
+                        dig_str = rdv_bytes[pos + 7 : pos + 7 + dig_len].decode("ascii", errors="ignore")
+                        if dig_str.isdigit():
+                            tipo_str = TIPO_VOTO_ASN1_MAP.get(tipo_code, f"TIPO_{tipo_code}")
+                            c_tipo[tipo_str] += 1
+                            if tipo_str == "NOMINAL":
+                                c_nom[dig_str] += 1
+                            elif tipo_str == "NULO":
+                                c_nul[dig_str] += 1
+                            elif tipo_str == "LEGENDA":
+                                c_leg[dig_str] += 1
+
+                            if idx_bloco == 0:
+                                votos_extraidos.append({
+                                    "ordem_embaralhada_rdv": len(votos_extraidos) + 1,
+                                    "cargo": bloco["nome_cargo"],
+                                    "tipo_voto": tipo_str,
+                                    "numero_digitado": dig_str,
+                                })
+                                contagem_por_tipo[tipo_str] += 1
+                                if tipo_str == "NOMINAL":
+                                    contagem_nominais[dig_str] += 1
+                                elif tipo_str == "NULO":
+                                    detalhe_nulos_digitados[dig_str] += 1
+                                elif tipo_str == "LEGENDA":
+                                    contagem_legendas[dig_str] += 1
+                            pos += 2 + seq_len
+                            continue
+            pos += 1
+
+        resumo_por_cargo.append({
+            "codigo_cargo": bloco["codigo_cargo"],
+            "nome_cargo": bloco["nome_cargo"],
+            "tipo_container": bloco["tipo_container"],
+            "total_cedulas": sum(c_tipo.values()),
+            "resumo_tipos": dict(c_tipo),
+            "votos_nominais_por_numero": dict(c_nom),
+            "votos_nulos_numeros_digitados": dict(c_nul),
+            "votos_legenda_por_partido": dict(c_leg),
+        })
 
     return {
         "tamanho_bytes": len(rdv_bytes),
@@ -209,6 +310,7 @@ def decodificar_rdv_asn1_der(rdv_bytes: bytes) -> dict:
         "votos_nominais_por_numero": dict(contagem_nominais),
         "votos_nulos_numeros_digitados": dict(detalhe_nulos_digitados),
         "votos_legenda_por_partido": dict(contagem_legendas),
+        "cargos_rdv": resumo_por_cargo,
         "amostra_votos_embaralhados": votos_extraidos[:150],
     }
 
@@ -335,7 +437,7 @@ def decodificar_imgbu_tse(imgbu_bytes: bytes) -> dict:
         "nulos": nulos,
         "total_apurado": total_apurado,
         "candidatos": candidatos_bu,
-        "espelho_bobina": espelho_bu[:4500],
+        "espelho_bobina": espelho_bu[:15000],
     }
 
 
@@ -1110,11 +1212,94 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
 
 def obter_secao_individual_tse(prefixo: str) -> dict | None:
     storage = _get_tse_storage_dir()
-    sec_json_path = os.path.join(storage, "secoes", f"{prefixo.lower()}.json")
+    pref_low = prefixo.lower()
+    raw_sec_dir = os.path.join(storage, "raw", pref_low)
+    sec_json_path = os.path.join(storage, "secoes", f"{pref_low}.json")
+
+    # Se os arquivos brutos (.dat / .jez) estiverem no servidor, re-executa o decodificador
+    # multi-cargo atualizado para exibir a bobina completa (15k chars) e os blocos ASN.1 por cargo!
+    if os.path.isdir(raw_sec_dir):
+        pacote_completo: dict[str, bytes] = {}
+        for fname in os.listdir(raw_sec_dir):
+            fpath = os.path.join(raw_sec_dir, fname)
+            if os.path.isfile(fpath):
+                with open(fpath, "rb") as fp:
+                    pacote_completo[fname] = fp.read()
+        if pacote_completo:
+            relatorio = analisar_pacote_seccao_tse(pacote_completo)
+            resumo = relatorio["resumo_consolidacao"]
+            mc = resumo.get("municipio_codigo")
+            if mc in MUNICIPIOS_PR_TSE:
+                resumo["municipio_nome"] = MUNICIPIOS_PR_TSE[mc]
+            catalogo = _carregar_catalogo_disco()
+            catalogo[pref_low] = resumo
+            try:
+                with open(sec_json_path, "w", encoding="utf-8") as fp:
+                    json.dump(relatorio, fp, ensure_ascii=False)
+            except Exception:
+                pass
+            return relatorio
+
     if not os.path.exists(sec_json_path):
         return None
     with open(sec_json_path, "r", encoding="utf-8") as fp:
         return json.load(fp)
+
+
+def reauditar_urnas_divergentes_catalogo() -> dict:
+    """
+    Reprocessa rapidamente todas as urnas do catálogo que apresentaram divergência ou
+    números de 2º cargo/consulta popular (ex: 1, 2, 55) utilizando o decodificador ASN.1
+    isolado por container `VotosCargo` (`81 01 01` = Presidente), sem precisar fazer novo upload!
+    """
+    catalogo = _carregar_catalogo_disco()
+    storage = _get_tse_storage_dir()
+    resumos_atualizados = []
+    urnas_reparadas = 0
+    urnas_ainda_divergentes = 0
+
+    for pref, item in list(catalogo.items()):
+        cands = item.get("candidatos", [])
+        tem_cand_extra = any(
+            c.get("votos_bu") != c.get("votos_rdv") or c.get("numero") not in ("13", "22")
+            for c in cands
+        )
+        if item.get("nivel_risco") == "BAIXO" and not tem_cand_extra:
+            continue
+
+        raw_sec_dir = os.path.join(storage, "raw", pref)
+        if not os.path.isdir(raw_sec_dir):
+            continue
+
+        pacote_completo: dict[str, bytes] = {}
+        for fname in os.listdir(raw_sec_dir):
+            fpath = os.path.join(raw_sec_dir, fname)
+            if os.path.isfile(fpath):
+                with open(fpath, "rb") as fp:
+                    pacote_completo[fname] = fp.read()
+        if not pacote_completo:
+            continue
+
+        relatorio = analisar_pacote_seccao_tse(pacote_completo)
+        resumo = relatorio["resumo_consolidacao"]
+        mc = resumo.get("municipio_codigo")
+        if mc in MUNICIPIOS_PR_TSE:
+            resumo["municipio_nome"] = MUNICIPIOS_PR_TSE[mc]
+
+        catalogo[pref] = resumo
+        resumos_atualizados.append(resumo)
+        if resumo.get("nivel_risco") == "BAIXO":
+            urnas_reparadas += 1
+        else:
+            urnas_ainda_divergentes += 1
+
+    _append_catalogo_disco(resumos_atualizados)
+    return {
+        "ok": True,
+        "urnas_reprocessadas": len(resumos_atualizados),
+        "urnas_validadas_apos_isolamento_cargo": urnas_reparadas,
+        "urnas_ainda_com_divergencia": urnas_ainda_divergentes,
+    }
 
 
 def limpar_catalogo_tse() -> dict:
@@ -1129,28 +1314,55 @@ def limpar_catalogo_tse() -> dict:
     return {"ok": True, "total_secoes_no_catalogo": 0}
 
 
+def _secao_atende_filtro_forense(s: dict, filtro_forense: str) -> bool:
+    if not filtro_forense or filtro_forense == "TODAS":
+        return True
+    if filtro_forense == "APENAS_DIVERGENTES":
+        if s.get("nivel_risco") != "BAIXO":
+            return True
+        return any(c.get("votos_bu", 0) != c.get("votos_rdv", 0) for c in s.get("candidatos", []))
+    if filtro_forense.startswith("CAND:"):
+        num_alvo = filtro_forense.split(":", 1)[1].strip()
+        return any(
+            str(c.get("numero")) == num_alvo and (c.get("votos_bu", 0) > 0 or c.get("votos_rdv", 0) > 0)
+            for c in s.get("candidatos", [])
+        )
+    if filtro_forense.startswith("DIV_CAND:"):
+        num_alvo = filtro_forense.split(":", 1)[1].strip()
+        return any(
+            str(c.get("numero")) == num_alvo and (c.get("votos_bu", 0) != c.get("votos_rdv", 0))
+            for c in s.get("candidatos", [])
+        )
+    return True
+
+
 def consolidar_secoes_tse(
     regiao_filtro: str = "TODAS",
     uf_filtro: str = "TODAS",
     municipio_filtro: str = "TODAS",
     zona_filtro: str = "TODAS",
     secao_filtro: str = "CONSOLIDADO",
+    filtro_forense: str = "TODAS",
 ) -> dict:
     """
     Constrói a árvore de 5 níveis (Região do País -> Estado -> Cidade -> Zona -> Seção/Urna) e retorna:
     - Os dados consolidados globais para o nível/filtro selecionado (`CONSOLIDADO`), OU
     - O dossiê completo da urna individual quando `secao_filtro` é o prefixo de uma seção.
+    Suporta também `filtro_forense` (`TODAS`, `APENAS_DIVERGENTES`, `CAND:<num>`, `DIV_CAND:<num>`)
+    para rastrear exatamente em quais cidades, zonas e urnas ocorrem divergências ou candidatos específicos.
     """
     catalogo = _carregar_catalogo_disco()
-    todas_secoes = list(catalogo.values())
+    todas_secoes_brutas = list(catalogo.values())
 
     # Enriquecimento em tempo real de Região e Estado (UF) para todas as seções carregadas
-    for s in todas_secoes:
+    for s in todas_secoes_brutas:
         uf_sigla = (s.get("uf") or "PR").upper()
         info_est = ESTADOS_E_REGIOES_BR.get(uf_sigla, {"nome": uf_sigla, "regiao": "SUL"})
         s["uf"] = uf_sigla
         s["uf_nome"] = info_est["nome"]
         s["regiao"] = info_est["regiao"]
+
+    todas_secoes = [s for s in todas_secoes_brutas if _secao_atende_filtro_forense(s, filtro_forense)]
 
     # 1. Nível 1: Regiões do País disponíveis no catálogo
     regioes_map: dict[str, dict] = {}
@@ -1311,8 +1523,9 @@ def consolidar_secoes_tse(
     ]
 
     hierarquia = {
-        "total_geral_urnas": len(todas_secoes),
+        "total_geral_urnas": len(todas_secoes_brutas),
         "total_secoes_no_filtro": len(secoes_filtradas),
+        "filtro_forense_selecionado": filtro_forense or "TODAS",
         "regiao_selecionada": regiao_filtro,
         "uf_selecionada": uf_filtro,
         "municipio_selecionado": municipio_filtro,
@@ -1374,22 +1587,45 @@ def consolidar_secoes_tse(
     nulos_bu_total = sum(s.get("nulos_bu", 0) for s in secoes_filtradas)
     nulos_rdv_total = sum(s.get("nulos_rdv", 0) for s in secoes_filtradas)
 
-    # Consolida votos por candidato
+    # Consolida votos por candidato + rastreia urnas e cidades com divergência por candidato
     cands_agregados: dict[str, dict] = {}
+    cidades_div_por_cand: dict[str, dict[str, dict]] = {}
     for s in secoes_filtradas:
+        mc = s.get("municipio_codigo", "00000")
+        mn = MUNICIPIOS_PR_TSE.get(mc, s.get("municipio_nome", f"MUNICÍPIO {mc}"))
         for c in s.get("candidatos", []):
-            num = c["numero"]
+            num = str(c["numero"])
+            v_bu = c.get("votos_bu", 0)
+            v_rdv = c.get("votos_rdv", 0)
             if num not in cands_agregados:
                 cands_agregados[num] = {
                     "numero": num,
                     "nome": c["nome"],
                     "votos_bu": 0,
                     "votos_rdv": 0,
+                    "urnas_com_voto": 0,
+                    "urnas_divergentes": 0,
                 }
+                cidades_div_por_cand[num] = {}
             if c["nome"] and not c["nome"].startswith("CANDIDATO"):
                 cands_agregados[num]["nome"] = c["nome"]
-            cands_agregados[num]["votos_bu"] += c.get("votos_bu", 0)
-            cands_agregados[num]["votos_rdv"] += c.get("votos_rdv", 0)
+            cands_agregados[num]["votos_bu"] += v_bu
+            cands_agregados[num]["votos_rdv"] += v_rdv
+            if v_bu > 0 or v_rdv > 0:
+                cands_agregados[num]["urnas_com_voto"] += 1
+            if v_bu != v_rdv:
+                cands_agregados[num]["urnas_divergentes"] += 1
+                if mc not in cidades_div_por_cand[num]:
+                    cidades_div_por_cand[num][mc] = {
+                        "codigo": mc,
+                        "nome": mn,
+                        "urnas_divergentes": 0,
+                        "votos_bu": 0,
+                        "votos_rdv": 0,
+                    }
+                cidades_div_por_cand[num][mc]["urnas_divergentes"] += 1
+                cidades_div_por_cand[num][mc]["votos_bu"] += v_bu
+                cidades_div_por_cand[num][mc]["votos_rdv"] += v_rdv
 
     total_nominais_consolidado = sum(
         max(c["votos_bu"], c["votos_rdv"]) for c in cands_agregados.values()
@@ -1398,11 +1634,20 @@ def consolidar_secoes_tse(
     for num, c in sorted(cands_agregados.items(), key=lambda x: max(x[1]["votos_bu"], x[1]["votos_rdv"]), reverse=True):
         v_ref = c["votos_bu"] if urnas_com_bu > 0 else c["votos_rdv"]
         pct = round((v_ref / max(total_nominais_consolidado, 1)) * 100.0, 2)
+        top_cidades_div = sorted(
+            cidades_div_por_cand.get(num, {}).values(),
+            key=lambda x: abs(x["votos_rdv"] - x["votos_bu"]),
+            reverse=True,
+        )[:15]
         placar_candidatos.append({
             "numero": num,
             "nome": c["nome"],
             "votos_bu": c["votos_bu"],
             "votos_rdv": c["votos_rdv"],
+            "diferenca_rdv_bu": c["votos_rdv"] - c["votos_bu"],
+            "urnas_com_voto": c["urnas_com_voto"],
+            "urnas_divergentes": c["urnas_divergentes"],
+            "cidades_divergentes": top_cidades_div,
             "pct_validos": pct,
             "status": "CONFERE_100%" if (urnas_com_bu == 0 or urnas_com_rdv == 0 or c["votos_bu"] == c["votos_rdv"]) else "DIVERGENTE",
         })
