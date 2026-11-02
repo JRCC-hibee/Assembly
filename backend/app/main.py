@@ -29,6 +29,7 @@ from .election_engine import (
 from .thermal_printer import gerar_relatorio_zeresima, apurar_boletim_de_urna
 from .cartridge import gerar_cartucho_midia_resultado
 from .esp32_protocol import decode_esp32_vote_frame
+from .simulator_audit import executar_simulacao_cadencia_seccao, auditar_logs_independente
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -116,6 +117,23 @@ class CestaVotosEleitorSchema(BaseModel):
 
 class Esp32HexPacketSchema(BaseModel):
     frames_hex: list[str]
+
+
+class SimulacaoSeccaoSchema(BaseModel):
+    turno: int = 1
+    eleitores_aptos: int = 250
+    abstencoes: int = 45
+    pct_brancos: float = 4.0
+    pct_nulos: float = 3.0
+    pct_legenda: float = 5.0
+    modo_anomalia: str = "NORMAL"  # NORMAL, RAJADA_ROBO, SEM_BIOMETRIA_EM_MASSA, FORA_DE_JANELA_HORARIA
+    qtd_votos_anomalia: int = 0
+    candidato_alvo_anomalia: Optional[str] = ""
+
+
+class AuditoriaExternaLogsSchema(BaseModel):
+    logs: Optional[list[dict]] = None
+
 
 
 # ==============================================================================
@@ -615,8 +633,8 @@ def api_download_cartucho(db: Session = Depends(get_db)):
 
 
 @app.get("/api/seccao/logs")
-def api_listar_logs(db: Session = Depends(get_db)):
-    logs = db.query(LogAuditoriaUrna).order_by(LogAuditoriaUrna.id.desc()).limit(100).all()
+def api_listar_logs(limit: int = 500, db: Session = Depends(get_db)):
+    logs = db.query(LogAuditoriaUrna).order_by(LogAuditoriaUrna.id.desc()).limit(limit).all()
     return [
         {
             "id": l.id,
@@ -628,3 +646,80 @@ def api_listar_logs(db: Session = Depends(get_db)):
         }
         for l in logs
     ]
+
+
+@app.get("/api/seccao/logs/export")
+def api_exportar_logs_json(db: Session = Depends(get_db)):
+    """Exporta todos os logs cronológicos da seção em formato JSON independente para auditoria paralela."""
+    config = get_or_create_seccao(db)
+    logs = db.query(LogAuditoriaUrna).order_by(LogAuditoriaUrna.id.asc()).all()
+    return {
+        "cabecalho": {
+            "zona": config.zona,
+            "secao": config.secao,
+            "municipio": config.municipio,
+            "turno": config.turno,
+            "eleitores_aptos": config.eleitores_aptos,
+            "comparecimento": config.eleitores_compareceram,
+            "ultimo_hash_log": config.ultimo_hash_log,
+            "total_eventos": len(logs),
+        },
+        "logs": [
+            {
+                "id": l.id,
+                "timestamp": l.timestamp.isoformat() if l.timestamp else None,
+                "evento": l.evento,
+                "detalhes": l.detalhes,
+                "hash_anterior": l.hash_anterior,
+                "hash_atual": l.hash_atual,
+            }
+            for l in logs
+        ],
+    }
+
+
+@app.post("/api/simulacao/executar")
+def api_executar_simulacao(payload: SimulacaoSeccaoSchema, db: Session = Depends(get_db)):
+    config = get_or_create_seccao(db)
+    try:
+        resultado = executar_simulacao_cadencia_seccao(
+            db,
+            config,
+            turno=payload.turno,
+            eleitores_aptos=payload.eleitores_aptos,
+            abstencoes=payload.abstencoes,
+            pct_brancos=payload.pct_brancos,
+            pct_nulos=payload.pct_nulos,
+            pct_legenda=payload.pct_legenda,
+            modo_anomalia=payload.modo_anomalia,
+            qtd_votos_anomalia=payload.qtd_votos_anomalia,
+            candidato_alvo_anomalia=(payload.candidato_alvo_anomalia or "").strip(),
+        )
+        return resultado
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/auditoria/analisar-logs")
+def api_auditar_logs_independente(payload: AuditoriaExternaLogsSchema, db: Session = Depends(get_db)):
+    """
+    Sistema Paralelo de Auditoria Forense:
+    Analisa uma lista de logs enviada via JSON externo OU lê diretamente os logs da seção atual.
+    """
+    if payload.logs is not None and len(payload.logs) > 0:
+        logs_input = payload.logs
+    else:
+        logs_db = db.query(LogAuditoriaUrna).order_by(LogAuditoriaUrna.id.asc()).all()
+        logs_input = [
+            {
+                "id": l.id,
+                "timestamp": l.timestamp.isoformat() if l.timestamp else None,
+                "evento": l.evento,
+                "detalhes": l.detalhes,
+                "hash_anterior": l.hash_anterior,
+                "hash_atual": l.hash_atual,
+            }
+            for l in logs_db
+        ]
+    return auditar_logs_independente(logs_input)
+

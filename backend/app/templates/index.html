@@ -163,6 +163,9 @@
       <button onclick="switchTab('tab-assembly')" id="btn-tab-assembly" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-slate-300 hover:bg-slate-700">
         4. Telemetria Assembly RISC-V (ESP32 + ILI9341)
       </button>
+      <button onclick="switchTab('tab-simulacao')" id="btn-tab-simulacao" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-500/30">
+        5. Simulador de Cadência & Auditoria Forense de Logs
+      </button>
     </div>
   </div>
 
@@ -668,6 +671,188 @@ o Boletim de Urna (apos encerramento da votacao).
         </div>
       </div>
     </section>
+
+    <!-- TAB 5: SIMULADOR DE CADÊNCIA & SISTEMA PARALELO DE AUDITORIA FORENSE DE LOGS -->
+    <section id="tab-simulacao" class="hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <!-- Coluna Esquerda (5 cols): Gerador de Simulação de Seção Eleitoral -->
+        <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div>
+            <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-emerald-950 text-emerald-300 border border-emerald-700 mono">
+              Módulo 1 — Gerador de Tráfego Eleitoral Realista
+            </span>
+            <h2 class="text-base font-bold text-white mt-1">Simulador de Cadência de Votação (08h00 às 17h00)</h2>
+            <p class="text-xs text-slate-400 mt-0.5">
+              Simula toda a fila da seção: tempo de digitação do mesário, coleta biométrica AFIS, caminhada até a cabine, digitação por cargo e distribuição estatística de votos. Permite injetar anomalias para testar o rastreamento de fraudes pelos logs.
+            </p>
+          </div>
+
+          <form onsubmit="executarSimulacaoCompleta(event)" class="space-y-3 text-xs">
+            <div class="grid grid-cols-3 gap-2.5">
+              <div>
+                <label class="block text-slate-300 font-semibold mb-1">Turno</label>
+                <select id="simTurno" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2 text-white">
+                  <option value="1">1º Turno (5 Cargos)</option>
+                  <option value="2">2º Turno (2 Cargos)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-300 font-semibold mb-1">Eleitores Aptos</label>
+                <input id="simAptos" type="number" min="10" max="1000" value="200" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+              </div>
+              <div>
+                <label class="block text-slate-300 font-semibold mb-1">Abstenções</label>
+                <input id="simAbstencoes" type="number" min="0" max="900" value="40" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-2.5">
+              <div>
+                <label class="block text-slate-300 font-semibold mb-1">% Votos Brancos</label>
+                <input id="simBrancos" type="number" step="0.5" min="0" max="50" value="4.5" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+              </div>
+              <div>
+                <label class="block text-slate-300 font-semibold mb-1">% Votos Nulos</label>
+                <input id="simNulos" type="number" step="0.5" min="0" max="50" value="3.5" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+              </div>
+              <div>
+                <label class="block text-slate-300 font-semibold mb-1">% Voto Legenda</label>
+                <input id="simLegenda" type="number" step="0.5" min="0" max="50" value="6.0" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+              </div>
+            </div>
+
+            <!-- Injeção de Distorção / Fraude para Teste Forense -->
+            <div class="bg-slate-950 border border-amber-500/40 rounded-xl p-3.5 space-y-2.5">
+              <div class="font-bold text-amber-400 uppercase mono text-[11px]">
+                ⚠️ Cenário de Distorção / Injeção Suspeita nos Logs
+              </div>
+              <div>
+                <label class="block text-slate-300 font-semibold mb-1">Modo de Cadência / Anomalia</label>
+                <select id="simModoAnomalia" onchange="toggleCamposAnomalia()" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-amber-300 font-semibold">
+                  <option value="NORMAL">✅ 100% Cadência Humana Normal (35s a 95s / eleitor c/ Biometria)</option>
+                  <option value="RAJADA_ROBO">🚨 Injeção de Rajada Robótica / Script (&lt; 2s por eleitor s/ Biometria)</option>
+                  <option value="SEM_BIOMETRIA_EM_MASSA">⚠️ Lote Sequencial sem Leitura Biométrica AFIS (Mesário Suspeito)</option>
+                  <option value="FORA_DE_JANELA_HORARIA">🕒 Inserção de Votos Fora do Horário Legal (Antes das 08h00)</option>
+                </select>
+              </div>
+
+              <div id="boxParametrosAnomalia" class="hidden grid grid-cols-2 gap-2.5 pt-1">
+                <div>
+                  <label class="block text-slate-400 font-semibold mb-1">Qtd. Votos Fraudulentos</label>
+                  <input id="simQtdAnomalia" type="number" min="1" max="300" value="25" class="w-full bg-slate-900 border border-rose-600/60 rounded-lg px-3 py-1.5 text-rose-300 mono font-bold" />
+                </div>
+                <div>
+                  <label class="block text-slate-400 font-semibold mb-1">Nº/Partido Alvo (Opcional)</label>
+                  <input id="simAlvoAnomalia" type="text" placeholder="Ex: 13 ou 22" class="w-full bg-slate-900 border border-rose-600/60 rounded-lg px-3 py-1.5 text-rose-300 mono" />
+                </div>
+              </div>
+            </div>
+
+            <button
+              id="btnExecutarSimulacao"
+              type="submit"
+              class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl shadow-lg transition uppercase tracking-wide"
+            >
+              ⚡ Gerar Simulação Completa, BU, Cartucho e Logs
+            </button>
+          </form>
+
+          <!-- Resumo da Última Simulação Gerada -->
+          <div id="simResumoBox" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2 text-xs">
+            <div class="font-bold text-emerald-400 mono">Resumo da Simulação Concluída</div>
+            <div id="simResumoStats" class="grid grid-cols-2 gap-2 text-slate-300 mono text-[11px]"></div>
+            <div class="pt-2 flex flex-wrap gap-2">
+              <a
+                href="/api/seccao/logs/export"
+                download="logs_seccao_urna.json"
+                class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-[11px]"
+              >
+                ⬇️ Baixar Pacote de Logs (.JSON)
+              </a>
+              <button
+                onclick="executarAuditoriaIndependenteNaBase()"
+                class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold rounded-lg text-[11px]"
+              >
+                🔍 Auditar Logs Agora no Sistema Paralelo →
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Coluna Direita (7 cols): Sistema Paralelo Independente de Auditoria Forense -->
+        <div class="lg:col-span-7 bg-slate-900 border-2 border-indigo-500/40 rounded-xl p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div>
+              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-indigo-950 text-indigo-300 border border-indigo-700 mono">
+                Módulo 2 — Sistema Paralelo Independente de Auditoria Forense
+              </span>
+              <h2 class="text-base font-bold text-white mt-1">Leitor Independente de Logs & Detector de Anomalias de Cadência</h2>
+            </div>
+            <div class="flex gap-2">
+              <button
+                onclick="executarAuditoriaIndependenteNaBase()"
+                class="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-lg shadow"
+              >
+                🔍 Ler & Auditar Logs da Urna
+              </button>
+              <label class="px-3 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200 font-bold text-xs rounded-lg cursor-pointer">
+                📂 Importar JSON Externo
+                <input type="file" accept=".json" onchange="importarJsonLogsParaAuditoria(event)" class="hidden" />
+              </label>
+            </div>
+          </div>
+
+          <!-- Painel de Veredito Forense -->
+          <div id="auditVereditoBanner" class="bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs">
+            <div class="text-slate-400">
+              Clique em <strong>"Gerar Simulação Completa"</strong> à esquerda ou em <strong>"Ler & Auditar Logs da Urna"</strong> acima para inspecionar a cadeia criptográfica SHA-256 e o gráfico de cadência temporal de cada eleitor.
+            </div>
+          </div>
+
+          <!-- Cartões de Métricas Auditadas -->
+          <div id="auditMetricsCards" class="hidden grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mono">
+            <div class="bg-slate-950 border border-slate-800 p-3 rounded-lg">
+              <div class="text-[10px] text-slate-400">CADEIA SHA-256</div>
+              <div id="audHashStatus" class="text-sm font-extrabold mt-0.5">-</div>
+            </div>
+            <div class="bg-slate-950 border border-slate-800 p-3 rounded-lg">
+              <div class="text-[10px] text-slate-400">TEMPO MÉDIO / ELEITOR</div>
+              <div id="audTempoMedio" class="text-sm font-extrabold text-emerald-400 mt-0.5">-</div>
+            </div>
+            <div class="bg-slate-950 border border-slate-800 p-3 rounded-lg">
+              <div class="text-[10px] text-slate-400">MENOR TEMPO (MÍN.)</div>
+              <div id="audTempoMin" class="text-sm font-extrabold mt-0.5">-</div>
+            </div>
+            <div class="bg-slate-950 border border-slate-800 p-3 rounded-lg">
+              <div class="text-[10px] text-slate-400">ANOMALIAS FORENSES</div>
+              <div id="audTotalAnomalias" class="text-sm font-extrabold mt-0.5">-</div>
+            </div>
+          </div>
+
+          <!-- Gráfico Visual de Cadência por Eleitor (Barras de Tempo de Ciclo: Verde=Normal, Vermelho=Fraude/Robô) -->
+          <div id="auditChartBox" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="font-bold text-slate-200 mono">📈 Espectrograma de Cadência por Eleitor (Tempo Total Mesário + Cabine em Segundos)</span>
+              <span class="text-[10px] mono text-slate-400">Passe o mouse nas barras para ver o log</span>
+            </div>
+            <div id="auditCadenceBars" class="h-36 flex items-end gap-0.5 overflow-x-auto pt-4 pb-1 px-2 border-b border-slate-800 relative"></div>
+            <div class="flex justify-between text-[10px] mono text-slate-400">
+              <span>🟢 Normal (&ge; 18s c/ Biometria AFIS)</span>
+              <span>🟡 Sem Biometria AFIS</span>
+              <span>🔴 Anomalia Crítica / Rajada Sobre-Humana (&lt; 15s)</span>
+            </div>
+          </div>
+
+          <!-- Lista Detalhada de Anomalias e Evidências Forenses -->
+          <div id="auditAnomaliesBox" class="hidden space-y-2">
+            <div class="text-xs font-bold text-rose-400 mono uppercase">
+              🚨 Relatório de Distorções e Possíveis Inserções Fraudulentas Rastreadas nos Logs:
+            </div>
+            <div id="auditAnomaliesList" class="space-y-2 max-h-60 overflow-y-auto mono text-[11px]"></div>
+          </div>
+        </div>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -761,7 +946,7 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     function switchTab(tabId) {
-      ["tab-urna", "tab-candidatos", "tab-relatorios", "tab-assembly"].forEach(id => {
+      ["tab-urna", "tab-candidatos", "tab-relatorios", "tab-assembly", "tab-simulacao"].forEach(id => {
         document.getElementById(id).classList.add("hidden");
         const btn = document.getElementById("btn-" + id);
         btn.className = "tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-slate-300 hover:bg-slate-700";
@@ -1353,6 +1538,168 @@ o Boletim de Urna (apos encerramento da votacao).
           <div class="text-[10px] text-slate-500 mt-1 truncate">SHA256: ${l.hash_atual}</div>
         </div>
       `).join("");
+    }
+
+    function toggleCamposAnomalia() {
+      const modo = document.getElementById("simModoAnomalia").value;
+      const box = document.getElementById("boxParametrosAnomalia");
+      if (modo === "NORMAL") box.classList.add("hidden");
+      else box.classList.remove("hidden");
+    }
+
+    async function executarSimulacaoCompleta(e) {
+      e.preventDefault();
+      const btn = document.getElementById("btnExecutarSimulacao");
+      btn.disabled = true;
+      btn.textContent = "⏳ Processando Simulação de Seção (08h00 -> 17h00)...";
+
+      const modo = document.getElementById("simModoAnomalia").value;
+      const payload = {
+        turno: parseInt(document.getElementById("simTurno").value, 10),
+        eleitores_aptos: parseInt(document.getElementById("simAptos").value, 10),
+        abstencoes: parseInt(document.getElementById("simAbstencoes").value, 10),
+        pct_brancos: parseFloat(document.getElementById("simBrancos").value),
+        pct_nulos: parseFloat(document.getElementById("simNulos").value),
+        pct_legenda: parseFloat(document.getElementById("simLegenda").value),
+        modo_anomalia: modo,
+        qtd_votos_anomalia: modo === "NORMAL" ? 0 : parseInt(document.getElementById("simQtdAnomalia").value || "0", 10),
+        candidato_alvo_anomalia: document.getElementById("simAlvoAnomalia").value.trim()
+      };
+
+      const res = await fetch("/api/simulacao/executar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      btn.disabled = false;
+      btn.textContent = "⚡ Gerar Simulação Completa, BU, Cartucho e Logs";
+
+      if (!res.ok) {
+        showSecurityAlert(data.detail || "Falha ao executar simulação.", true);
+        return;
+      }
+
+      playSomFimUrna();
+      document.getElementById("thermalPrinterOutput").textContent = data.boletim_de_urna.cupom_termico;
+
+      const resumoBox = document.getElementById("simResumoBox");
+      const resumoStats = document.getElementById("simResumoStats");
+      resumoBox.classList.remove("hidden");
+      resumoStats.innerHTML = `
+        <div>• Aptos: <strong class="text-white">${data.parametros.eleitores_aptos}</strong></div>
+        <div>• Abstenções: <strong class="text-white">${data.parametros.abstencoes_planejadas}</strong></div>
+        <div>• Votos Legítimos: <strong class="text-emerald-400">${data.parametros.comparecimento_legitimo}</strong></div>
+        <div>• Votos Injetados: <strong class="text-rose-400">${data.parametros.votos_anomalia_injetados}</strong></div>
+        <div>• Total no BU/RDV: <strong class="text-amber-300">${data.parametros.comparecimento_final_urna}</strong></div>
+        <div>• Cadência Média: <strong class="text-white">${data.estatisticas_cadencia.tempo_medio_ciclo_normal_s}s</strong></div>
+      `;
+
+      await fetchStatusAndCandidates();
+      await executarAuditoriaIndependenteNaBase();
+    }
+
+    async function executarAuditoriaIndependenteNaBase() {
+      const res = await fetch("/api/auditoria/analisar-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      const report = await res.json();
+      renderAuditReport(report);
+    }
+
+    function importarJsonLogsParaAuditoria(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        try {
+          const parsed = JSON.parse(ev.target.result);
+          const logsArray = Array.isArray(parsed) ? parsed : (parsed.logs || []);
+          const res = await fetch("/api/auditoria/analisar-logs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ logs: logsArray })
+          });
+          const report = await res.json();
+          renderAuditReport(report);
+        } catch (err) {
+          showSecurityAlert("Arquivo JSON de logs inválido.", true);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function renderAuditReport(report) {
+      const banner = document.getElementById("auditVereditoBanner");
+      const cards = document.getElementById("auditMetricsCards");
+      const chartBox = document.getElementById("auditChartBox");
+      const barsContainer = document.getElementById("auditCadenceBars");
+      const anomBox = document.getElementById("auditAnomaliesBox");
+      const anomList = document.getElementById("auditAnomaliesList");
+
+      cards.classList.remove("hidden");
+      chartBox.classList.remove("hidden");
+
+      if (report.nivel_risco === "CRITICO") {
+        banner.className = "bg-rose-950/90 border-2 border-rose-500 rounded-xl p-4 text-xs text-rose-100";
+        banner.innerHTML = `<div class="font-extrabold text-sm text-rose-300 uppercase">🚨 ${report.veredito}</div>
+          <div class="mt-1">Foram detectadas <strong>${report.total_anomalias_encontradas} anomalias forenses</strong> em ${report.total_votos_auditados} ciclos de votação analisados (${report.total_eventos_analisados} registros de log).</div>`;
+      } else if (report.nivel_risco === "ALTO") {
+        banner.className = "bg-amber-950/90 border-2 border-amber-500 rounded-xl p-4 text-xs text-amber-100";
+        banner.innerHTML = `<div class="font-extrabold text-sm text-amber-300 uppercase">⚠️ ${report.veredito}</div>
+          <div class="mt-1">Foram encontrados <strong>${report.total_anomalias_encontradas} alertas operacionais</strong> nos logs da seção.</div>`;
+      } else {
+        banner.className = "bg-emerald-950/90 border-2 border-emerald-500 rounded-xl p-4 text-xs text-emerald-100";
+        banner.innerHTML = `<div class="font-extrabold text-sm text-emerald-300 uppercase">✅ ${report.veredito}</div>
+          <div class="mt-1">Todos os <strong>${report.total_votos_auditados} votos</strong> respeitaram a cadência biomecânica humana e a cadeia SHA-256 está 100% íntegra.</div>`;
+      }
+
+      document.getElementById("audHashStatus").innerHTML = report.cadeia_sha256_integra
+        ? `<span class="text-emerald-400">ÍNTEGRA (OK)</span>`
+        : `<span class="text-rose-400">VIOLADA (${report.quebras_hash_detectadas})</span>`;
+      document.getElementById("audTempoMedio").textContent = `${report.estatisticas_cadencia.tempo_medio_ciclo_s}s`;
+      const minVal = report.estatisticas_cadencia.tempo_minimo_ciclo_s;
+      document.getElementById("audTempoMin").innerHTML = minVal > 0 && minVal < 15
+        ? `<span class="text-rose-400">${minVal}s (ROBO!)</span>`
+        : `<span class="text-slate-200">${minVal}s</span>`;
+      document.getElementById("audTotalAnomalias").innerHTML = report.total_anomalias_encontradas > 0
+        ? `<span class="text-rose-400">${report.total_anomalias_encontradas} DETECTADAS</span>`
+        : `<span class="text-emerald-400">0 (LIMPO)</span>`;
+
+      // Desenha barras de cadência por eleitor
+      const serie = report.serie_temporal_ciclos || [];
+      const maxDur = Math.max(...serie.map(s => s.duracao_ciclo_s), 90);
+      barsContainer.innerHTML = serie.map(item => {
+        const pct = Math.max(8, Math.min(100, Math.round((item.duracao_ciclo_s / maxDur) * 100)));
+        let barColor = "bg-emerald-500 hover:bg-emerald-400";
+        if (item.duracao_ciclo_s < 15 || (item.duracao_cabine_s && item.duracao_cabine_s < 3.5)) {
+          barColor = "bg-rose-500 hover:bg-rose-400 animate-pulse";
+        } else if (!item.biometria_afis) {
+          barColor = "bg-amber-400 hover:bg-amber-300";
+        }
+        return `<div
+          style="height: ${pct}%; min-width: 6px;"
+          class="flex-1 rounded-t ${barColor} transition"
+          title="Eleitor #${item.seq} (${item.hora}) | Ciclo Total: ${item.duracao_ciclo_s}s | Cabine: ${item.duracao_cabine_s}s | Bio AFIS: ${item.biometria_afis ? 'SIM' : 'NÃO'}"
+        ></div>`;
+      }).join("");
+
+      if (report.anomalias && report.anomalias.length > 0) {
+        anomBox.classList.remove("hidden");
+        anomList.innerHTML = report.anomalias.map(a => `
+          <div class="bg-slate-950 border ${a.severidade === 'CRITICA' ? 'border-rose-600/80' : 'border-amber-600/80'} p-2.5 rounded-lg">
+            <div class="flex justify-between font-bold ${a.severidade === 'CRITICA' ? 'text-rose-400' : 'text-amber-300'}">
+              <span>[${a.severidade}] ${a.codigo} (Log #${a.log_id || '-'})</span>
+              <span class="text-slate-400">${a.timestamp ? a.timestamp.slice(11, 19) : ''}</span>
+            </div>
+            <div class="text-slate-200 mt-0.5">${a.descricao}</div>
+          </div>
+        `).join("");
+      } else {
+        anomBox.classList.add("hidden");
+      }
     }
 
     window.addEventListener("keydown", (e) => {
