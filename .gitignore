@@ -1,0 +1,27 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+ENV/
+
+# Database & Cartridges local runtime
+*.db
+*.sqlite3
+data/
+cartuchos/*.zip
+cartuchos/*.rdv
+cartuchos/*.bu
+cartuchos/*.sig
+
+# ESP-IDF build artifacts
+firmware_esp32_asm/build/
+firmware_esp32_asm/sdkconfig
+firmware_esp32_asm/sdkconfig.old
+
+# OS / Editor
+.DS_Store
+.env
