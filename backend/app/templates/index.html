@@ -2934,11 +2934,18 @@ o Boletim de Urna (apos encerramento da votacao).
 
     function extrairPrefixoNoCliente(filename) {
       const base = filename.split("/").pop().split("\\").pop().toLowerCase();
-      const m = base.match(/^(o\d{5}[a-z]{2}\d{13,14})-/i);
-      if (m) return m[1].toLowerCase();
-      const mZip = base.match(/^(o\d{5}[a-z]{2}\d{13,14})\.zip$/i);
-      if (mZip) return mZip[1].toLowerCase();
-      return base.replace(/-(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc|\.zip)$/i, "");
+      const m = base.match(/^(o?\d{5}[a-z]{2}\d{13,14})[-.]/i);
+      if (m) {
+        const p = m[1].toLowerCase();
+        return p.startsWith("o") ? p : `o${p}`;
+      }
+      const mZip = base.match(/^(o?\d{5}[a-z]{2}\d{13,14})\.zip$/i);
+      if (mZip) {
+        const p = mZip[1].toLowerCase();
+        return p.startsWith("o") ? p : `o${p}`;
+      }
+      const raw = base.replace(/-(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc|\.zip)$/i, "");
+      return raw.startsWith("o") ? raw : `o${raw}`;
     }
 
     function atualizarProgressoUploadTse(pct, text, stats = "", enviados = 0, pulados = 0, total = 0) {
@@ -3402,6 +3409,8 @@ o Boletim de Urna (apos encerramento da votacao).
       const urnasPorRequisicao = usarModoTurbo ? 50 : 25;
       window.cancelarLoteTseFlag = false;
       let urnasEnviadas = 0;
+      let errosNesteUpload = 0;
+      let errosDetalhes = [];
 
       for (let idx = 0; idx < totalFaltantes; idx += urnasPorRequisicao) {
         if (window.cancelarLoteTseFlag) break;
@@ -3436,24 +3445,66 @@ o Boletim de Urna (apos encerramento da votacao).
             totalFaltantes
           );
 
-          try {
-            const res = await fetch("/api/tse-reverso/upload-lote", {
-              method: "POST",
-              body: formData
-            });
-            if (!res.ok) {
-              const errData = await res.json().catch(() => ({}));
-              showSecurityAlert(errData.detail || `Erro no lote (${res.status})`, true);
-              break;
+          // Retry resiliente com até 3 tentativas e backoff exponencial contra micro-quedas de proxy/rede
+          let loteSucesso = false;
+          let tentativas = 0;
+          let ultimoErro = "";
+
+          while (!loteSucesso && tentativas < 3 && !window.cancelarLoteTseFlag) {
+            tentativas++;
+            try {
+              const res = await fetch("/api/tse-reverso/upload-lote", {
+                method: "POST",
+                body: formData
+              });
+              if (res.ok) {
+                loteSucesso = true;
+              } else {
+                const errData = await res.json().catch(() => ({}));
+                ultimoErro = errData.detail || `Erro HTTP ${res.status}`;
+                if (tentativas < 3 && !window.cancelarLoteTseFlag) {
+                  atualizarProgressoUploadTse(
+                    pctAtual,
+                    `⚠️ Instabilidade temporária (${ultimoErro}). Tentativa ${tentativas + 1}/3 em ${tentativas * 1.5}s...`,
+                    `${urnasEnviadas} de ${totalFaltantes}`,
+                    urnasEnviadas,
+                    urnasPuladasJaExistentes,
+                    totalFaltantes
+                  );
+                  await new Promise(r => setTimeout(r, tentativas * 1500));
+                }
+              }
+            } catch (err) {
+              ultimoErro = err.message || "Falha de conexão";
+              if (tentativas < 3 && !window.cancelarLoteTseFlag) {
+                atualizarProgressoUploadTse(
+                  pctAtual,
+                  `⚠️ Conexão oscilou (${ultimoErro}). Tentativa ${tentativas + 1}/3 em ${tentativas * 1.5}s...`,
+                  `${urnasEnviadas} de ${totalFaltantes}`,
+                  urnasEnviadas,
+                  urnasPuladasJaExistentes,
+                  totalFaltantes
+                );
+                await new Promise(r => setTimeout(r, tentativas * 1500));
+              }
             }
-          } catch (err) {
-            showSecurityAlert(`Falha de conexão ao enviar lote: ${err.message}`, true);
-            break;
+          }
+
+          if (!loteSucesso && !window.cancelarLoteTseFlag) {
+            errosNesteUpload += fatiaPrefixos.length;
+            errosDetalhes.push(`Urnas ${urnasEnviadas + 1}-${urnasEnviadas + fatiaPrefixos.length}: ${ultimoErro}`);
+            console.warn(`[TSE-UPLOAD] Falha no lote após 3 tentativas: ${ultimoErro}`);
+            // Continua com os demais lotes sem abortar o upload do estado inteiro
+          } else if (loteSucesso) {
+            urnasEnviadas += fatiaPrefixos.length;
           }
         }
-
-        urnasEnviadas += fatiaPrefixos.length;
       }
+
+      const statusFinal = window.cancelarLoteTseFlag ? "CANCELADO" : (errosNesteUpload > 0 ? "CONCLUIDO_COM_AVISOS" : "CONCLUIDO");
+      const msgFinal = errosNesteUpload > 0
+        ? `Ingestão finalizada: ${urnasEnviadas.toLocaleString("pt-BR")} urnas salvas no PostgreSQL, ${urnasPuladasJaExistentes.toLocaleString("pt-BR")} já existiam, ${errosNesteUpload.toLocaleString("pt-BR")} urnas com falha de envio.`
+        : `Ingestão 100% concluída: ${urnasEnviadas.toLocaleString("pt-BR")} urnas adicionadas ao PostgreSQL (${urnasPuladasJaExistentes.toLocaleString("pt-BR")} duplicadas ignoradas).`;
 
       if (uploadJobId) {
         try {
@@ -3462,8 +3513,8 @@ o Boletim de Urna (apos encerramento da votacao).
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               job_id: uploadJobId,
-              status: "CONCLUIDO",
-              mensagem: `Upload concluído: ${urnasEnviadas.toLocaleString("pt-BR")} urnas novas gravadas no PostgreSQL, ${urnasPuladasJaExistentes.toLocaleString("pt-BR")} duplicadas mantidas.`
+              status: statusFinal,
+              mensagem: msgFinal
             })
           });
           atualizarBadgeHistoricoUploads();
@@ -3472,8 +3523,8 @@ o Boletim de Urna (apos encerramento da votacao).
 
       atualizarProgressoUploadTse(
         100,
-        `✅ Ingestão concluída com sucesso! ${urnasEnviadas.toLocaleString("pt-BR")} urnas adicionadas ao PostgreSQL. Auditado no Histórico!`,
-        "Concluído 100%",
+        `✅ ${msgFinal}`,
+        statusFinal === "CONCLUIDO" ? "Concluído 100%" : "Finalizado com avisos",
         urnasEnviadas,
         urnasPuladasJaExistentes,
         totalFaltantes
@@ -3483,6 +3534,8 @@ o Boletim de Urna (apos encerramento da votacao).
       hideSecurityAlert();
       playBeepBiometriaOk();
 
+      // Sincroniza e atualiza imediatamente o badge do topo (BASE: X URNAS) e a árvore de consolidação
+      await atualizarStatusBancoAuditoria();
       if (totalUrnasSelecionadas === 1) {
         await selecionarNoArvoreTse("TODAS", "TODAS", "TODAS", "TODAS", todosPrefixosSelecionados[0]);
       } else {
