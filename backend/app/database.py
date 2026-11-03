@@ -5,7 +5,7 @@ from sqlalchemy import (
     create_engine, Column, Integer, SmallInteger, String, Boolean,
     DateTime, Text, text, ForeignKey, Index, UniqueConstraint
 )
-from sqlalchemy.orm import declarative_base, sessionmaker, relationship
+from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/urna_eleitoral.db")
 
