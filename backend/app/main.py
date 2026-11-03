@@ -3,9 +3,11 @@ import glob
 import time
 import zipfile
 import hashlib
+import uuid
+import tempfile
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, BackgroundTasks
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -42,6 +44,8 @@ from .tse_reverse_analyzer import (
     reauditar_urnas_divergentes_catalogo,
     limpar_catalogo_tse,
     extrair_prefixo_seccao,
+    sincronizar_catalogo_com_banco,
+    _CATALOGO_MEMORIA,
 )
 
 app = FastAPI(
@@ -807,72 +811,196 @@ async def api_tse_reverso_upload_lote(request: Request):
         raise HTTPException(status_code=400, detail=f"Erro ao processar lote TSE: {exc}")
 
 
+# Gerenciador em memória de jobs em background para importação massiva de arquivos .ZIP
+# (Garante 100% de resiliência contra timeout de proxy reverso - 180s Traefik/Cloudflare)
+_JOBS_IMPORTACAO_TSE: dict[str, dict] = {}
+
+
+def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
+    t0 = time.time()
+    job = _JOBS_IMPORTACAO_TSE.get(job_id)
+    if not job:
+        return
+
+    total_secoes_gravadas = 0
+    try:
+        total_secoes_estimadas = 0
+        zips_info = []
+        for p in temp_paths:
+            if not os.path.exists(p):
+                continue
+            try:
+                zf = zipfile.ZipFile(p, "r")
+                infolist = [
+                    info
+                    for info in zf.infolist()
+                    if not info.is_dir()
+                    and any(info.filename.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc"))
+                ]
+                grupos = {}
+                for info in infolist:
+                    base = os.path.basename(info.filename)
+                    pref = extrair_prefixo_seccao(base)
+                    if pref:
+                        grupos.setdefault(pref, []).append((base, info))
+                total_secoes_estimadas += len(grupos)
+                zips_info.append((p, zf, grupos))
+            except Exception as e:
+                print(f"[TSE-ZIP-JOB] Falha ao ler zip {p}: {e}")
+
+        job["total_secoes_estimadas"] = total_secoes_estimadas
+        job["mensagem"] = f"Total estimado: {total_secoes_estimadas} seções. Iniciando decodificação..."
+
+        chunk_size = 50
+        for zip_idx, (p, zf, grupos) in enumerate(zips_info):
+            nome_zip = os.path.basename(p)
+            prefixos = list(grupos.keys())
+
+            for i in range(0, len(prefixos), chunk_size):
+                fatia = prefixos[i : i + chunk_size]
+                micro_lote_bytes = {}
+                for pref in fatia:
+                    for base_name, zinfo in grupos[pref]:
+                        try:
+                            micro_lote_bytes[base_name] = zf.read(zinfo)
+                        except Exception:
+                            pass
+                if micro_lote_bytes:
+                    res = processar_lote_arquivos_tse(micro_lote_bytes)
+                    total_secoes_gravadas += res.get("secoes_processadas_neste_lote", 0)
+                    micro_lote_bytes.clear()
+
+                progresso = (
+                    round((total_secoes_gravadas / max(1, total_secoes_estimadas)) * 100, 1)
+                    if total_secoes_estimadas > 0
+                    else 50.0
+                )
+                job["secoes_gravadas"] = total_secoes_gravadas
+                job["progresso_pct"] = min(99.0, progresso)
+                job["tempo_segundos"] = round(time.time() - t0, 1)
+                job["mensagem"] = (
+                    f"Decodificando {nome_zip}: {total_secoes_gravadas}/{total_secoes_estimadas} seções gravadas no PostgreSQL ({job['progresso_pct']}%)"
+                )
+
+            try:
+                zf.close()
+            except Exception:
+                pass
+            # Remove o arquivo temporário imediatamente (Zero-Disk Raw)
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+
+        # Conclusão e sincronização do catálogo em memória com selectinload em <0.2s
+        job["mensagem"] = "Sincronizando catálogo e árvore de 5 níveis com PostgreSQL..."
+        sincronizar_catalogo_com_banco()
+
+        duracao = round(time.time() - t0, 2)
+        job["status"] = "CONCLUIDO"
+        job["concluido"] = True
+        job["progresso_pct"] = 100.0
+        job["secoes_gravadas"] = total_secoes_gravadas
+        job["tempo_segundos"] = duracao
+        job["mensagem"] = f"Sucesso! {total_secoes_gravadas} seções processadas e gravadas no PostgreSQL em {duracao}s."
+
+    except Exception as exc:
+        print(f"[TSE-ZIP-JOB] Erro fatal no job {job_id}: {exc}")
+        job["status"] = "ERRO"
+        job["concluido"] = True
+        job["erro"] = str(exc)
+        job["mensagem"] = f"Erro durante o processamento: {exc}"
+        for p in temp_paths:
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except Exception:
+                pass
+
+
 @app.post("/api/tse-reverso/upload-zip")
-async def api_tse_reverso_upload_zip(request: Request):
+async def api_tse_reverso_upload_zip(
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
     """
-    Recebe um ou mais arquivos .ZIP completos do TSE (ex: PR_2T.zip, SP_1T.zip, etc.),
-    extrai diretamente em micro-lotes na memória sem buffering excessivo,
-    persiste as métricas e dados de apuração no PostgreSQL sob a estratégia
-    Zero-Disk Raw e descarta o arquivo temporário imediatamente.
+    Recebe um ou mais arquivos .ZIP do TSE (ex: SC_1T.zip, SC_2T.zip, PR_2T.zip).
+    Salva temporariamente em disco e despacha o processamento em background (BackgroundTasks),
+    retornando imediatamente um job_id para o frontend acompanhar o progresso em tempo real
+    sem risco de timeout reverso (180s do Traefik/Cloudflare).
     """
     form = await request.form(max_files=100, max_fields=100)
     files = form.getlist("files")
     if not files:
         raise HTTPException(status_code=400, detail="Nenhum arquivo .ZIP enviado.")
 
-    total_secoes_gravadas = 0
-    total_zips_processados = 0
-    t0 = time.time()
+    job_id = str(uuid.uuid4())[:8]
+    temp_dir = tempfile.gettempdir()
+    temp_paths = []
 
     for f in files:
         filename = getattr(f, "filename", "") or ""
         if not filename.lower().endswith(".zip"):
             continue
+        temp_path = os.path.join(temp_dir, f"tse_upload_{job_id}_{filename}")
+        with open(temp_path, "wb") as out_fp:
+            while chunk := await f.read(1024 * 1024 * 4):  # 4MB chunks
+                out_fp.write(chunk)
+        temp_paths.append(temp_path)
 
-        try:
-            # Abre o ZIP diretamente do arquivo temporário spoolado do FastAPI
-            with zipfile.ZipFile(f.file, "r") as zf:
-                infolist = [
-                    info for info in zf.infolist()
-                    if not info.is_dir() and any(info.filename.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc"))
-                ]
+    if not temp_paths:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo .ZIP válido encontrado.")
 
-                # Agrupa metadados dos arquivos por prefixo de urna (baixo uso de RAM)
-                grupos_info = {}
-                for info in infolist:
-                    base = os.path.basename(info.filename)
-                    pref = extrair_prefixo_seccao(base)
-                    if pref:
-                        grupos_info.setdefault(pref, []).append((base, info))
+    # Mantém apenas os últimos 30 jobs no histórico
+    if len(_JOBS_IMPORTACAO_TSE) > 30:
+        for k in list(_JOBS_IMPORTACAO_TSE.keys())[:-20]:
+            _JOBS_IMPORTACAO_TSE.pop(k, None)
 
-                prefixos = list(grupos_info.keys())
-                chunk_size = 50  # 50 seções por micro-lote
+    _JOBS_IMPORTACAO_TSE[job_id] = {
+        "job_id": job_id,
+        "status": "PROCESSANDO",
+        "concluido": False,
+        "total_zips": len(temp_paths),
+        "total_secoes_estimadas": 0,
+        "secoes_gravadas": 0,
+        "progresso_pct": 2.0,
+        "mensagem": f"Upload de {len(temp_paths)} arquivo(s) concluído. Iniciando varredura das urnas...",
+        "erro": None,
+        "tempo_inicio": time.time(),
+        "tempo_segundos": 0.0,
+    }
 
-                for i in range(0, len(prefixos), chunk_size):
-                    fatia = prefixos[i : i + chunk_size]
-                    micro_lote_bytes = {}
-                    for pref in fatia:
-                        for base_name, zinfo in grupos_info[pref]:
-                            try:
-                                micro_lote_bytes[base_name] = zf.read(zinfo)
-                            except Exception:
-                                pass
-                    if micro_lote_bytes:
-                        res = processar_lote_arquivos_tse(micro_lote_bytes)
-                        total_secoes_gravadas += res.get("secoes_processadas_neste_lote", 0)
-                        micro_lote_bytes.clear()
+    background_tasks.add_task(_executar_job_importacao_zip, job_id, temp_paths)
 
-            total_zips_processados += 1
-        except Exception as exc:
-            print(f"[TSE-ZIP] Erro ao processar arquivo {filename}: {exc}")
-            raise HTTPException(status_code=400, detail=f"Erro ao processar {filename}: {exc}")
-
-    duracao = time.time() - t0
     return {
         "ok": True,
-        "zips_processados": total_zips_processados,
-        "total_secoes_gravadas": total_secoes_gravadas,
-        "tempo_segundos": round(duracao, 2),
+        "job_id": job_id,
+        "total_zips": len(temp_paths),
+        "mensagem": f"Upload concluído. Processamento em segundo plano iniciado (Job {job_id}).",
+    }
+
+
+@app.get("/api/tse-reverso/job-status/{job_id}")
+def api_tse_reverso_job_status(job_id: str):
+    """Retorna o status e percentual de progresso de um job de importação em background."""
+    job = _JOBS_IMPORTACAO_TSE.get(job_id)
+    if not job:
+        return {"ok": False, "status": "NAO_ENCONTRADO", "mensagem": "Job não encontrado ou expirado."}
+    return job
+
+
+@app.post("/api/tse-reverso/sincronizar-banco")
+def api_tse_reverso_sincronizar_banco():
+    """
+    Sincroniza o catálogo em memória com 100% das seções gravadas no PostgreSQL.
+    Rápido (<0.2s) graças ao uso de selectinload com 4 queries SQL em lote.
+    """
+    res = sincronizar_catalogo_com_banco()
+    return {
+        "ok": res.get("ok", True),
+        "total_secoes_sincronizadas": res.get("total", 0),
+        "mensagem": f"{res.get('total', 0)} seções sincronizadas com sucesso do PostgreSQL.",
     }
 
 

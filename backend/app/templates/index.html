@@ -943,6 +943,16 @@ o Boletim de Urna (apos encerramento da votacao).
             </button>
 
             <button
+              id="btnSincronizarBancoTse"
+              onclick="forcarSincronizacaoBancoTse()"
+              title="Recarrega e sincroniza todas as seções já salvas no PostgreSQL com o catálogo de auditoria"
+              class="px-3.5 py-2.5 bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/50 text-emerald-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
+            >
+              <span>🔄</span>
+              <span>Sincronizar Base</span>
+            </button>
+
+            <button
               onclick="carregarAmostraOficialPR()"
               class="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 border border-cyan-500/50 text-cyan-300 font-bold text-xs rounded-xl transition"
             >
@@ -2802,13 +2812,13 @@ o Boletim de Urna (apos encerramento da votacao).
         const formData = new FormData();
         formData.append("files", zipFile, zipFile.name);
 
-        await new Promise((resolve) => {
+        const uploadResp = await new Promise((resolve) => {
           const xhr = new XMLHttpRequest();
           xhr.open("POST", "/api/tse-reverso/upload-zip", true);
 
           xhr.upload.onprogress = (e) => {
             if (e.lengthComputable) {
-              const pctUpload = Math.round((e.loaded / e.total) * 85);
+              const pctUpload = Math.round((e.loaded / e.total) * 90);
               const mbEnviados = (e.loaded / (1024 * 1024)).toFixed(1);
               atualizarProgressoUploadTse(
                 pctUpload,
@@ -2821,19 +2831,10 @@ o Boletim de Urna (apos encerramento da votacao).
             }
           };
 
-          xhr.onload = async () => {
+          xhr.onload = () => {
             if (xhr.status >= 200 && xhr.status < 300) {
               try {
-                const resp = JSON.parse(xhr.responseText);
-                atualizarProgressoUploadTse(
-                  95,
-                  `⚙️ Arquivo ${zipFile.name} extraído! ${resp.total_secoes_gravadas || 0} seções gravadas no PostgreSQL em ${resp.tempo_segundos || 0}s...`,
-                  "Gravando no Banco...",
-                  i + 1,
-                  0,
-                  totalZips
-                );
-                resolve(resp);
+                resolve(JSON.parse(xhr.responseText));
               } catch (err) {
                 resolve({});
               }
@@ -2850,6 +2851,38 @@ o Boletim de Urna (apos encerramento da votacao).
 
           xhr.send(formData);
         });
+
+        // Polling do processamento em background (100% imune a timeout de proxy reverso)
+        if (uploadResp && uploadResp.job_id) {
+          const jobId = uploadResp.job_id;
+          let jobAtivo = true;
+          while (jobAtivo) {
+            await new Promise(r => setTimeout(r, 1200));
+            try {
+              const stRes = await fetch(`/api/tse-reverso/job-status/${jobId}`);
+              if (stRes.ok) {
+                const job = await stRes.json();
+                const pct = Math.max(5, Math.min(99, Math.round(job.progresso_pct || 0)));
+                atualizarProgressoUploadTse(
+                  pct,
+                  job.mensagem || `Processando ${zipFile.name}...`,
+                  `${pct}% (${job.secoes_gravadas || 0} seções)`,
+                  i,
+                  job.secoes_gravadas || 0,
+                  job.total_secoes_estimadas || 0
+                );
+                if (job.status === "CONCLUIDO") {
+                  jobAtivo = false;
+                } else if (job.status === "ERRO") {
+                  showSecurityAlert(`Erro durante extração do ZIP ${zipFile.name}: ${job.erro || job.mensagem}`, true);
+                  jobAtivo = false;
+                }
+              }
+            } catch (pollErr) {
+              console.warn("[TSE-POLL] Falha temporária no status:", pollErr);
+            }
+          }
+        }
       }
 
       atualizarProgressoUploadTse(
@@ -2861,12 +2894,13 @@ o Boletim de Urna (apos encerramento da votacao).
         totalZips
       );
 
+      playBeepBiometriaOk();
       await atualizarStatusBancoAuditoria();
       await atualizarConsolidacaoTse(true);
 
       setTimeout(() => {
         fecharProgressoUploadTse();
-      }, 1500);
+      }, 2000);
     }
 
     async function iniciarImportacaoLoteTse(eventOrFiles) {
@@ -3162,6 +3196,26 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
+    async function forcarSincronizacaoBancoTse() {
+      showSecurityAlert("🔄 Sincronizando dados gravados no PostgreSQL com o catálogo de navegação...", false);
+      try {
+        const res = await fetch("/api/tse-reverso/sincronizar-banco", { method: "POST" });
+        const data = await res.json();
+        hideSecurityAlert();
+        if (res.ok) {
+          playBeepBiometriaOk();
+          showSecurityAlert(data.mensagem || `Base sincronizada: ${data.total_secoes_sincronizadas} urnas carregadas.`, false);
+          await atualizarStatusBancoAuditoria();
+          await atualizarConsolidacaoTse(true);
+        } else {
+          showSecurityAlert("Erro ao sincronizar base do PostgreSQL.", true);
+        }
+      } catch (err) {
+        hideSecurityAlert();
+        showSecurityAlert(`Falha de comunicação: ${err.message}`, true);
+      }
+    }
+
     // Estado atual dos 5 níveis da Árvore (Região > Estado > Cidade > Zona > Seção) + Filtro Forense de Divergências
     window.arvoreTseState = {
       regiao: "TODAS",
@@ -3417,10 +3471,32 @@ o Boletim de Urna (apos encerramento da votacao).
         totalGeral > 0 ? `📦 ${totalGeral.toLocaleString("pt-BR")} Urna(s) / Seção(ões) carregada(s) no Catálogo` : "";
 
       if (totalGeral === 0) {
+        // Se a memória estava vazia/fria mas existem seções gravadas no PostgreSQL,
+        // sincroniza em lote com o banco e renderiza imediatamente a árvore de seções!
+        if (!window._tseAutoSyncTentado) {
+          window._tseAutoSyncTentado = true;
+          try {
+            const stRes = await fetch("/api/tse-reverso/status-banco");
+            if (stRes.ok) {
+              const stData = await stRes.json();
+              if (stData.total_secoes > 0) {
+                const syncRes = await fetch("/api/tse-reverso/sincronizar-banco", { method: "POST" });
+                if (syncRes.ok) {
+                  return atualizarConsolidacaoTse(mostrarAlertaSeVazio);
+                }
+              }
+            }
+          } catch (e) {
+            console.warn("[TSE-SYNC] Erro ao sincronizar catalogo com PostgreSQL:", e);
+          }
+        }
+        window._tseAutoSyncTentado = false;
+
         document.getElementById("tseFilterBarContainer").classList.add("hidden");
         document.getElementById("tseReversoResultContainer").classList.add("hidden");
         return;
       }
+      window._tseAutoSyncTentado = false;
 
       document.getElementById("tseFilterBarContainer").classList.remove("hidden");
       document.getElementById("tseReversoResultContainer").classList.remove("hidden");
