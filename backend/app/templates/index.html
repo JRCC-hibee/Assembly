@@ -1122,6 +1122,87 @@ o Boletim de Urna (apos encerramento da votacao).
           <div id="tsePlacarCandidatosGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
         </div>
 
+        <!-- PAINEL COMPARATIVO FORENSE: 1º TURNO (04/10/2026) × 2º TURNO (25/10/2026) -->
+        <div id="tseComparativoTurnosBox" class="bg-slate-900 border-2 border-indigo-500/40 rounded-xl p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div>
+              <h3 id="tseComparativoTurnosTitle" class="text-sm font-extrabold text-white flex items-center gap-2">
+                <span>⚖️ Comparativo Forense: 1º Turno (04/10/2026) × 2º Turno (25/10/2026)</span>
+              </h3>
+              <p id="tseComparativoTurnosSub" class="text-xs text-slate-400 mt-0.5">
+                Extração cruzada da Mídia Interna (`logd.dat` acumulado 1ºT + 2ºT) e Boletins de Urna (`-imgbu.dat` / `-rdv.dat`).
+              </p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs mono">
+              <span id="tseComparativoStatusBadge" class="px-2.5 py-1 rounded-lg bg-indigo-950 text-indigo-300 border border-indigo-600/50 font-bold text-[11px]"></span>
+              <button
+                onclick="selecionarArquivoJezManualDaUrna(window.currentTsePrefixoAtivo || '')"
+                class="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-600/40 font-bold text-[11px] transition"
+                title="Envie arquivos -log.jez ou BUs/RDVs do 1º Turno (o03220...) para pareamento automático"
+              >
+                📂 Subir .jez / BU 1º Turno
+              </button>
+            </div>
+          </div>
+
+          <!-- 6 Cards de KPIs Lado a Lado (1º Turno vs 2º Turno + Variação Δ) -->
+          <div id="tseComparativoKpisGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-3 text-xs mono"></div>
+
+          <!-- Grid Duplo: Tabela de Votos por Candidato + Parâmetros Operacionais (Esquerda) e Vazão Horária Dupla (Direita) -->
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <!-- Coluna Esquerda (7 cols): Votos por Candidato (1ºT × 2ºT) + Métricas de Log e Tempos -->
+            <div class="lg:col-span-7 space-y-4">
+              <!-- Sub-bloco 1: Totalização por Candidato, Brancos, Nulos e Faltosos (1ºT × 2ºT) -->
+              <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="text-xs font-extrabold text-amber-300 mono uppercase">
+                    🗳️ Evolução de Votos por Candidato, Brancos, Nulos e Abstenção (`1ºT` × `2ºT`)
+                  </div>
+                  <span id="tseCompCandInfoBadge" class="text-[10px] text-slate-400 mono"></span>
+                </div>
+                <div id="tseCompCandidatosContainer" class="overflow-x-auto"></div>
+              </div>
+
+              <!-- Sub-bloco 2: Auditoria Comparativa de Tempos de Voto, Biometria e Logs (1ºT × 2ºT) -->
+              <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+                <div class="text-xs font-extrabold text-cyan-300 mono uppercase">
+                  ⏱️ Comparativo de Cadência de Votação, Biometria AFIS e Eventos do `logd.dat` (`1ºT` × `2ºT`)
+                </div>
+                <div class="overflow-x-auto">
+                  <table class="w-full text-left text-xs mono">
+                    <thead class="text-slate-400 border-b border-slate-800">
+                      <tr>
+                        <th class="py-1.5">Indicador Forense / Operacional</th>
+                        <th class="py-1.5 text-indigo-300">1º Turno (04/10/2026)</th>
+                        <th class="py-1.5 text-cyan-300">2º Turno (25/10/2026)</th>
+                        <th class="py-1.5 text-right">Variação (Δ)</th>
+                      </tr>
+                    </thead>
+                    <tbody id="tseCompMetricasTableBody" class="divide-y divide-slate-800/60"></tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+
+            <!-- Coluna Direita (5 cols): Vazão Horária Comparada Lado a Lado (08h às 16h: 1º Turno vs 2º Turno) -->
+            <div class="lg:col-span-5 bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3 flex flex-col justify-between">
+              <div class="space-y-3">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="text-xs font-extrabold text-emerald-300 mono uppercase">
+                    📊 Vazão Horária Comparada (`08h` às `16h`)
+                  </div>
+                  <div class="flex items-center gap-3 text-[10px] mono">
+                    <span class="text-indigo-400 font-bold">🟣 1º Turno (5 cargos)</span>
+                    <span class="text-cyan-400 font-bold">🔵 2º Turno (1 cargo)</span>
+                  </div>
+                </div>
+                <div id="tseCompHourlyBars" class="space-y-2.5 text-xs mono"></div>
+              </div>
+              <div id="tseCompOperationalSummaryBox" class="bg-slate-900/90 border border-slate-800 rounded-lg p-3 text-[11px] mono text-slate-300 space-y-1"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Tabela de Batimento Forense Triplo (logd.dat x imgbu.dat x rdv.dat ASN.1) + Vazão Horária -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div class="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
@@ -1217,6 +1298,9 @@ o Boletim de Urna (apos encerramento da votacao).
                 <span class="text-amber-300">🟡 Biográfica / Mesário</span>
               </div>
             </div>
+
+            <!-- Chave Seletora de Turno (Alterna o Gráfico Hora a Hora e a Tabela entre 2º Turno e 1º Turno extraídos do mesmo .jez!) -->
+            <div id="tseRoundSwitcherBar" class="hidden flex flex-wrap items-center justify-between gap-2 bg-slate-950 border border-indigo-500/40 rounded-lg p-2.5 text-xs mono"></div>
 
             <!-- Botões de Filtro Rápido por Hora -->
             <div id="tseHourFilterButtons" class="flex flex-wrap gap-1.5"></div>
@@ -3100,6 +3184,9 @@ o Boletim de Urna (apos encerramento da votacao).
         <div>• Títulos Inválidos Digitados pelos Mesários: <strong class="text-white">${cons.total_id_invalido.toLocaleString("pt-BR")}</strong></div>
       `;
 
+      // Renderiza Painel Comparativo 1º Turno (04/10/2026) x 2º Turno (25/10/2026) no Consolidado
+      renderizarPainelComparativoTurnosTse(cons.comparativo_turnos || null, `${cidSel} • ${zonaSel} (${cons.total_urnas} urna[s])`);
+
       // Renderiza Tabela de Todas as Urnas do Filtro
       window.listaUrnasConsolidadaAtual = cons.lista_urnas || [];
       filtrarTabelaUrnasConsolidada();
@@ -3378,16 +3465,535 @@ o Boletim de Urna (apos encerramento da votacao).
         <div>• Etapas de Assinatura Digital Verificadas no Boot: <strong class="text-emerald-400">${log.etapas_assinatura_software_ok || 0} [SUCESSO]</strong></div>
       `;
 
-      // Espectrograma Individual de Eleitores Reais Separado Hora a Hora + Modal Interativo
-      window.currentTseCiclos = log.ciclos_eleitores || [];
+      // Renderiza Painel Comparativo 1º Turno (04/10/2026) x 2º Turno (25/10/2026) na Urna Individual
+      renderizarPainelComparativoTurnosTse(
+        data.comparativo_turnos || null,
+        `Urna Individual — ${munNome} • Zona ${zonaNum} / Seção ${secaoNum}`
+      );
+
+      // Espectrograma Individual de Eleitores Reais Separado Hora a Hora + Seletor 1º Turno vs 2º Turno
+      window.currentTseCiclos2T = log.ciclos_eleitores || [];
+      window.currentTseCiclos1T = log.ciclos_eleitores_1_turno || [];
+      window.currentTseTurnoGrafico = 2;
+      window.currentTseCiclos = window.currentTseCiclos2T;
       window.currentTseHourFilter = "TODAS";
 
+      renderizarBarraSeletorTurnoGraficoTse();
       renderizarFiltroHorasTse();
       renderizarGraficoETabelaPorHoraTse();
 
       // Espelho Original Limpo do Boletim de Urna
       document.getElementById("tseEspelhoBuPre").textContent =
         bu.espelho_bobina || "Suba o arquivo -imgbu.dat da seção para visualizar a bobina original.";
+    }
+
+    function alternarTurnoGraficoEleitoresTse(turnoNum) {
+      window.currentTseTurnoGrafico = turnoNum;
+      window.currentTseCiclos = turnoNum === 1
+        ? (window.currentTseCiclos1T || [])
+        : (window.currentTseCiclos2T || []);
+      window.currentTseHourFilter = "TODAS";
+      renderizarBarraSeletorTurnoGraficoTse();
+      renderizarFiltroHorasTse();
+      renderizarGraficoETabelaPorHoraTse();
+    }
+
+    function renderizarBarraSeletorTurnoGraficoTse() {
+      const bar = document.getElementById("tseRoundSwitcherBar");
+      if (!bar) return;
+      const c1 = window.currentTseCiclos1T || [];
+      const c2 = window.currentTseCiclos2T || [];
+      if (c1.length === 0 && c2.length === 0) {
+        bar.classList.add("hidden");
+        return;
+      }
+      bar.classList.remove("hidden");
+      const tAtivo = window.currentTseTurnoGrafico || 2;
+      bar.innerHTML = `
+        <div class="flex items-center gap-2">
+          <span class="text-indigo-300 font-extrabold uppercase text-[11px]">🔄 Alternar Turno do Gráfico Hora a Hora e Tabela de Eleitores:</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            onclick="alternarTurnoGraficoEleitoresTse(2)"
+            class="px-3 py-1 rounded-lg font-extrabold text-xs transition ${
+              tAtivo === 2
+                ? "bg-cyan-500 text-slate-950 shadow-lg shadow-cyan-500/20"
+                : "bg-slate-800 text-cyan-300 hover:bg-slate-700"
+            }"
+          >
+            🔵 2º Turno (25/10/2026 — ${c2.length} eleitores • 1 cargo)
+          </button>
+          <button
+            onclick="alternarTurnoGraficoEleitoresTse(1)"
+            class="px-3 py-1 rounded-lg font-extrabold text-xs transition ${
+              tAtivo === 1
+                ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/20"
+                : "bg-slate-800 text-indigo-300 hover:bg-slate-700"
+            }"
+          >
+            🟣 1º Turno (04/10/2026 — ${c1.length} eleitores • 5 cargos)
+          </button>
+        </div>
+      `;
+    }
+
+    window.manualVotos1TurnoCache = {};
+
+    function atualizarVotoManual1Turno(chaveCampo, valorStr) {
+      const escopoKey = window.currentTsePrefixoAtivo || `${window.arvoreTseState?.municipio || 'PR'}-${window.arvoreTseState?.zona || 'Z'}`;
+      if (!window.manualVotos1TurnoCache[escopoKey]) {
+        window.manualVotos1TurnoCache[escopoKey] = {};
+      }
+      const numVal = Math.max(0, parseInt(valorStr || "0", 10) || 0);
+      window.manualVotos1TurnoCache[escopoKey][chaveCampo] = numVal;
+      if (window.lastComparativoTurnosData) {
+        renderizarTabelaCandidatosComparativoTse(window.lastComparativoTurnosData);
+      }
+    }
+
+    function renderizarTabelaCandidatosComparativoTse(ct) {
+      const container = document.getElementById("tseCompCandidatosContainer");
+      const badge = document.getElementById("tseCompCandInfoBadge");
+      if (!container || !ct) return;
+
+      const cc = ct.comparativo_candidatos || {};
+      const temBu1T = Boolean(cc.tem_bu_1_turno);
+      const escopoKey = window.currentTsePrefixoAtivo || `${window.arvoreTseState?.municipio || 'PR'}-${window.arvoreTseState?.zona || 'Z'}`;
+      const manualMap = window.manualVotos1TurnoCache[escopoKey] || {};
+
+      const compT1Ref = Number(ct.comparecimento_t1 || 0);
+      const compT2Ref = Number(ct.comparecimento_t2 || 0);
+      const aptosRef = Number(ct.eleitores_aptos_comparados || 0);
+
+      if (badge) {
+        badge.innerHTML = temBu1T
+          ? `<span class="text-emerald-400 font-bold">✅ ${cc.urnas_pareadas_bu_1t} BU(s)/RDV(s) do 1º Turno pareados automaticamente</span>`
+          : `<span class="text-indigo-300">💡 Digite abaixo os votos do 1ºT (ou suba o BU do 1ºT) para simular a transferência 1ºT → 2ºT</span>`;
+      }
+
+      const cands = cc.candidatos || [];
+      let somaCand1T = 0;
+      let somaCand2T = 0;
+
+      const linhasCands = cands.map(c => {
+        const keyInput = `cand_${c.numero}`;
+        const v1 = temBu1T ? Number(c.votos_t1 || 0) : Number(manualMap[keyInput] ?? c.votos_t1 ?? 0);
+        const v2 = Number(c.votos_t2 || 0);
+        somaCand1T += v1;
+        somaCand2T += v2;
+        return { ...c, keyInput, v1, v2 };
+      });
+
+      const vOutros1T = temBu1T ? 0 : Number(manualMap["outros_1t"] ?? 0);
+      const br1 = temBu1T ? Number(cc.brancos_t1 || 0) : Number(manualMap["brancos_1t"] ?? cc.brancos_t1 ?? 0);
+      const br2 = Number(cc.brancos_t2 || 0);
+      const nu1 = temBu1T ? Number(cc.nulos_t1 || 0) : Number(manualMap["nulos_1t"] ?? cc.nulos_t1 ?? 0);
+      const nu2 = Number(cc.nulos_t2 || 0);
+
+      const totalValidos1T = Math.max(1, somaCand1T + vOutros1T);
+      const totalValidos2T = Math.max(1, somaCand2T);
+
+      const fmtDelta = (d, p) => {
+        if (d === 0) return `<span class="text-slate-400">0 (0%)</span>`;
+        const sign = d > 0 ? "+" : "";
+        const cls = d > 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold";
+        const pctTxt = p !== null && isFinite(p) ? ` (${sign}${p.toFixed(1)}%)` : "";
+        return `<span class="${cls}">${sign}${d.toLocaleString("pt-BR")}${pctTxt}</span>`;
+      };
+
+      let rowsHtml = linhasCands.map(c => {
+        const p1 = (somaCand1T + vOutros1T) > 0 ? ((c.v1 / totalValidos1T) * 100).toFixed(2) + "%" : "-";
+        const p2 = somaCand2T > 0 ? ((c.v2 / totalValidos2T) * 100).toFixed(2) + "%" : "0.00%";
+        const dv = c.v2 - c.v1;
+        const dp = c.v1 > 0 ? ((dv / c.v1) * 100) : null;
+        const col1Html = temBu1T
+          ? `<span class="font-bold text-indigo-300">${c.v1.toLocaleString("pt-BR")}</span>`
+          : `<input type="number" min="0" value="${c.v1 || ''}" placeholder="Votos 1ºT"
+               onchange="atualizarVotoManual1Turno('${c.keyInput}', this.value)"
+               class="w-24 bg-slate-900 border border-indigo-500/50 focus:border-cyan-400 rounded px-2 py-0.5 text-xs text-indigo-200 font-bold mono outline-none" />`;
+
+        return `
+          <tr class="hover:bg-slate-900/60">
+            <td class="py-2 font-extrabold text-white">
+              <span class="px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 text-[10px] mr-1">Nº ${c.numero}</span>
+              ${c.nome}
+            </td>
+            <td class="py-2">${col1Html}</td>
+            <td class="py-2 text-indigo-300">${p1}</td>
+            <td class="py-2 font-extrabold text-amber-300">${c.v2.toLocaleString("pt-BR")}</td>
+            <td class="py-2 font-bold text-emerald-400">${p2}</td>
+            <td class="py-2 text-right">${c.v1 > 0 || temBu1T ? fmtDelta(dv, dp) : `<span class="text-slate-500 text-[10px]">Informe 1ºT</span>`}</td>
+          </tr>
+        `;
+      }).join("");
+
+      if (!temBu1T) {
+        const pOut1 = (somaCand1T + vOutros1T) > 0 ? ((vOutros1T / totalValidos1T) * 100).toFixed(2) + "%" : "-";
+        rowsHtml += `
+          <tr class="hover:bg-slate-900/60">
+            <td class="py-1.5 text-slate-300">Outros Candidatos (3ª Via no 1º Turno)</td>
+            <td class="py-1.5">
+              <input type="number" min="0" value="${vOutros1T || ''}" placeholder="Outros 1ºT"
+                onchange="atualizarVotoManual1Turno('outros_1t', this.value)"
+                class="w-24 bg-slate-900 border border-slate-700 focus:border-cyan-400 rounded px-2 py-0.5 text-xs text-slate-200 mono outline-none" />
+            </td>
+            <td class="py-1.5 text-indigo-300">${pOut1}</td>
+            <td class="py-1.5 text-slate-500">0</td>
+            <td class="py-1.5 text-slate-500">0.00%</td>
+            <td class="py-1.5 text-right">${vOutros1T > 0 ? fmtDelta(-vOutros1T, -100) : `<span class="text-slate-500 text-[10px]">-</span>`}</td>
+          </tr>
+        `;
+      }
+
+      // Brancos e Nulos
+      const colBr1 = temBu1T
+        ? `<span class="text-indigo-300 font-bold">${br1.toLocaleString("pt-BR")}</span>`
+        : `<input type="number" min="0" value="${br1 || ''}" placeholder="Brancos 1ºT"
+             onchange="atualizarVotoManual1Turno('brancos_1t', this.value)"
+             class="w-24 bg-slate-900 border border-slate-700 focus:border-cyan-400 rounded px-2 py-0.5 text-xs text-slate-200 mono outline-none" />`;
+      const colNu1 = temBu1T
+        ? `<span class="text-indigo-300 font-bold">${nu1.toLocaleString("pt-BR")}</span>`
+        : `<input type="number" min="0" value="${nu1 || ''}" placeholder="Nulos 1ºT"
+             onchange="atualizarVotoManual1Turno('nulos_1t', this.value)"
+             class="w-24 bg-slate-900 border border-slate-700 focus:border-cyan-400 rounded px-2 py-0.5 text-xs text-slate-200 mono outline-none" />`;
+
+      rowsHtml += `
+        <tr class="border-t border-slate-800/80 text-slate-300">
+          <td class="py-1.5">⬜ Votos em Branco</td>
+          <td class="py-1.5">${colBr1}</td>
+          <td class="py-1.5 text-slate-500">-</td>
+          <td class="py-1.5 font-bold text-slate-200">${br2.toLocaleString("pt-BR")}</td>
+          <td class="py-1.5 text-slate-500">-</td>
+          <td class="py-1.5 text-right">${(br1 > 0 || temBu1T) ? fmtDelta(br2 - br1, br1 > 0 ? ((br2 - br1) / br1) * 100 : null) : "-"}</td>
+        </tr>
+        <tr class="text-slate-300">
+          <td class="py-1.5">🚫 Votos Nulos</td>
+          <td class="py-1.5">${colNu1}</td>
+          <td class="py-1.5 text-slate-500">-</td>
+          <td class="py-1.5 font-bold text-slate-200">${nu2.toLocaleString("pt-BR")}</td>
+          <td class="py-1.5 text-slate-500">-</td>
+          <td class="py-1.5 text-right">${(nu1 > 0 || temBu1T) ? fmtDelta(nu2 - nu1, nu1 > 0 ? ((nu2 - nu1) / nu1) * 100 : null) : "-"}</td>
+        </tr>
+        <tr class="border-t-2 border-slate-700 bg-slate-900/90 font-extrabold text-white">
+          <td class="py-2">✅ Comparecimento Total Auditado no Log/BU</td>
+          <td class="py-2 text-indigo-300">${compT1Ref.toLocaleString("pt-BR")}</td>
+          <td class="py-2 text-indigo-300">${ct.pct_comparecimento_t1}%</td>
+          <td class="py-2 text-cyan-300">${compT2Ref.toLocaleString("pt-BR")}</td>
+          <td class="py-2 text-cyan-300">${ct.pct_comparecimento_t2}%</td>
+          <td class="py-2 text-right">${fmtDelta(ct.delta_comparecimento, ct.delta_comparecimento_pct)}</td>
+        </tr>
+        <tr class="bg-slate-900/50 text-slate-300">
+          <td class="py-1.5">🚶 Eleitores Faltosos / Abstenção (Aptos: ${aptosRef.toLocaleString("pt-BR")})</td>
+          <td class="py-1.5 text-indigo-300 font-bold">${(ct.faltosos_t1 || 0).toLocaleString("pt-BR")}</td>
+          <td class="py-1.5 text-indigo-300">${ct.pct_abstencao_t1}%</td>
+          <td class="py-1.5 text-amber-300 font-bold">${(ct.faltosos_t2 || 0).toLocaleString("pt-BR")}</td>
+          <td class="py-1.5 text-amber-300">${ct.pct_abstencao_t2}%</td>
+          <td class="py-1.5 text-right">${fmtDelta(ct.delta_faltosos, ct.delta_faltosos_pct)}</td>
+        </tr>
+      `;
+
+      const somaDigitada1T = somaCand1T + vOutros1T + br1 + nu1;
+      const avisoBatimento1T = (!temBu1T && somaDigitada1T > 0 && compT1Ref > 0)
+        ? `<div class="mt-2 px-3 py-1.5 rounded bg-slate-900 border ${somaDigitada1T === compT1Ref ? 'border-emerald-500/50 text-emerald-300' : 'border-amber-500/50 text-amber-300'} text-[11px] mono">
+             Soma informada p/ 1º Turno: <strong>${somaDigitada1T.toLocaleString("pt-BR")} votos</strong> vs Comparecimento Real no <code>logd.dat</code> (04/10/2026): <strong>${compT1Ref.toLocaleString("pt-BR")} votos</strong>
+             ${somaDigitada1T === compT1Ref ? "✅ (Batimento 100% Exato!)" : `(Diferença: ${somaDigitada1T - compT1Ref} votos)`}
+           </div>`
+        : "";
+
+      container.innerHTML = `
+        <table class="w-full text-left text-xs mono">
+          <thead class="text-slate-400 border-b border-slate-800">
+            <tr>
+              <th class="py-1.5">Candidato / Totalizador</th>
+              <th class="py-1.5 text-indigo-300">Votos 1ºT (${ct.data_1_turno})</th>
+              <th class="py-1.5 text-indigo-300">% 1ºT</th>
+              <th class="py-1.5 text-amber-300">Votos 2ºT (${ct.data_2_turno})</th>
+              <th class="py-1.5 text-emerald-400">% 2ºT</th>
+              <th class="py-1.5 text-right">Variação (2ºT - 1ºT)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-800/60">${rowsHtml}</tbody>
+        </table>
+        ${avisoBatimento1T}
+      `;
+    }
+
+    function renderizarPainelComparativoTurnosTse(ct, escopoTitulo) {
+      const box = document.getElementById("tseComparativoTurnosBox");
+      if (!box) return;
+      window.lastComparativoTurnosData = ct;
+
+      const titleEl = document.getElementById("tseComparativoTurnosTitle");
+      if (titleEl) {
+        titleEl.innerHTML = `⚖️ Comparativo Forense: 1º Turno (${ct?.data_1_turno || '04/10/2026'}) × 2º Turno (${ct?.data_2_turno || '25/10/2026'}) — <span class="text-cyan-300">${escopoTitulo || ''}</span>`;
+      }
+
+      const statusBadge = document.getElementById("tseComparativoStatusBadge");
+      if (!ct || !ct.disponivel) {
+        if (statusBadge) {
+          statusBadge.textContent = "⚡ Suba ou vincule o arquivo -log.jez para liberar o comparativo 1ºT × 2ºT";
+        }
+        document.getElementById("tseComparativoKpisGrid").innerHTML = `
+          <div class="col-span-6 bg-slate-950 border border-amber-500/40 rounded-xl p-4 text-xs mono flex flex-wrap items-center justify-between gap-3">
+            <div class="space-y-1">
+              <div class="text-amber-300 font-bold">⚡ Como liberar o Comparativo Completo 1º Turno (04/10/2026) × 2º Turno (25/10/2026) neste escopo?</div>
+              <div class="text-slate-300">O arquivo <code>-log.jez</code> (Mídia Interna da Urna) guarda simultaneamente todos os eleitores, tempos de cabine, biometria e vazão horária do <strong>1º Turno (04/10/2026)</strong> e do <strong>2º Turno (25/10/2026)</strong>. Abra uma urna individual ou vincule a pasta local do PR para carregar o <code>-log.jez</code>!</div>
+            </div>
+            <div class="flex gap-2">
+              <button onclick="vincularPastaLocalTseShowDirectoryPicker(true)" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition">
+                🔗 Vincular Pasta Local PR
+              </button>
+              <button onclick="selecionarArquivoJezManualDaUrna(window.currentTsePrefixoAtivo || '')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition">
+                📂 Enviar .jez / BU 1ºT
+              </button>
+            </div>
+          </div>
+        `;
+        renderizarTabelaCandidatosComparativoTse(ct || {
+          data_1_turno: "04/10/2026",
+          data_2_turno: "25/10/2026",
+          comparecimento_t1: 0,
+          comparecimento_t2: 0,
+          pct_comparecimento_t1: 0,
+          pct_comparecimento_t2: 0,
+          delta_comparecimento: 0,
+          delta_comparecimento_pct: 0,
+          faltosos_t1: 0,
+          faltosos_t2: 0,
+          pct_abstencao_t1: 0,
+          pct_abstencao_t2: 0,
+          delta_faltosos: 0,
+          delta_faltosos_pct: 0,
+          comparativo_candidatos: ct?.comparativo_candidatos || { candidatos: [] }
+        });
+        document.getElementById("tseCompMetricasTableBody").innerHTML = `<tr><td colspan="4" class="py-3 text-slate-500">Aguardando leitura de arquivo <code>-log.jez</code> para exibir os tempos e logs do 1º e 2º turnos.</td></tr>`;
+        document.getElementById("tseCompHourlyBars").innerHTML = `<div class="text-slate-500 text-xs">Carregue o <code>-log.jez</code> para comparar a vazão horária 08h–16h entre o 1º Turno e o 2º Turno.</div>`;
+        document.getElementById("tseCompOperationalSummaryBox").innerHTML = "";
+        return;
+      }
+
+      if (statusBadge) {
+        statusBadge.textContent = `✅ ${ct.urnas_com_comparativo_log} Urna(s) c/ Histórico Completo 1ºT (${ct.data_1_turno}) e 2ºT (${ct.data_2_turno})`;
+      }
+
+      const dComp = ct.delta_comparecimento || 0;
+      const dFalt = ct.delta_faltosos || 0;
+      const dCab = ct.delta_tempo_cabine_s || 0;
+      const dCic = ct.delta_tempo_ciclo_s || 0;
+      const dBio = ct.delta_hab_biometrica || 0;
+      const dTec = ct.delta_teclas_indevidas || 0;
+
+      // 6 KPI Cards Comparativos
+      document.getElementById("tseComparativoKpisGrid").innerHTML = `
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+          <div class="text-[10px] text-slate-400 font-bold">1. COMPARECIMENTO (1ºT × 2ºT)</div>
+          <div class="flex items-baseline justify-between">
+            <span class="text-indigo-300 font-bold">1ºT: ${ct.comparecimento_t1.toLocaleString("pt-BR")}</span>
+            <span class="text-cyan-300 font-extrabold text-sm">2ºT: ${ct.comparecimento_t2.toLocaleString("pt-BR")}</span>
+          </div>
+          <div class="text-[10px] ${dComp >= 0 ? 'text-emerald-400' : 'text-amber-300'} font-bold">
+            Δ ${dComp >= 0 ? '+' + dComp.toLocaleString("pt-BR") : dComp.toLocaleString("pt-BR")} eleitores (${dComp >= 0 ? '+' : ''}${ct.delta_comparecimento_pct}%)
+          </div>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+          <div class="text-[10px] text-slate-400 font-bold">2. ABSTENÇÃO / FALTOSOS</div>
+          <div class="flex items-baseline justify-between">
+            <span class="text-indigo-300 font-bold">1ºT: ${ct.faltosos_t1.toLocaleString("pt-BR")}</span>
+            <span class="text-amber-300 font-extrabold text-sm">2ºT: ${ct.faltosos_t2.toLocaleString("pt-BR")}</span>
+          </div>
+          <div class="text-[10px] ${dFalt <= 0 ? 'text-emerald-400' : 'text-rose-400'} font-bold">
+            Δ ${dFalt >= 0 ? '+' + dFalt.toLocaleString("pt-BR") : dFalt.toLocaleString("pt-BR")} faltosos (${dFalt >= 0 ? '+' : ''}${ct.delta_faltosos_pct}%)
+          </div>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+          <div class="text-[10px] text-slate-400 font-bold">3. TEMPO MÉDIO DE CABINE</div>
+          <div class="flex items-baseline justify-between">
+            <span class="text-indigo-300 font-bold">1ºT: ${ct.tempo_medio_cabine_t1_s}s</span>
+            <span class="text-emerald-400 font-extrabold text-sm">2ºT: ${ct.tempo_medio_cabine_t2_s}s</span>
+          </div>
+          <div class="text-[10px] text-cyan-300 font-bold">
+            Δ ${dCab >= 0 ? '+' + dCab : dCab}s (${ct.delta_tempo_cabine_pct}% • 5 vs 1 cargo)
+          </div>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+          <div class="text-[10px] text-slate-400 font-bold">4. CICLO TOTAL (MESA+CABINE)</div>
+          <div class="flex items-baseline justify-between">
+            <span class="text-indigo-300 font-bold">1ºT: ${ct.tempo_medio_ciclo_t1_s}s</span>
+            <span class="text-emerald-400 font-extrabold text-sm">2ºT: ${ct.tempo_medio_ciclo_t2_s}s</span>
+          </div>
+          <div class="text-[10px] text-cyan-300 font-bold">
+            Δ ${dCic >= 0 ? '+' + dCic : dCic}s (${ct.delta_tempo_ciclo_pct}% • Mesa: ${ct.tempo_medio_mesa_t1_s}s→${ct.tempo_medio_mesa_t2_s}s)
+          </div>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+          <div class="text-[10px] text-slate-400 font-bold">5. HABILITAÇÃO BIOMÉTRICA</div>
+          <div class="flex items-baseline justify-between">
+            <span class="text-indigo-300 font-bold">1ºT: ${ct.hab_biometrica_t1.toLocaleString("pt-BR")}</span>
+            <span class="text-cyan-300 font-extrabold text-sm">2ºT: ${ct.hab_biometrica_t2.toLocaleString("pt-BR")}</span>
+          </div>
+          <div class="text-[10px] text-slate-300">
+            Δ Bio: <strong>${dBio >= 0 ? '+' + dBio : dBio}</strong> | Biog: ${ct.hab_biografica_t1}→${ct.hab_biografica_t2}
+          </div>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+          <div class="text-[10px] text-slate-400 font-bold">6. TECLAS INDEVIDAS & LOGS</div>
+          <div class="flex items-baseline justify-between">
+            <span class="text-indigo-300 font-bold">1ºT: ${ct.teclas_indevidas_t1.toLocaleString("pt-BR")}</span>
+            <span class="text-amber-300 font-extrabold text-sm">2ºT: ${ct.teclas_indevidas_t2.toLocaleString("pt-BR")}</span>
+          </div>
+          <div class="text-[10px] text-emerald-400 font-bold">
+            Δ ${dTec >= 0 ? '+' + dTec : dTec} teclas | Tít. Inv: ${ct.id_invalido_t1}→${ct.id_invalido_t2}
+          </div>
+        </div>
+      `;
+
+      // Sub-bloco 1: Tabela de Candidatos + Brancos + Nulos + Faltosos (1ºT x 2ºT)
+      renderizarTabelaCandidatosComparativoTse(ct);
+
+      // Sub-bloco 2: Tabela de Métricas Operacionais, Biometria e Tempos (1ºT x 2ºT)
+      const fmtVar = (val, unit = "") => {
+        if (val === 0) return `<span class="text-slate-400">0${unit}</span>`;
+        const sign = val > 0 ? "+" : "";
+        return `<span class="${val > 0 ? 'text-cyan-300' : 'text-emerald-400'} font-bold">${sign}${val.toLocaleString("pt-BR")}${unit}</span>`;
+      };
+
+      const linhasMetricas = [
+        {
+          label: "Cargos Confirmados na Cabine",
+          v1: `${(ct.cargos_votados_t1 || []).length} cargos (${(ct.cargos_votados_t1 || []).join(", ")})`,
+          v2: `${(ct.cargos_votados_t2 || []).length} cargo (${(ct.cargos_votados_t2 || []).join(", ")})`,
+          delta: `<span class="text-amber-300 font-bold">-4 cargos no 2ºT</span>`
+        },
+        {
+          label: "Habilitações Biométricas AFIS (Digital OK)",
+          v1: ct.hab_biometrica_t1.toLocaleString("pt-BR"),
+          v2: ct.hab_biometrica_t2.toLocaleString("pt-BR"),
+          delta: fmtVar(ct.delta_hab_biometrica, " eleitores")
+        },
+        {
+          label: "Habilitações Biográficas (4 falhas de digital + Ano Nasc.)",
+          v1: ct.hab_biografica_t1.toLocaleString("pt-BR"),
+          v2: ct.hab_biografica_t2.toLocaleString("pt-BR"),
+          delta: fmtVar(ct.delta_hab_biografica, " eleitores")
+        },
+        {
+          label: "Habilitações Sem Biometria (Liberado c/ Digital do Mesário)",
+          v1: ct.hab_sem_bio_t1.toLocaleString("pt-BR"),
+          v2: ct.hab_sem_bio_t2.toLocaleString("pt-BR"),
+          delta: fmtVar(ct.delta_hab_sem_bio, " eleitores")
+        },
+        {
+          label: "Tempo Médio de Mesa + Leitura Biométrica",
+          v1: `${ct.tempo_medio_mesa_t1_s}s`,
+          v2: `${ct.tempo_medio_mesa_t2_s}s`,
+          delta: fmtVar(ct.delta_tempo_mesa_s, "s")
+        },
+        {
+          label: "Tempo Médio de Votação na Cabine",
+          v1: `${ct.tempo_medio_cabine_t1_s}s (5 cargos)`,
+          v2: `${ct.tempo_medio_cabine_t2_s}s (1 cargo)`,
+          delta: `<span class="text-emerald-400 font-extrabold">${ct.delta_tempo_cabine_s}s (${ct.delta_tempo_cabine_pct}%)</span>`
+        },
+        {
+          label: "Tempo Médio de Ciclo Completo por Eleitor",
+          v1: `${ct.tempo_medio_ciclo_t1_s}s`,
+          v2: `${ct.tempo_medio_ciclo_t2_s}s`,
+          delta: `<span class="text-emerald-400 font-extrabold">${ct.delta_tempo_ciclo_s}s (${ct.delta_tempo_ciclo_pct}%)</span>`
+        },
+        {
+          label: "Menor Tempo de Cabine / Maior Tempo de Ciclo",
+          v1: `Mín: ${ct.tempo_minimo_cabine_t1_s}s / Máx: ${ct.tempo_maximo_ciclo_t1_s}s`,
+          v2: `Mín: ${ct.tempo_minimo_cabine_t2_s}s / Máx: ${ct.tempo_maximo_ciclo_t2_s}s`,
+          delta: `<span class="text-slate-400">Extremos Reais</span>`
+        },
+        {
+          label: "Teclas Indevidas Pressionadas pelo Eleitor na Cabine",
+          v1: ct.teclas_indevidas_t1.toLocaleString("pt-BR"),
+          v2: ct.teclas_indevidas_t2.toLocaleString("pt-BR"),
+          delta: fmtVar(ct.delta_teclas_indevidas, " teclas")
+        },
+        {
+          label: "Títulos de Eleitor Inválidos Digitados no Terminal do Mesário",
+          v1: ct.id_invalido_t1.toLocaleString("pt-BR"),
+          v2: ct.id_invalido_t2.toLocaleString("pt-BR"),
+          delta: fmtVar(ct.delta_id_invalido, " alertas")
+        },
+        {
+          label: "Volume de Eventos Auditados no logd.dat (Assinados c/ MAC)",
+          v1: `${ct.linhas_log_t1.toLocaleString("pt-BR")} linhas`,
+          v2: `${ct.linhas_log_t2.toLocaleString("pt-BR")} linhas`,
+          delta: fmtVar(ct.delta_linhas_log, " linhas")
+        }
+      ];
+
+      document.getElementById("tseCompMetricasTableBody").innerHTML = linhasMetricas.map(m => `
+        <tr class="hover:bg-slate-900/50">
+          <td class="py-1.5 font-semibold text-slate-200">${m.label}</td>
+          <td class="py-1.5 text-indigo-300 font-bold">${m.v1}</td>
+          <td class="py-1.5 text-cyan-300 font-bold">${m.v2}</td>
+          <td class="py-1.5 text-right">${m.delta}</td>
+        </tr>
+      `).join("");
+
+      // Coluna Direita: Gráfico Duplo de Vazão Horária (08h..16h)
+      const vphComp = ct.votos_por_hora_comparado || [];
+      const maxVph = Math.max(
+        ...vphComp.map(h => Math.max(h.votos_1_turno || 0, h.votos_2_turno || 0)),
+        1
+      );
+
+      document.getElementById("tseCompHourlyBars").innerHTML = vphComp.map(h => {
+        const w1 = Math.round(((h.votos_1_turno || 0) / maxVph) * 100);
+        const w2 = Math.round(((h.votos_2_turno || 0) / maxVph) * 100);
+        const diff = h.diferenca || 0;
+        const diffBadge = diff === 0
+          ? `<span class="text-slate-400">0</span>`
+          : `<span class="${diff > 0 ? 'text-cyan-300' : 'text-indigo-300'} font-bold">${diff > 0 ? '+' + diff : diff}</span>`;
+
+        return `
+          <div class="bg-slate-900/70 border border-slate-800/80 rounded-lg p-2 space-y-1">
+            <div class="flex items-center justify-between text-[11px]">
+              <span class="font-extrabold text-white">${h.hora}</span>
+              <div class="flex items-center gap-3">
+                <span class="text-indigo-300">1ºT: <strong>${h.votos_1_turno.toLocaleString("pt-BR")}v</strong></span>
+                <span class="text-cyan-300">2ºT: <strong>${h.votos_2_turno.toLocaleString("pt-BR")}v</strong></span>
+                <span>Δ ${diffBadge}</span>
+              </div>
+            </div>
+            <div class="space-y-1">
+              <div class="w-full bg-slate-950 rounded h-2.5 overflow-hidden border border-slate-800/80" title="1º Turno (${h.hora}): ${h.votos_1_turno} votos">
+                <div style="width: ${w1}%" class="bg-indigo-500 h-full"></div>
+              </div>
+              <div class="w-full bg-slate-950 rounded h-2.5 overflow-hidden border border-slate-800/80" title="2º Turno (${h.hora}): ${h.votos_2_turno} votos">
+                <div style="width: ${w2}%" class="bg-cyan-400 h-full"></div>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      const boxOp = document.getElementById("tseCompOperationalSummaryBox");
+      if (ct.hora_zeresima_t1 || ct.hora_encerramento_t1 || ct.hora_encerramento_t2) {
+        boxOp.innerHTML = `
+          <div class="font-bold text-indigo-300 mb-1">🔐 Rastreabilidade de Abertura, Mesários e Encerramento (1ºT × 2ºT):</div>
+          <div>• <strong>Emissão da Zerésima:</strong> 1ºT às <span class="text-indigo-300">${ct.hora_zeresima_t1 || '-'}</span> | 2ºT às <span class="text-cyan-300">${ct.hora_zeresima_t2 || '-'}</span></div>
+          <div>• <strong>Pronta p/ Receber Votos:</strong> 1ºT às <span class="text-indigo-300">${ct.hora_pronta_votos_t1 || '-'}</span> | 2ºT às <span class="text-cyan-300">${ct.hora_pronta_votos_t2 || '-'}</span></div>
+          <div>• <strong>Encerramento Confirmado:</strong> 1ºT às <span class="text-indigo-300">${ct.hora_encerramento_t1 || '-'}</span> (Tít: ${ct.titulo_encerramento_t1 || '-'}) | 2ºT às <span class="text-cyan-300">${ct.hora_encerramento_t2 || '-'}</span> (Tít: ${ct.titulo_encerramento_t2 || '-'})</div>
+          <div>• <strong>Mesários Registrados (1ºT):</strong> <span class="text-slate-200">${(ct.mesarios_registrados_t1 || []).join(", ") || "-"}</span></div>
+          <div>• <strong>Mesários Registrados (2ºT):</strong> <span class="text-slate-200">${(ct.mesarios_registrados_t2 || []).join(", ") || "-"}</span></div>
+        `;
+      } else {
+        boxOp.innerHTML = `
+          <div class="font-bold text-indigo-300">💡 Análise Forense de Cadência Horária (1ºT × 2ºT):</div>
+          <div>No <strong>1º Turno (5 cargos)</strong>, o tempo médio de cabine foi de <strong>${ct.tempo_medio_cabine_t1_s}s</strong>, mantendo fluxo constante o dia todo. No <strong>2º Turno (1 cargo)</strong>, o tempo de cabine caiu para <strong>${ct.tempo_medio_cabine_t2_s}s (${ct.delta_tempo_cabine_pct}%)</strong>, eliminando filas e concentrando a votação pela manhã (08h–11h).</div>
+        `;
+      }
     }
 
     function filtrarHoraTse(horaKey) {
@@ -3535,10 +4141,12 @@ o Boletim de Urna (apos encerramento da votacao).
 
       playBeepKey();
       document.getElementById("voterDetailModal").classList.remove("hidden");
+      const turnoLabel = window.currentTseTurnoGrafico === 1 ? "1º Turno" : "2º Turno";
+      const cargosStr = (item.cargos || []).join(", ") || "Presidente";
       document.getElementById("modalVoterTitle").textContent =
-        `Eleitor #${item.seq} — Voto Computado às ${item.hora_computado}`;
+        `[${turnoLabel}] Eleitor #${item.seq} — Voto Computado às ${item.hora_computado} (${item.data_eleicao || '25/10/2026'})`;
       document.getElementById("modalVoterSubtitle").textContent =
-        `Data: ${item.data_eleicao || '25/10/2026'} | Faixa Horária: ${item.faixa_horaria || '-'} | Início Atendimento: ${item.hora_inicio} → Habilitação: ${item.hora_habilitacao} → Voto: ${item.hora_computado}`;
+        `Cargos Votados (${(item.cargos || []).length || 1}): ${cargosStr} | Faixa: ${item.faixa_horaria || '-'} | Início: ${item.hora_inicio} → Habilitação: ${item.hora_habilitacao} → Voto: ${item.hora_computado}`;
 
       document.getElementById("modalDocHab").textContent = `${item.documento} / ${item.tipo_habilitacao}`;
       document.getElementById("modalTentBio").textContent = `${item.tentativas_digital} de 4 tentativa(s)`;

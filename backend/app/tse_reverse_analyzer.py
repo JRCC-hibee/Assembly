@@ -228,6 +228,11 @@ def decodificar_rdv_asn1_der(rdv_bytes: bytes) -> dict:
     contagem_legendas = Counter()
     resumo_por_cargo = []
 
+    idx_bloco_principal = next(
+        (i for i, b in enumerate(blocos_cargo_detectados) if b["codigo_cargo"] == 1 and b["tipo_container"] == "CARGO_CONSTITUCIONAL"),
+        0,
+    )
+
     for idx_bloco, bloco in enumerate(blocos_cargo_detectados):
         c_tipo = Counter()
         c_nom = Counter()
@@ -245,8 +250,8 @@ def decodificar_rdv_asn1_der(rdv_bytes: bytes) -> dict:
                 if seq_len == 3 and tipo_code in (1, 2, 3, 4, 5):
                     tipo_str = TIPO_VOTO_ASN1_MAP.get(tipo_code, f"TIPO_{tipo_code}")
                     c_tipo[tipo_str] += 1
-                    # Contabiliza no placar principal o 1º cargo (Presidente) ou todos se houver apenas 1 cargo
-                    if idx_bloco == 0:
+                    # Contabiliza no placar principal o cargo de Presidente (ou o 1º cargo se Presidente não estiver presente)
+                    if idx_bloco == idx_bloco_principal:
                         votos_extraidos.append({
                             "ordem_embaralhada_rdv": len(votos_extraidos) + 1,
                             "cargo": bloco["nome_cargo"],
@@ -272,7 +277,7 @@ def decodificar_rdv_asn1_der(rdv_bytes: bytes) -> dict:
                             elif tipo_str == "LEGENDA":
                                 c_leg[dig_str] += 1
 
-                            if idx_bloco == 0:
+                            if idx_bloco == idx_bloco_principal:
                                 votos_extraidos.append({
                                     "ordem_embaralhada_rdv": len(votos_extraidos) + 1,
                                     "cargo": bloco["nome_cargo"],
@@ -391,32 +396,96 @@ def decodificar_imgbu_tse(imgbu_bytes: bytes) -> dict:
     data_abertura = _find_str(r"Data de abertura da UE\s+(\d{2}/\d{2}/\d{4})")
     horario_abertura = _find_str(r"Hor[áa]rio de abertura\s+(\d{2}:\d{2}:\d{2})")
     horario_fechamento = _find_str(r"Hor[áa]rio de fechamento\s+(\d{2}:\d{2}:\d{2})")
-    total_nominais = _find_int(r"Total de votos Nominais\s+(\d+)")
-    brancos = _find_int(r"Brancos\s+(\d+)")
-    nulos = _find_int(r"Nulos\s+(\d+)")
-    total_apurado = _find_int(r"Total Apurado\s+(\d+)")
 
-    candidatos_bu = []
+    turno_detectado = 2
+    if re.search(r"1[°ºo]\s*Turno", espelho_bu, re.IGNORECASE) or data_abertura.startswith("04/10") or data_abertura.startswith("02/10"):
+        turno_detectado = 1
+    elif re.search(r"2[°ºo]\s*Turno", espelho_bu, re.IGNORECASE) or data_abertura.startswith("25/10") or data_abertura.startswith("30/10"):
+        turno_detectado = 2
+
+    # Extrai blocos por cargo no BU (suporta 1º Turno com 5 cargos e 2º Turno com Presidente/Governador)
+    cargos_bu_map: dict[str, dict] = {}
+    cargo_atual = "GERAL"
     in_cand_block = False
     for line in clean_lines:
+        m_header_cargo = re.match(r"^\s*-{4,}\s*([A-ZÀ-ÚÇ\s]+?)\s*-{4,}\s*$", line)
+        if m_header_cargo:
+            hdr = m_header_cargo.group(1).strip().upper()
+            if hdr not in ("BU DIGITAL", "FIM"):
+                cargo_atual = hdr
+                cargos_bu_map.setdefault(cargo_atual, {
+                    "cargo": cargo_atual,
+                    "candidatos": [],
+                    "eleitores_aptos": eleitores_aptos,
+                    "total_nominais": 0,
+                    "brancos": 0,
+                    "nulos": 0,
+                    "total_apurado": 0,
+                })
+                in_cand_block = False
+            continue
+
         if "Nome do candidato" in line and "Votos" in line:
             in_cand_block = True
+            cargos_bu_map.setdefault(cargo_atual, {
+                "cargo": cargo_atual,
+                "candidatos": [],
+                "eleitores_aptos": eleitores_aptos,
+                "total_nominais": 0,
+                "brancos": 0,
+                "nulos": 0,
+                "total_apurado": 0,
+            })
             continue
+
         if in_cand_block:
-            if "----" in line or "Eleitores aptos" in line or "Total de votos" in line:
-                if candidatos_bu:
-                    break
             m_cand = re.match(r"^\s*([A-ZÀ-Ú0-9\s\.\-']+?)\s+(\d{2,5})\s+(\d{4})\s*$", line)
             if m_cand:
-                candidatos_bu.append({
+                cargos_bu_map[cargo_atual]["candidatos"].append({
                     "nome": m_cand.group(1).strip(),
                     "numero": m_cand.group(2),
                     "votos": int(m_cand.group(3)),
                 })
+                continue
+
+        if cargo_atual in cargos_bu_map:
+            m_nom = re.search(r"Total de votos Nominais\s+(\d+)", line, re.IGNORECASE)
+            if m_nom:
+                cargos_bu_map[cargo_atual]["total_nominais"] = int(m_nom.group(1))
+                in_cand_block = False
+            m_br = re.search(r"^\s*Brancos\s+(\d+)", line, re.IGNORECASE)
+            if m_br:
+                cargos_bu_map[cargo_atual]["brancos"] = int(m_br.group(1))
+            m_nu = re.search(r"^\s*Nulos\s+(\d+)", line, re.IGNORECASE)
+            if m_nu:
+                cargos_bu_map[cargo_atual]["nulos"] = int(m_nu.group(1))
+            m_ap = re.search(r"Total Apurado\s+(\d+)", line, re.IGNORECASE)
+            if m_ap:
+                cargos_bu_map[cargo_atual]["total_apurado"] = int(m_ap.group(1))
+
+    # Seleciona prioritariamente o bloco de PRESIDENTE (ou o primeiro bloco com candidatos)
+    bloco_principal = (
+        cargos_bu_map.get("PRESIDENTE")
+        or next((b for b in cargos_bu_map.values() if b["candidatos"]), None)
+    )
+
+    if bloco_principal:
+        candidatos_bu = bloco_principal["candidatos"]
+        total_nominais = bloco_principal["total_nominais"] or _find_int(r"Total de votos Nominais\s+(\d+)")
+        brancos = bloco_principal["brancos"] or _find_int(r"Brancos\s+(\d+)")
+        nulos = bloco_principal["nulos"] or _find_int(r"Nulos\s+(\d+)")
+        total_apurado = bloco_principal["total_apurado"] or _find_int(r"Total Apurado\s+(\d+)")
+    else:
+        candidatos_bu = []
+        total_nominais = _find_int(r"Total de votos Nominais\s+(\d+)")
+        brancos = _find_int(r"Brancos\s+(\d+)")
+        nulos = _find_int(r"Nulos\s+(\d+)")
+        total_apurado = _find_int(r"Total Apurado\s+(\d+)")
 
     return {
         "tamanho_bytes": len(imgbu_bytes),
         "sha256": sha256_hex,
+        "turno": turno_detectado,
         "municipio_codigo": municipio_cod,
         "municipio_nome": municipio_nome,
         "zona": zona,
@@ -437,7 +506,82 @@ def decodificar_imgbu_tse(imgbu_bytes: bytes) -> dict:
         "nulos": nulos,
         "total_apurado": total_apurado,
         "candidatos": candidatos_bu,
+        "cargos_bu": list(cargos_bu_map.values()),
         "espelho_bobina": espelho_bu[:15000],
+    }
+
+
+def _novo_estado_dia_log(data_str: str) -> dict:
+    return {
+        "data_eleicao": data_str,
+        "linhas_dia": 0,
+        "macs_validos_dia": 0,
+        "etapas_assinatura_sucesso": 0,
+        "urna_ligada_em": "",
+        "hora_zeresima": "",
+        "hora_pronta_votos": "",
+        "hora_encerramento": "",
+        "titulo_encerramento": "",
+        "mesarios_registrados": [],
+        "cargos_distintos": [],
+        "alertas_e_erros": [],
+        "ciclos_votacao": [],
+        "eventos_dia_votacao": [],
+        "hab_biometrica_log": 0,
+        "hab_biografica_log": 0,
+        "hab_sem_bio_log": 0,
+        "total_teclas_indevidas": 0,
+        "total_id_invalido": 0,
+        # Estado transitório do ciclo do eleitor atual
+        "t_aguardando": None,
+        "t_id_digitado": None,
+        "tipo_doc_digitado": "",
+        "tentativas_digital": 0,
+        "foi_habilitacao_biografica": False,
+        "t_habilitado": None,
+        "tipo_habilitacao": "",
+        "teclas_indevidas_ciclo": 0,
+        "cargos_confirmados": [],
+        "eventos_ciclo_atual": [],
+    }
+
+
+def _compilar_resumo_dia_log(est: dict) -> dict:
+    ciclos = est["ciclos_votacao"]
+    tempos_cabine = [c["tempo_cabine_s"] for c in ciclos]
+    tempos_mesa = [c["tempo_mesa_bio_s"] for c in ciclos]
+    tempos_totais = [c["tempo_ciclo_total_s"] for c in ciclos]
+
+    votos_por_hora = Counter()
+    for c in ciclos:
+        hh = c["hora_computado"][:2] + "h"
+        votos_por_hora[hh] += 1
+
+    return {
+        "data_eleicao": est["data_eleicao"],
+        "linhas_log_dia": est["linhas_dia"],
+        "macs_validos_dia": est["macs_validos_dia"],
+        "etapas_assinatura_ok": est["etapas_assinatura_sucesso"],
+        "hora_zeresima": est["hora_zeresima"],
+        "hora_pronta_votos": est["hora_pronta_votos"],
+        "hora_encerramento": est["hora_encerramento"],
+        "titulo_encerramento": est["titulo_encerramento"],
+        "mesarios_registrados": est["mesarios_registrados"],
+        "cargos_votados": est["cargos_distintos"],
+        "qtd_cargos_votados": len(est["cargos_distintos"]),
+        "total_votos_computados": len(ciclos),
+        "habilitacao_biometrica": est["hab_biometrica_log"],
+        "habilitacao_biografica": est["hab_biografica_log"],
+        "habilitacao_sem_biometria": est["hab_sem_bio_log"],
+        "total_teclas_indevidas": est["total_teclas_indevidas"],
+        "total_identificador_invalido": est["total_id_invalido"],
+        "qtd_alertas_dia": len(est["alertas_e_erros"]),
+        "tempo_medio_mesa_bio_s": round(sum(tempos_mesa) / max(len(tempos_mesa), 1), 1),
+        "tempo_medio_cabine_s": round(sum(tempos_cabine) / max(len(tempos_cabine), 1), 1),
+        "tempo_medio_ciclo_s": round(sum(tempos_totais) / max(len(tempos_totais), 1), 1),
+        "tempo_minimo_cabine_s": round(min(tempos_cabine), 1) if tempos_cabine else 0.0,
+        "tempo_maximo_ciclo_s": round(max(tempos_totais), 1) if tempos_totais else 0.0,
+        "votos_por_hora": dict(sorted(votos_por_hora.items())),
     }
 
 
@@ -445,8 +589,8 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
     """
     Descompacta o arquivo `-log.jez` do TSE em memória, extrai o `logd.dat` (ISO-8859-1).
     Como a Mídia da Urna (MI) acumula no mesmo `logd.dat` o 1º Turno (04/10/2026) e o 2º Turno (25/10/2026),
-    identifica automaticamente a data do último dia de votação (ou usa `data_alvo_filtro`) para reconstruir
-    com precisão cirúrgica todos os eleitores daquele turno e também exibir o resumo do 1º turno!
+    reconstrói simultaneamente em uma única passagem todos os ciclos de eleitores, tempos, biometria,
+    vazão horária e eventos operacionais TANTO do 1º Turno QUANTO do 2º Turno!
     """
     sha256_jez = hashlib.sha256(log_jez_bytes).hexdigest().upper()
 
@@ -469,6 +613,15 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
         key=lambda d: datetime.strptime(d, "%d/%m/%Y") if re.match(r"^\d{2}/\d{2}/\d{4}$", d) else datetime.min,
     )
     data_eleicao_principal = data_alvo_filtro or (datas_votacao_ordenadas[-1] if datas_votacao_ordenadas else "")
+    data_1_turno = datas_votacao_ordenadas[0] if len(datas_votacao_ordenadas) >= 2 else (
+        datas_votacao_ordenadas[0] if datas_votacao_ordenadas and datas_votacao_ordenadas[0].startswith(("04/10", "02/10", "06/10")) else ""
+    )
+    data_2_turno = datas_votacao_ordenadas[-1] if len(datas_votacao_ordenadas) >= 2 else (
+        datas_votacao_ordenadas[-1] if datas_votacao_ordenadas and datas_votacao_ordenadas[-1] != data_1_turno else data_eleicao_principal
+    )
+
+    datas_interesse = {d for d in (data_eleicao_principal, data_1_turno, data_2_turno) if d} | set(datas_votacao_ordenadas)
+    estados_por_data: dict[str, dict] = {d: _novo_estado_dia_log(d) for d in datas_interesse}
 
     metadados_urna = {
         "modelo_ue": "",
@@ -487,30 +640,8 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
 
     contagem_subsistemas = Counter()
     contagem_niveis = Counter()
-    etapas_assinatura_sucesso = 0
-    alertas_e_erros = []
-
-    ciclos_votacao = []
-    eventos_dia_votacao = []
-
-    t_aguardando = None
-    t_id_digitado = None
-    tipo_doc_digitado = ""
-    tentativas_digital = 0
-    foi_habilitacao_biografica = False
-    t_habilitado = None
-    tipo_habilitacao = ""
-    teclas_indevidas_ciclo = 0
-    cargos_confirmados = []
-    eventos_ciclo_atual = []
     macs_validos = 0
     macs_invalidos = 0
-
-    hab_biometrica_log = 0
-    hab_biografica_log = 0
-    hab_sem_bio_log = 0
-    total_teclas_indevidas = 0
-    total_id_invalido = 0
 
     for line_num, line in enumerate(lines, start=1):
         parts = line.split("\t")
@@ -519,6 +650,7 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
 
         ts_str = parts[0].strip()
         data_cur = ts_str[:10]
+        hora_cur = ts_str[11:19] if len(ts_str) >= 19 else ""
         nivel = parts[1].strip()
         serial_ue = parts[2].strip()
         subsistema = parts[3].strip()
@@ -528,7 +660,8 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
         contagem_subsistemas[subsistema] += 1
         contagem_niveis[nivel] += 1
 
-        if re.fullmatch(r"[0-9A-Fa-f]{16}", mac_hex):
+        mac_ok = bool(re.fullmatch(r"[0-9A-Fa-f]{16}", mac_hex))
+        if mac_ok:
             macs_validos += 1
         else:
             macs_invalidos += 1
@@ -554,12 +687,34 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
             metadados_urna["urna_ligada_em"] = msg
         elif "Detectada impressora com serial" in msg:
             metadados_urna["impressora_serial"] = msg.split("serial", 1)[1].strip()
-        elif "Verificação de assinatura - Etapa" in msg and "[SUCESSO]" in msg and (not data_eleicao_principal or data_cur == data_eleicao_principal):
-            etapas_assinatura_sucesso += 1
 
-        # Filtra eventos VOTA e alertas especificamente para a data da eleição analisada (ex: 25/10/2026)
-        if data_eleicao_principal and data_cur != data_eleicao_principal:
-            continue
+        if data_cur not in estados_por_data:
+            if not datas_interesse:
+                estados_por_data[data_cur] = _novo_estado_dia_log(data_cur)
+            else:
+                continue
+
+        est = estados_por_data[data_cur]
+        est["linhas_dia"] += 1
+        if mac_ok:
+            est["macs_validos_dia"] += 1
+
+        if "Urna ligada em" in msg:
+            est["urna_ligada_em"] = msg
+        elif "Verificação de assinatura - Etapa" in msg and "[SUCESSO]" in msg:
+            est["etapas_assinatura_sucesso"] += 1
+        elif "Gerando relatório [ZERÉSIMA] [TÉRMINO]" in msg and not est["hora_zeresima"]:
+            est["hora_zeresima"] = hora_cur
+        elif "Urna pronta para receber votos" in msg and not est["hora_pronta_votos"]:
+            est["hora_pronta_votos"] = hora_cur
+        elif "Procedimento de encerramento confirmado" in msg:
+            est["hora_encerramento"] = hora_cur
+        elif "Título digitado para encerramento:" in msg:
+            est["titulo_encerramento"] = msg.split(":", 1)[1].strip()
+        elif re.match(r"^Mesário\s+\d+\s+registrado$", msg):
+            m_mes = re.search(r"Mesário\s+(\d+)\s+registrado", msg)
+            if m_mes and m_mes.group(1) not in est["mesarios_registrados"]:
+                est["mesarios_registrados"].append(m_mes.group(1))
 
         try:
             dt = datetime.strptime(ts_str, "%d/%m/%Y %H:%M:%S")
@@ -567,7 +722,7 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
             dt = None
 
         if nivel not in ("INFO",):
-            alertas_e_erros.append({
+            est["alertas_e_erros"].append({
                 "linha": line_num,
                 "timestamp": ts_str,
                 "nivel": nivel,
@@ -577,8 +732,8 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
             })
 
         if subsistema == "VOTA" and dt:
-            if len(eventos_dia_votacao) < 400:
-                eventos_dia_votacao.append({
+            if len(est["eventos_dia_votacao"]) < 400:
+                est["eventos_dia_votacao"].append({
                     "linha": line_num,
                     "timestamp": ts_str,
                     "nivel": nivel,
@@ -587,16 +742,16 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                 })
 
             if "Aguardando digitação do identificador do eleitor" in msg:
-                t_aguardando = dt
-                t_id_digitado = None
-                tipo_doc_digitado = ""
-                tentativas_digital = 0
-                foi_habilitacao_biografica = False
-                t_habilitado = None
-                tipo_habilitacao = ""
-                teclas_indevidas_ciclo = 0
-                cargos_confirmados = []
-                eventos_ciclo_atual = [{
+                est["t_aguardando"] = dt
+                est["t_id_digitado"] = None
+                est["tipo_doc_digitado"] = ""
+                est["tentativas_digital"] = 0
+                est["foi_habilitacao_biografica"] = False
+                est["t_habilitado"] = None
+                est["tipo_habilitacao"] = ""
+                est["teclas_indevidas_ciclo"] = 0
+                est["cargos_confirmados"] = []
+                est["eventos_ciclo_atual"] = [{
                     "linha": line_num,
                     "hora": dt.strftime("%H:%M:%S"),
                     "nivel": nivel,
@@ -604,7 +759,7 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                     "mac": mac_hex,
                 }]
             else:
-                eventos_ciclo_atual.append({
+                est["eventos_ciclo_atual"].append({
                     "linha": line_num,
                     "hora": dt.strftime("%H:%M:%S"),
                     "nivel": nivel,
@@ -613,91 +768,157 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                 })
 
             if "Identificador do eleitor digitado pelo mesário" in msg:
-                t_id_digitado = dt
+                est["t_id_digitado"] = dt
 
             elif "Identificador digitado pelo mesário foi:" in msg:
                 if "CPF" in msg:
-                    tipo_doc_digitado = "CPF"
+                    est["tipo_doc_digitado"] = "CPF"
                 elif "Título" in msg:
-                    tipo_doc_digitado = "TITULO"
+                    est["tipo_doc_digitado"] = "TITULO"
                 else:
-                    tipo_doc_digitado = msg.split(":", 1)[1].strip()
+                    est["tipo_doc_digitado"] = msg.split(":", 1)[1].strip()
 
             elif "Identificador do eleitor digitado inválido" in msg:
-                total_id_invalido += 1
+                est["total_id_invalido"] += 1
 
             elif "Solicita digital. Tentativa" in msg:
-                tentativas_digital += 1
+                est["tentativas_digital"] += 1
 
             elif "Dado digitado confere" in msg and "Solicita digital do mesário" not in msg:
-                foi_habilitacao_biografica = True
+                est["foi_habilitacao_biografica"] = True
 
             elif "Tipo de habilitação do eleitor" in msg:
                 if "[biométrica]" in msg:
-                    tipo_habilitacao = "BIOMETRICA"
+                    est["tipo_habilitacao"] = "BIOMETRICA"
                 elif "[biográfica]" in msg:
-                    tipo_habilitacao = "BIOGRAFICA"
+                    est["tipo_habilitacao"] = "BIOGRAFICA"
                 else:
-                    tipo_habilitacao = "SEM_BIOMETRIA"
+                    est["tipo_habilitacao"] = "SEM_BIOMETRIA"
 
             elif "Eleitor foi habilitado" in msg:
-                t_habilitado = dt
-                if tipo_habilitacao == "BIOMETRICA":
-                    hab_biometrica_log += 1
-                elif foi_habilitacao_biografica or tipo_habilitacao == "BIOGRAFICA":
-                    tipo_habilitacao = "BIOGRAFICA"
-                    hab_biografica_log += 1
+                est["t_habilitado"] = dt
+                if est["tipo_habilitacao"] == "BIOMETRICA":
+                    est["hab_biometrica_log"] += 1
+                elif est["foi_habilitacao_biografica"] or est["tipo_habilitacao"] == "BIOGRAFICA":
+                    est["tipo_habilitacao"] = "BIOGRAFICA"
+                    est["hab_biografica_log"] += 1
                 else:
-                    tipo_habilitacao = "SEM_BIOMETRIA"
-                    hab_sem_bio_log += 1
+                    est["tipo_habilitacao"] = "SEM_BIOMETRIA"
+                    est["hab_sem_bio_log"] += 1
 
             elif "Tecla indevida pressionada" in msg:
-                teclas_indevidas_ciclo += 1
-                total_teclas_indevidas += 1
+                est["teclas_indevidas_ciclo"] += 1
+                est["total_teclas_indevidas"] += 1
 
             elif "Voto confirmado para" in msg:
                 m_cargo = re.search(r"\[(.*?)\]", msg)
                 if m_cargo:
-                    cargos_confirmados.append(m_cargo.group(1))
+                    nome_c = m_cargo.group(1)
+                    est["cargos_confirmados"].append(nome_c)
+                    if nome_c not in est["cargos_distintos"]:
+                        est["cargos_distintos"].append(nome_c)
 
             elif "O voto do eleitor foi computado" in msg:
                 t_computado = dt
-                inicio_ref = t_id_digitado or t_aguardando or t_habilitado or t_computado
-                hab_ref = t_habilitado or inicio_ref
+                inicio_ref = est["t_id_digitado"] or est["t_aguardando"] or est["t_habilitado"] or t_computado
+                hab_ref = est["t_habilitado"] or inicio_ref
 
                 tempo_mesa_bio_s = max(0.0, (hab_ref - inicio_ref).total_seconds())
                 tempo_cabine_s = max(0.0, (t_computado - hab_ref).total_seconds())
                 tempo_ciclo_total_s = tempo_mesa_bio_s + tempo_cabine_s
 
-                ciclos_votacao.append({
-                    "seq": len(ciclos_votacao) + 1,
+                est["ciclos_votacao"].append({
+                    "seq": len(est["ciclos_votacao"]) + 1,
                     "linha_log": line_num,
-                    "data_eleicao": data_eleicao_principal,
+                    "data_eleicao": data_cur,
                     "faixa_horaria": t_computado.strftime("%H") + "h",
-                    "hora_aguardando": t_aguardando.strftime("%H:%M:%S") if t_aguardando else inicio_ref.strftime("%H:%M:%S"),
+                    "hora_aguardando": est["t_aguardando"].strftime("%H:%M:%S") if est["t_aguardando"] else inicio_ref.strftime("%H:%M:%S"),
                     "hora_inicio": inicio_ref.strftime("%H:%M:%S"),
                     "hora_habilitacao": hab_ref.strftime("%H:%M:%S"),
                     "hora_computado": t_computado.strftime("%H:%M:%S"),
-                    "documento": tipo_doc_digitado or "TITULO",
-                    "tipo_habilitacao": tipo_habilitacao or "BIOMETRICA",
-                    "tentativas_digital": tentativas_digital,
-                    "teclas_indevidas": teclas_indevidas_ciclo,
-                    "cargos": cargos_confirmados,
+                    "documento": est["tipo_doc_digitado"] or "TITULO",
+                    "tipo_habilitacao": est["tipo_habilitacao"] or "BIOMETRICA",
+                    "tentativas_digital": est["tentativas_digital"],
+                    "teclas_indevidas": est["teclas_indevidas_ciclo"],
+                    "cargos": list(est["cargos_confirmados"]),
                     "tempo_mesa_bio_s": round(tempo_mesa_bio_s, 1),
                     "tempo_cabine_s": round(tempo_cabine_s, 1),
                     "tempo_ciclo_total_s": round(tempo_ciclo_total_s, 1),
                     "mac_voto": mac_hex,
-                    "eventos_detalhados": list(eventos_ciclo_atual),
+                    "eventos_detalhados": list(est["eventos_ciclo_atual"]),
                 })
 
-    tempos_cabine = [c["tempo_cabine_s"] for c in ciclos_votacao]
-    tempos_mesa = [c["tempo_mesa_bio_s"] for c in ciclos_votacao]
-    tempos_totais = [c["tempo_ciclo_total_s"] for c in ciclos_votacao]
+    est_principal = estados_por_data.get(data_eleicao_principal) or (
+        next(iter(estados_por_data.values())) if estados_por_data else _novo_estado_dia_log(data_eleicao_principal)
+    )
+    resumo_principal = _compilar_resumo_dia_log(est_principal)
 
-    votos_por_hora = Counter()
-    for c in ciclos_votacao:
-        hh = c["hora_computado"][:2] + "h"
-        votos_por_hora[hh] += 1
+    est_t1 = estados_por_data.get(data_1_turno) if data_1_turno else None
+    resumo_t1 = _compilar_resumo_dia_log(est_t1) if est_t1 else None
+
+    est_t2 = estados_por_data.get(data_2_turno) if data_2_turno else est_principal
+    resumo_t2 = _compilar_resumo_dia_log(est_t2) if est_t2 else resumo_principal
+
+    # Constrói comparativo detalhado 1º Turno vs 2º Turno diretamente do logd.dat
+    comparativo_turnos_log = None
+    if resumo_t1 and resumo_t2 and data_1_turno and data_2_turno and data_1_turno != data_2_turno:
+        v1 = resumo_t1["total_votos_computados"]
+        v2 = resumo_t2["total_votos_computados"]
+        dv = v2 - v1
+        dv_pct = round((dv / max(v1, 1)) * 100.0, 2)
+
+        cab1 = resumo_t1["tempo_medio_cabine_s"]
+        cab2 = resumo_t2["tempo_medio_cabine_s"]
+        dcab = round(cab2 - cab1, 1)
+        dcab_pct = round((dcab / max(cab1, 0.1)) * 100.0, 1) if cab1 > 0 else 0.0
+
+        cic1 = resumo_t1["tempo_medio_ciclo_s"]
+        cic2 = resumo_t2["tempo_medio_ciclo_s"]
+        dcic = round(cic2 - cic1, 1)
+        dcic_pct = round((dcic / max(cic1, 0.1)) * 100.0, 1) if cic1 > 0 else 0.0
+
+        mesa1 = resumo_t1["tempo_medio_mesa_bio_s"]
+        mesa2 = resumo_t2["tempo_medio_mesa_bio_s"]
+        dmesa = round(mesa2 - mesa1, 1)
+
+        faixas_horas = ["08h", "09h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h"]
+        vh1 = resumo_t1.get("votos_por_hora", {})
+        vh2 = resumo_t2.get("votos_por_hora", {})
+        votos_por_hora_comparado = []
+        for fh in faixas_horas:
+            q1 = vh1.get(fh, 0)
+            q2 = vh2.get(fh, 0)
+            if q1 > 0 or q2 > 0 or fh != "17h":
+                votos_por_hora_comparado.append({
+                    "hora": fh,
+                    "votos_1_turno": q1,
+                    "votos_2_turno": q2,
+                    "diferenca": q2 - q1,
+                })
+
+        comparativo_turnos_log = {
+            "disponivel": True,
+            "data_1_turno": data_1_turno,
+            "data_2_turno": data_2_turno,
+            "turno_1": resumo_t1,
+            "turno_2": resumo_t2,
+            "variacao": {
+                "delta_votos": dv,
+                "delta_votos_pct": dv_pct,
+                "delta_hab_biometrica": resumo_t2["habilitacao_biometrica"] - resumo_t1["habilitacao_biometrica"],
+                "delta_hab_biografica": resumo_t2["habilitacao_biografica"] - resumo_t1["habilitacao_biografica"],
+                "delta_hab_sem_biometria": resumo_t2["habilitacao_sem_biometria"] - resumo_t1["habilitacao_sem_biometria"],
+                "delta_tempo_mesa_s": dmesa,
+                "delta_tempo_cabine_s": dcab,
+                "delta_tempo_cabine_pct": dcab_pct,
+                "delta_tempo_ciclo_s": dcic,
+                "delta_tempo_ciclo_pct": dcic_pct,
+                "delta_teclas_indevidas": resumo_t2["total_teclas_indevidas"] - resumo_t1["total_teclas_indevidas"],
+                "delta_id_invalido": resumo_t2["total_identificador_invalido"] - resumo_t1["total_identificador_invalido"],
+                "delta_linhas_log": resumo_t2["linhas_log_dia"] - resumo_t1["linhas_log_dia"],
+            },
+            "votos_por_hora_comparado": votos_por_hora_comparado,
+        }
 
     return {
         "sha256_log_jez": sha256_jez,
@@ -705,28 +926,18 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
         "total_linhas_logd": len(lines),
         "macs_validos": macs_validos,
         "macs_invalidos": macs_invalidos,
-        "etapas_assinatura_software_ok": etapas_assinatura_sucesso,
+        "etapas_assinatura_software_ok": est_principal["etapas_assinatura_sucesso"],
         "metadados_urna": metadados_urna,
         "contagem_subsistemas": dict(contagem_subsistemas),
         "contagem_niveis": dict(contagem_niveis),
-        "resumo_votacao_log": {
-            "data_eleicao": data_eleicao_principal,
-            "total_votos_computados": len(ciclos_votacao),
-            "habilitacao_biometrica": hab_biometrica_log,
-            "habilitacao_biografica": hab_biografica_log,
-            "habilitacao_sem_biometria": hab_sem_bio_log,
-            "total_teclas_indevidas": total_teclas_indevidas,
-            "total_identificador_invalido": total_id_invalido,
-            "tempo_medio_mesa_bio_s": round(sum(tempos_mesa) / max(len(tempos_mesa), 1), 1),
-            "tempo_medio_cabine_s": round(sum(tempos_cabine) / max(len(tempos_cabine), 1), 1),
-            "tempo_medio_ciclo_s": round(sum(tempos_totais) / max(len(tempos_totais), 1), 1),
-            "tempo_minimo_cabine_s": round(min(tempos_cabine), 1) if tempos_cabine else 0.0,
-            "tempo_maximo_ciclo_s": round(max(tempos_totais), 1) if tempos_totais else 0.0,
-            "votos_por_hora": dict(sorted(votos_por_hora.items())),
-        },
-        "ciclos_eleitores": ciclos_votacao,
-        "alertas_dia_eleicao": alertas_e_erros[:80],
-        "amostra_eventos_vota": eventos_dia_votacao,
+        "resumo_votacao_log": resumo_principal,
+        "ciclos_eleitores": est_principal["ciclos_votacao"],
+        "resumo_1_turno_log": resumo_t1,
+        "ciclos_eleitores_1_turno": est_t1["ciclos_votacao"] if est_t1 else [],
+        "alertas_1_turno": est_t1["alertas_e_erros"][:80] if est_t1 else [],
+        "comparativo_turnos_log": comparativo_turnos_log,
+        "alertas_dia_eleicao": est_principal["alertas_e_erros"][:80],
+        "amostra_eventos_vota": est_principal["eventos_dia_votacao"],
     }
 
 
@@ -958,11 +1169,23 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
         risco_geral = "CRITICO"
 
     res_log = log_report["resumo_votacao_log"] if log_report else {}
+    res_t1 = (log_report.get("resumo_1_turno_log") or {}) if log_report else {}
     meta_log = log_report["metadados_urna"] if log_report else {}
+
+    uf_sigla = (id_info.get("uf") or "PR").upper()
+    chave_secao_geo = f"{uf_sigla}-{mun_cod}-{zona_str}-{secao_str}"
+    turno_pacote = imgbu_report.get("turno", 2) if tem_bu else (
+        1 if id_info.get("pleito") in ("03220", "00406", "00407") else 2
+    )
+
+    comp_log_t1 = res_t1.get("total_votos_computados", 0)
+    tem_comp_1t_log = bool(comp_log_t1 > 0 and res_t1.get("data_eleicao") != res_log.get("data_eleicao"))
 
     resumo_consolidacao = {
         "prefixo": prefixo,
-        "uf": id_info.get("uf", "PR"),
+        "chave_secao_geo": chave_secao_geo,
+        "turno_pacote": turno_pacote,
+        "uf": uf_sigla,
         "municipio_codigo": mun_cod,
         "municipio_nome": mun_nome,
         "zona": zona_str,
@@ -999,6 +1222,8 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
         "tempo_medio_ciclo_s": res_log.get("tempo_medio_ciclo_s", 0.0),
         "tempo_medio_cabine_s": res_log.get("tempo_medio_cabine_s", 0.0),
         "tempo_medio_mesa_s": res_log.get("tempo_medio_mesa_bio_s", 0.0),
+        "tempo_minimo_cabine_s": res_log.get("tempo_minimo_cabine_s", 0.0),
+        "tempo_maximo_ciclo_s": res_log.get("tempo_maximo_ciclo_s", 0.0),
         "total_linhas_logd": log_report.get("total_linhas_logd", 0) if log_report else 0,
         "macs_validos": log_report.get("macs_validos", 0) if log_report else 0,
         "macs_invalidos": log_report.get("macs_invalidos", 0) if log_report else 0,
@@ -1006,6 +1231,36 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
         "total_id_invalido": res_log.get("total_identificador_invalido", 0),
         "etapas_assinatura_ok": log_report.get("etapas_assinatura_software_ok", 0) if log_report else 0,
         "qtd_anomalias": len(anomalias_forenses),
+        # Dados nativos de 1º Turno extraídos do mesmo logd.dat (Mídia Interna acumulada 1ºT + 2ºT)
+        "tem_comparativo_1t_log": tem_comp_1t_log,
+        "data_1_turno": res_t1.get("data_eleicao", "04/10/2026") if tem_comp_1t_log else "04/10/2026",
+        "data_2_turno": res_log.get("data_eleicao", "25/10/2026") or "25/10/2026",
+        "comparecimento_log_t1": comp_log_t1 if tem_comp_1t_log else 0,
+        "hab_biometrica_log_t1": res_t1.get("habilitacao_biometrica", 0) if tem_comp_1t_log else 0,
+        "hab_biografica_log_t1": res_t1.get("habilitacao_biografica", 0) if tem_comp_1t_log else 0,
+        "hab_sem_bio_log_t1": res_t1.get("habilitacao_sem_biometria", 0) if tem_comp_1t_log else 0,
+        "tempo_medio_ciclo_t1_s": res_t1.get("tempo_medio_ciclo_s", 0.0) if tem_comp_1t_log else 0.0,
+        "tempo_medio_cabine_t1_s": res_t1.get("tempo_medio_cabine_s", 0.0) if tem_comp_1t_log else 0.0,
+        "tempo_medio_mesa_t1_s": res_t1.get("tempo_medio_mesa_bio_s", 0.0) if tem_comp_1t_log else 0.0,
+        "tempo_minimo_cabine_t1_s": res_t1.get("tempo_minimo_cabine_s", 0.0) if tem_comp_1t_log else 0.0,
+        "tempo_maximo_ciclo_t1_s": res_t1.get("tempo_maximo_ciclo_s", 0.0) if tem_comp_1t_log else 0.0,
+        "total_teclas_indevidas_t1": res_t1.get("total_teclas_indevidas", 0) if tem_comp_1t_log else 0,
+        "total_id_invalido_t1": res_t1.get("total_identificador_invalido", 0) if tem_comp_1t_log else 0,
+        "linhas_log_t1": res_t1.get("linhas_log_dia", 0) if tem_comp_1t_log else 0,
+        "linhas_log_t2": res_log.get("linhas_log_dia", 0),
+        "votos_por_hora_t1": res_t1.get("votos_por_hora", {}) if tem_comp_1t_log else {},
+        "cargos_votados_t1": res_t1.get("cargos_votados", []) if tem_comp_1t_log else [],
+        "cargos_votados_t2": res_log.get("cargos_votados", []),
+        "hora_zeresima_t1": res_t1.get("hora_zeresima", "") if tem_comp_1t_log else "",
+        "hora_zeresima_t2": res_log.get("hora_zeresima", ""),
+        "hora_pronta_votos_t1": res_t1.get("hora_pronta_votos", "") if tem_comp_1t_log else "",
+        "hora_pronta_votos_t2": res_log.get("hora_pronta_votos", ""),
+        "hora_encerramento_t1": res_t1.get("hora_encerramento", "") if tem_comp_1t_log else "",
+        "hora_encerramento_t2": res_log.get("hora_encerramento", ""),
+        "titulo_encerramento_t1": res_t1.get("titulo_encerramento", "") if tem_comp_1t_log else "",
+        "titulo_encerramento_t2": res_log.get("titulo_encerramento", ""),
+        "mesarios_registrados_t1": res_t1.get("mesarios_registrados", []) if tem_comp_1t_log else [],
+        "mesarios_registrados_t2": res_log.get("mesarios_registrados", []),
     }
 
     return {
@@ -1264,7 +1519,8 @@ def reauditar_urnas_divergentes_catalogo() -> dict:
             c.get("votos_bu") != c.get("votos_rdv") or c.get("numero") not in ("13", "22")
             for c in cands
         )
-        if item.get("nivel_risco") == "BAIXO" and not tem_cand_extra:
+        falta_comp_1t = bool(item.get("tem_log_jez") and "tem_comparativo_1t_log" not in item)
+        if item.get("nivel_risco") == "BAIXO" and not tem_cand_extra and not falta_comp_1t:
             continue
 
         raw_sec_dir = os.path.join(storage, "raw", pref)
@@ -1299,6 +1555,302 @@ def reauditar_urnas_divergentes_catalogo() -> dict:
         "urnas_reprocessadas": len(resumos_atualizados),
         "urnas_validadas_apos_isolamento_cargo": urnas_reparadas,
         "urnas_ainda_com_divergencia": urnas_ainda_divergentes,
+    }
+
+
+def _construir_comparativo_turnos(
+    secoes_escopo: list[dict],
+    mapa_bu_1t_por_geo: dict[str, dict],
+    escopo_label: str = "CONSOLIDADO_GLOBAL",
+) -> dict:
+    """
+    Constrói o painel comparativo completo 1º Turno (04/10/2026) vs 2º Turno (25/10/2026)
+    para qualquer nível de agregação (Estado, Cidade, Zona ou Seção/Urna Individual):
+      1. Comparecimento, Faltosos/Abstenção, Habilitações Biométricas/Biográficas, Tempos de Mesa/Cabine/Ciclo,
+         Teclas Indevidas, Títulos Inválidos e Vazão Horária (08h..16h) extraídos diretamente dos logs acumulados (.jez)
+         ou dos BUs de 1º e 2º Turno pareados.
+      2. Placar comparativo de votos por candidato (1º Turno vs 2º Turno, Brancos e Nulos) quando
+         arquivos -imgbu.dat / -rdv.dat do 1º Turno também foram carregados para a mesma seção geográfica.
+    """
+    urnas_com_log_1t_2t = 0
+    urnas_com_bu_1t = 0
+    urnas_com_bu_2t = 0
+
+    aptos_urnas_comparadas = 0
+    comp_t1 = 0
+    comp_t2 = 0
+    hab_bio_t1 = 0
+    hab_bio_t2 = 0
+    hab_biog_t1 = 0
+    hab_biog_t2 = 0
+    hab_sbio_t1 = 0
+    hab_sbio_t2 = 0
+
+    soma_pond_mesa_t1 = 0.0
+    soma_pond_mesa_t2 = 0.0
+    soma_pond_cab_t1 = 0.0
+    soma_pond_cab_t2 = 0.0
+    soma_pond_cic_t1 = 0.0
+    soma_pond_cic_t2 = 0.0
+    votos_log_pond_t1 = 0
+    votos_log_pond_t2 = 0
+
+    min_cab_t1_list = []
+    min_cab_t2_list = []
+    max_cic_t1_list = []
+    max_cic_t2_list = []
+
+    teclas_t1 = 0
+    teclas_t2 = 0
+    id_inv_t1 = 0
+    id_inv_t2 = 0
+    linhas_t1 = 0
+    linhas_t2 = 0
+
+    vh_t1 = Counter()
+    vh_t2 = Counter()
+    cargos_t1_set = []
+    cargos_t2_set = []
+
+    cands_t1_map = Counter()
+    cands_t2_map = Counter()
+    nomes_cands: dict[str, str] = {"13": "LULA", "22": "JAIR BOLSONARO"}
+    brancos_t1 = 0
+    brancos_t2 = 0
+    nulos_t1 = 0
+    nulos_t2 = 0
+
+    for s in secoes_escopo:
+        chave_geo = s.get("chave_secao_geo") or f"{s.get('uf', 'PR')}-{s.get('municipio_codigo', '00000')}-{s.get('zona', '0000')}-{s.get('secao', '0000')}"
+        s_t1_bu = mapa_bu_1t_por_geo.get(chave_geo)
+
+        tem_log_1t = bool(s.get("tem_comparativo_1t_log") and s.get("comparecimento_log_t1", 0) > 0)
+        tem_bu_1t = s_t1_bu is not None
+        tem_bu_2t = bool(s.get("tem_imgbu") or s.get("tem_rdv"))
+
+        if tem_bu_2t:
+            urnas_com_bu_2t += 1
+            for c in s.get("candidatos", []):
+                num = str(c["numero"])
+                v2 = c.get("votos_bu", 0) or c.get("votos_rdv", 0)
+                cands_t2_map[num] += v2
+                if c.get("nome") and not c["nome"].startswith("CANDIDATO"):
+                    nomes_cands[num] = c["nome"]
+            brancos_t2 += s.get("brancos_bu", 0) or s.get("brancos_rdv", 0)
+            nulos_t2 += s.get("nulos_bu", 0) or s.get("nulos_rdv", 0)
+
+        if tem_bu_1t:
+            urnas_com_bu_1t += 1
+            for c in s_t1_bu.get("candidatos", []):
+                num = str(c["numero"])
+                v1 = c.get("votos_bu", 0) or c.get("votos_rdv", 0)
+                cands_t1_map[num] += v1
+                if c.get("nome") and not c["nome"].startswith("CANDIDATO"):
+                    nomes_cands[num] = c["nome"]
+            brancos_t1 += s_t1_bu.get("brancos_bu", 0) or s_t1_bu.get("brancos_rdv", 0)
+            nulos_t1 += s_t1_bu.get("nulos_bu", 0) or s_t1_bu.get("nulos_rdv", 0)
+
+        if tem_log_1t or tem_bu_1t:
+            urnas_com_log_1t_2t += 1
+            aptos_sec = s.get("eleitores_aptos", 0) or (s_t1_bu.get("eleitores_aptos", 0) if s_t1_bu else 0)
+            aptos_urnas_comparadas += aptos_sec
+
+            v1_sec = s.get("comparecimento_log_t1", 0) or (s_t1_bu.get("comparecimento_efetivo", 0) if s_t1_bu else 0)
+            v2_sec = s.get("comparecimento_efetivo", 0) or s.get("comparecimento_log", 0)
+            comp_t1 += v1_sec
+            comp_t2 += v2_sec
+
+            hab_bio_t1 += s.get("hab_biometrica_log_t1", 0) or (s_t1_bu.get("hab_biometrica_bu", 0) if s_t1_bu else 0)
+            hab_bio_t2 += s.get("hab_biometrica_log", 0) or s.get("hab_biometrica_bu", 0)
+
+            hab_biog_t1 += s.get("hab_biografica_log_t1", 0) or (s_t1_bu.get("hab_biografica_bu", 0) if s_t1_bu else 0)
+            hab_biog_t2 += s.get("hab_biografica_log", 0) or s.get("hab_biografica_bu", 0)
+
+            hab_sbio_t1 += s.get("hab_sem_bio_log_t1", 0) or (s_t1_bu.get("hab_sem_bio_bu", 0) if s_t1_bu else 0)
+            hab_sbio_t2 += s.get("hab_sem_bio_log", 0) or s.get("hab_sem_bio_bu", 0)
+
+            if tem_log_1t and v1_sec > 0:
+                soma_pond_mesa_t1 += s.get("tempo_medio_mesa_t1_s", 0.0) * v1_sec
+                soma_pond_cab_t1 += s.get("tempo_medio_cabine_t1_s", 0.0) * v1_sec
+                soma_pond_cic_t1 += s.get("tempo_medio_ciclo_t1_s", 0.0) * v1_sec
+                votos_log_pond_t1 += v1_sec
+                if s.get("tempo_minimo_cabine_t1_s", 0.0) > 0:
+                    min_cab_t1_list.append(s["tempo_minimo_cabine_t1_s"])
+                if s.get("tempo_maximo_ciclo_t1_s", 0.0) > 0:
+                    max_cic_t1_list.append(s["tempo_maximo_ciclo_t1_s"])
+
+            v2_log = s.get("comparecimento_log", 0)
+            if v2_log > 0:
+                soma_pond_mesa_t2 += s.get("tempo_medio_mesa_s", 0.0) * v2_log
+                soma_pond_cab_t2 += s.get("tempo_medio_cabine_s", 0.0) * v2_log
+                soma_pond_cic_t2 += s.get("tempo_medio_ciclo_s", 0.0) * v2_log
+                votos_log_pond_t2 += v2_log
+                if s.get("tempo_minimo_cabine_s", 0.0) > 0:
+                    min_cab_t2_list.append(s["tempo_minimo_cabine_s"])
+                if s.get("tempo_maximo_ciclo_s", 0.0) > 0:
+                    max_cic_t2_list.append(s["tempo_maximo_ciclo_s"])
+
+            teclas_t1 += s.get("total_teclas_indevidas_t1", 0)
+            teclas_t2 += s.get("total_teclas_indevidas", 0)
+            id_inv_t1 += s.get("total_id_invalido_t1", 0)
+            id_inv_t2 += s.get("total_id_invalido", 0)
+            linhas_t1 += s.get("linhas_log_t1", 0)
+            linhas_t2 += s.get("linhas_log_t2", 0)
+
+            for hh, q in s.get("votos_por_hora_t1", {}).items():
+                vh_t1[hh] += q
+            for hh, q in s.get("votos_por_hora", {}).items():
+                vh_t2[hh] += q
+
+            for cg in s.get("cargos_votados_t1", []):
+                if cg not in cargos_t1_set:
+                    cargos_t1_set.append(cg)
+            for cg in s.get("cargos_votados_t2", []):
+                if cg not in cargos_t2_set:
+                    cargos_t2_set.append(cg)
+
+    mesa_t1 = round(soma_pond_mesa_t1 / max(votos_log_pond_t1, 1), 1) if votos_log_pond_t1 else 0.0
+    mesa_t2 = round(soma_pond_mesa_t2 / max(votos_log_pond_t2, 1), 1) if votos_log_pond_t2 else 0.0
+    cab_t1 = round(soma_pond_cab_t1 / max(votos_log_pond_t1, 1), 1) if votos_log_pond_t1 else 0.0
+    cab_t2 = round(soma_pond_cab_t2 / max(votos_log_pond_t2, 1), 1) if votos_log_pond_t2 else 0.0
+    cic_t1 = round(soma_pond_cic_t1 / max(votos_log_pond_t1, 1), 1) if votos_log_pond_t1 else 0.0
+    cic_t2 = round(soma_pond_cic_t2 / max(votos_log_pond_t2, 1), 1) if votos_log_pond_t2 else 0.0
+
+    faltosos_t1 = max(0, aptos_urnas_comparadas - comp_t1) if aptos_urnas_comparadas > 0 else 0
+    faltosos_t2 = max(0, aptos_urnas_comparadas - comp_t2) if aptos_urnas_comparadas > 0 else 0
+
+    pct_comp_t1 = round((comp_t1 / max(aptos_urnas_comparadas, 1)) * 100.0, 2) if aptos_urnas_comparadas else 0.0
+    pct_comp_t2 = round((comp_t2 / max(aptos_urnas_comparadas, 1)) * 100.0, 2) if aptos_urnas_comparadas else 0.0
+    pct_abs_t1 = round((faltosos_t1 / max(aptos_urnas_comparadas, 1)) * 100.0, 2) if aptos_urnas_comparadas else 0.0
+    pct_abs_t2 = round((faltosos_t2 / max(aptos_urnas_comparadas, 1)) * 100.0, 2) if aptos_urnas_comparadas else 0.0
+
+    delta_comp = comp_t2 - comp_t1
+    delta_comp_pct = round((delta_comp / max(comp_t1, 1)) * 100.0, 2) if comp_t1 else 0.0
+    delta_falt = faltosos_t2 - faltosos_t1
+    delta_falt_pct = round((delta_falt / max(faltosos_t1, 1)) * 100.0, 2) if faltosos_t1 else 0.0
+
+    delta_cab = round(cab_t2 - cab_t1, 1)
+    delta_cab_pct = round((delta_cab / max(cab_t1, 0.1)) * 100.0, 1) if cab_t1 else 0.0
+    delta_cic = round(cic_t2 - cic_t1, 1)
+    delta_cic_pct = round((delta_cic / max(cic_t1, 0.1)) * 100.0, 1) if cic_t1 else 0.0
+
+    faixas_horas = ["08h", "09h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h"]
+    votos_por_hora_comp = []
+    for fh in faixas_horas:
+        q1 = vh_t1.get(fh, 0)
+        q2 = vh_t2.get(fh, 0)
+        if q1 > 0 or q2 > 0 or fh != "17h":
+            votos_por_hora_comp.append({
+                "hora": fh,
+                "votos_1_turno": q1,
+                "votos_2_turno": q2,
+                "diferenca": q2 - q1,
+            })
+
+    # Placar comparativo de candidatos (1ºT vs 2ºT)
+    todos_nums_cand = sorted(set(cands_t1_map.keys()) | set(cands_t2_map.keys()), key=lambda n: max(cands_t2_map[n], cands_t1_map[n]), reverse=True)
+    tot_nom_t1 = sum(cands_t1_map.values())
+    tot_nom_t2 = sum(cands_t2_map.values())
+    lista_cands_comp = []
+    for num in todos_nums_cand:
+        v1 = cands_t1_map.get(num, 0)
+        v2 = cands_t2_map.get(num, 0)
+        p1 = round((v1 / max(tot_nom_t1, 1)) * 100.0, 2) if tot_nom_t1 else 0.0
+        p2 = round((v2 / max(tot_nom_t2, 1)) * 100.0, 2) if tot_nom_t2 else 0.0
+        dv = v2 - v1
+        dv_pct = round((dv / max(v1, 1)) * 100.0, 2) if v1 > 0 else 0.0
+        lista_cands_comp.append({
+            "numero": num,
+            "nome": nomes_cands.get(num, f"CANDIDATO {num}"),
+            "votos_t1": v1,
+            "pct_t1": p1,
+            "votos_t2": v2,
+            "pct_t2": p2,
+            "delta_votos": dv,
+            "delta_pct_crescimento": dv_pct,
+        })
+
+    s0 = secoes_escopo[0] if len(secoes_escopo) == 1 else {}
+
+    return {
+        "escopo": escopo_label,
+        "disponivel": urnas_com_log_1t_2t > 0 or urnas_com_bu_1t > 0,
+        "urnas_no_escopo": len(secoes_escopo),
+        "urnas_com_comparativo_log": urnas_com_log_1t_2t,
+        "urnas_com_bu_1_turno": urnas_com_bu_1t,
+        "urnas_com_bu_2_turno": urnas_com_bu_2t,
+        "data_1_turno": s0.get("data_1_turno", "04/10/2026") if s0 else "04/10/2026",
+        "data_2_turno": s0.get("data_2_turno", "25/10/2026") if s0 else "25/10/2026",
+        "eleitores_aptos_comparados": aptos_urnas_comparadas,
+        "comparecimento_t1": comp_t1,
+        "comparecimento_t2": comp_t2,
+        "pct_comparecimento_t1": pct_comp_t1,
+        "pct_comparecimento_t2": pct_comp_t2,
+        "delta_comparecimento": delta_comp,
+        "delta_comparecimento_pct": delta_comp_pct,
+        "faltosos_t1": faltosos_t1,
+        "faltosos_t2": faltosos_t2,
+        "pct_abstencao_t1": pct_abs_t1,
+        "pct_abstencao_t2": pct_abs_t2,
+        "delta_faltosos": delta_falt,
+        "delta_faltosos_pct": delta_falt_pct,
+        "hab_biometrica_t1": hab_bio_t1,
+        "hab_biometrica_t2": hab_bio_t2,
+        "delta_hab_biometrica": hab_bio_t2 - hab_bio_t1,
+        "hab_biografica_t1": hab_biog_t1,
+        "hab_biografica_t2": hab_biog_t2,
+        "delta_hab_biografica": hab_biog_t2 - hab_biog_t1,
+        "hab_sem_bio_t1": hab_sbio_t1,
+        "hab_sem_bio_t2": hab_sbio_t2,
+        "delta_hab_sem_bio": hab_sbio_t2 - hab_sbio_t1,
+        "tempo_medio_mesa_t1_s": mesa_t1,
+        "tempo_medio_mesa_t2_s": mesa_t2,
+        "delta_tempo_mesa_s": round(mesa_t2 - mesa_t1, 1),
+        "tempo_medio_cabine_t1_s": cab_t1,
+        "tempo_medio_cabine_t2_s": cab_t2,
+        "delta_tempo_cabine_s": delta_cab,
+        "delta_tempo_cabine_pct": delta_cab_pct,
+        "tempo_medio_ciclo_t1_s": cic_t1,
+        "tempo_medio_ciclo_t2_s": cic_t2,
+        "delta_tempo_ciclo_s": delta_cic,
+        "delta_tempo_ciclo_pct": delta_cic_pct,
+        "tempo_minimo_cabine_t1_s": min(min_cab_t1_list) if min_cab_t1_list else 0.0,
+        "tempo_minimo_cabine_t2_s": min(min_cab_t2_list) if min_cab_t2_list else 0.0,
+        "tempo_maximo_ciclo_t1_s": max(max_cic_t1_list) if max_cic_t1_list else 0.0,
+        "tempo_maximo_ciclo_t2_s": max(max_cic_t2_list) if max_cic_t2_list else 0.0,
+        "teclas_indevidas_t1": teclas_t1,
+        "teclas_indevidas_t2": teclas_t2,
+        "delta_teclas_indevidas": teclas_t2 - teclas_t1,
+        "id_invalido_t1": id_inv_t1,
+        "id_invalido_t2": id_inv_t2,
+        "delta_id_invalido": id_inv_t2 - id_inv_t1,
+        "linhas_log_t1": linhas_t1,
+        "linhas_log_t2": linhas_t2,
+        "delta_linhas_log": linhas_t2 - linhas_t1,
+        "cargos_votados_t1": cargos_t1_set or ["Deputado Federal", "Deputado Estadual", "Senador", "Governador", "Presidente"],
+        "cargos_votados_t2": cargos_t2_set or ["Presidente"],
+        "hora_zeresima_t1": s0.get("hora_zeresima_t1", ""),
+        "hora_zeresima_t2": s0.get("hora_zeresima_t2", ""),
+        "hora_pronta_votos_t1": s0.get("hora_pronta_votos_t1", ""),
+        "hora_pronta_votos_t2": s0.get("hora_pronta_votos_t2", ""),
+        "hora_encerramento_t1": s0.get("hora_encerramento_t1", ""),
+        "hora_encerramento_t2": s0.get("hora_encerramento_t2", ""),
+        "titulo_encerramento_t1": s0.get("titulo_encerramento_t1", ""),
+        "titulo_encerramento_t2": s0.get("titulo_encerramento_t2", ""),
+        "mesarios_registrados_t1": s0.get("mesarios_registrados_t1", []),
+        "mesarios_registrados_t2": s0.get("mesarios_registrados_t2", []),
+        "votos_por_hora_comparado": votos_por_hora_comp,
+        "comparativo_candidatos": {
+            "tem_bu_1_turno": urnas_com_bu_1t > 0,
+            "urnas_pareadas_bu_1t": urnas_com_bu_1t,
+            "brancos_t1": brancos_t1,
+            "brancos_t2": brancos_t2,
+            "delta_brancos": brancos_t2 - brancos_t1,
+            "nulos_t1": nulos_t1,
+            "nulos_t2": nulos_t2,
+            "delta_nulos": nulos_t2 - nulos_t1,
+            "candidatos": lista_cands_comp,
+        },
     }
 
 
@@ -1352,15 +1904,25 @@ def consolidar_secoes_tse(
     para rastrear exatamente em quais cidades, zonas e urnas ocorrem divergências ou candidatos específicos.
     """
     catalogo = _carregar_catalogo_disco()
-    todas_secoes_brutas = list(catalogo.values())
+    todos_itens_catalogo = list(catalogo.values())
 
-    # Enriquecimento em tempo real de Região e Estado (UF) para todas as seções carregadas
-    for s in todas_secoes_brutas:
+    # Enriquecimento em tempo real de Região, Estado (UF) e Chave Geográfica (UF-Município-Zona-Seção)
+    mapa_bu_1t_por_geo: dict[str, dict] = {}
+    secoes_2t = []
+    for s in todos_itens_catalogo:
         uf_sigla = (s.get("uf") or "PR").upper()
         info_est = ESTADOS_E_REGIOES_BR.get(uf_sigla, {"nome": uf_sigla, "regiao": "SUL"})
         s["uf"] = uf_sigla
         s["uf_nome"] = info_est["nome"]
         s["regiao"] = info_est["regiao"]
+        chave_geo = s.get("chave_secao_geo") or f"{uf_sigla}-{s.get('municipio_codigo', '00000')}-{s.get('zona', '0000')}-{s.get('secao', '0000')}"
+        s["chave_secao_geo"] = chave_geo
+        if s.get("turno_pacote") == 1:
+            mapa_bu_1t_por_geo[chave_geo] = s
+        else:
+            secoes_2t.append(s)
+
+    todas_secoes_brutas = secoes_2t if secoes_2t else todos_itens_catalogo
 
     todas_secoes = [s for s in todas_secoes_brutas if _secao_atende_filtro_forense(s, filtro_forense)]
 
@@ -1542,6 +2104,12 @@ def consolidar_secoes_tse(
     if secao_filtro and secao_filtro != "CONSOLIDADO":
         relatorio_sec = obter_secao_individual_tse(secao_filtro)
         if relatorio_sec:
+            res_sec = relatorio_sec.get("resumo_consolidacao", {})
+            relatorio_sec["comparativo_turnos"] = _construir_comparativo_turnos(
+                [res_sec] if res_sec else [],
+                mapa_bu_1t_por_geo,
+                escopo_label="SECAO_INDIVIDUAL",
+            )
             return {
                 "modo_visao": "SECAO_INDIVIDUAL",
                 "hierarquia": hierarquia,
@@ -1764,6 +2332,12 @@ def consolidar_secoes_tse(
     urnas_normais_lista = [s for s in secoes_filtradas if s.get("nivel_risco") == "BAIXO"]
     lista_urnas_tabela = (urnas_alerta_lista + urnas_normais_lista)[:600]
 
+    comparativo_turnos_global = _construir_comparativo_turnos(
+        secoes_filtradas,
+        mapa_bu_1t_por_geo,
+        escopo_label="CONSOLIDADO_GLOBAL",
+    )
+
     return {
         "modo_visao": "CONSOLIDADO_GLOBAL",
         "hierarquia": hierarquia,
@@ -1794,6 +2368,7 @@ def consolidar_secoes_tse(
             "placar_candidatos": placar_candidatos,
             "batimentos_cruzados": batimentos_consolidados,
             "votos_por_hora": dict(sorted(votos_por_hora_global.items())),
+            "comparativo_turnos": comparativo_turnos_global,
             "lista_urnas": lista_urnas_tabela,
         },
     }
