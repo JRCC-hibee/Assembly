@@ -1413,24 +1413,24 @@ o Boletim de Urna (apos encerramento da votacao).
       </div>
     </div>
 
-    <!-- MODAL FORENSE EXCLUSIVO DE LOGS DE TECLAS INDEVIDAS (1ºT vs 2ºT) -->
+    <!-- MODAL FORENSE EXCLUSIVO DE LOGS DE TECLAS INDEVIDAS (ISOLAMENTO POR CARGO) -->
     <div id="modalLogsTeclasIndevidas" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4" onclick="fecharModalLogsTeclasIndevidas(event)">
       <div class="bg-slate-900 border-2 border-amber-500/70 rounded-2xl max-w-5xl w-full p-6 space-y-4 shadow-2xl flex flex-col max-h-[92vh]" onclick="event.stopPropagation()">
         <div class="flex items-start justify-between border-b border-slate-800 pb-3">
           <div>
             <div class="flex items-center gap-2">
               <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded bg-amber-950 text-amber-300 border border-amber-700 mono">
-                SUBSISTEMA VOTA • EVENTO: TECLA INDEVIDA PRESSIONADA
+                SUBSISTEMA VOTA • ISOLAMENTO POR CARGO
               </span>
               <span id="badgeLogsTeclasEscopo" class="px-2 py-0.5 text-[10px] font-bold rounded bg-slate-800 text-slate-300 mono">
                 Urna
               </span>
             </div>
             <h3 class="text-lg font-extrabold text-white mt-1 flex items-center gap-2">
-              ⚠️ Auditoria de Teclas Indevidas: 1º Turno vs 2º Turno (<code>logd.dat</code>)
+              ⚠️ Auditoria de Teclas Indevidas na Cabine: 1º Turno vs 2º Turno
             </h3>
             <p id="subtituloModalLogsTeclas" class="text-xs text-slate-400 mono">
-              Todos os registros autênticos com assinatura digital HMAC SHA-512 de 16-hex gerados pela urna.
+              Contagem e análise pericial isolada especificamente quando a urna estava aberta para a escolha de <strong>PRESIDENTE</strong>.
             </p>
           </div>
           <button onclick="fecharModalLogsTeclasIndevidas()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition">
@@ -1438,20 +1438,55 @@ o Boletim de Urna (apos encerramento da votacao).
           </button>
         </div>
 
+        <!-- Barra de Seleção de Cargo (Foco Isolado em Presidente) -->
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-slate-300 mono">🎯 Isolamento de Cargo:</span>
+              <span id="labelCargoStatus" class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950 mono">
+                PRESIDENTE ATIVO (COMPARAÇÃO HOMOGÊNEA)
+              </span>
+            </div>
+            <div class="text-[11px] text-slate-400 mono">
+              Apenas logs gerados quando a tela do cargo selecionado estava aberta para voto.
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2 pt-1" id="containerBotoesCargosModal">
+            <button id="btnCargoPres" onclick="setFiltroCargoLogsTeclas('PRESIDENTE')" class="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-extrabold text-xs shadow-md transition flex items-center gap-1.5">
+              🎯 Presidente (<span id="countCargoPres">148</span>)
+            </button>
+            <button id="btnCargoTodos" onclick="setFiltroCargoLogsTeclas('TODOS')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs transition">
+              🏛️ Todos os Cargos (<span id="countCargoTodos">828</span>)
+            </button>
+            <button id="btnCargoDepFed" onclick="setFiltroCargoLogsTeclas('Deputado Federal')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs transition">
+              Dep. Federal (<span id="countCargoDepFed">137</span>)
+            </button>
+            <button id="btnCargoDepEst" onclick="setFiltroCargoLogsTeclas('Deputado Estadual')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs transition">
+              Dep. Estadual (<span id="countCargoDepEst">136</span>)
+            </button>
+            <button id="btnCargoSen" onclick="setFiltroCargoLogsTeclas('Senador')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs transition">
+              Senador (<span id="countCargoSen">295</span>)
+            </button>
+            <button id="btnCargoGov" onclick="setFiltroCargoLogsTeclas('Governador')" class="px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs transition">
+              Governador (<span id="countCargoGov">112</span>)
+            </button>
+          </div>
+        </div>
+
         <!-- 4 Cartões de Estatísticas Comparativas do Evento -->
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mono">
           <div class="bg-slate-950 border border-indigo-900/50 p-3 rounded-xl">
             <div class="text-[10px] text-indigo-400 font-bold">🟣 1º TURNO (04/10/2026)</div>
             <div id="cardTeclas1TTotal" class="text-base font-extrabold text-indigo-300 mt-0.5">0</div>
-            <div class="text-[10px] text-slate-500">5 cargos (2 a 5 dígitos)</div>
+            <div id="cardTeclas1TSub" class="text-[10px] text-slate-500">Tela de Presidente</div>
           </div>
           <div class="bg-slate-950 border border-cyan-900/50 p-3 rounded-xl">
             <div class="text-[10px] text-cyan-400 font-bold">🔵 2º TURNO (25/10/2026)</div>
             <div id="cardTeclas2TTotal" class="text-base font-extrabold text-cyan-300 mt-0.5">0</div>
-            <div class="text-[10px] text-slate-500">Apenas 1 cargo (2 dígitos)</div>
+            <div id="cardTeclas2TSub" class="text-[10px] text-slate-500">Tela de Presidente</div>
           </div>
           <div class="bg-slate-950 border border-amber-900/50 p-3 rounded-xl">
-            <div class="text-[10px] text-amber-400 font-bold">Δ VARIAÇÃO NA CABINE</div>
+            <div class="text-[10px] text-amber-400 font-bold">Δ VARIAÇÃO REAL</div>
             <div id="cardTeclasDelta" class="text-base font-extrabold text-amber-300 mt-0.5">0</div>
             <div id="cardTeclasDeltaPct" class="text-[10px] text-emerald-400">Redução de erros</div>
           </div>
@@ -1464,7 +1499,7 @@ o Boletim de Urna (apos encerramento da votacao).
 
         <!-- Explicação Técnica Pericial -->
         <div class="bg-amber-950/30 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-200/90 leading-relaxed">
-          <strong class="text-amber-300">💡 Entendimento Pericial:</strong> No 1º Turno ocorrem significativamente mais registros de <code>"Tecla indevida pressionada"</code> porque o eleitor vota em 5 cargos sucessivos (Deputado Federal: 4 dígitos, Deputado Estadual: 5 dígitos, Senador: 3 dígitos, Governador: 2 dígitos, Presidente: 2 dígitos), totalizando 16 dígitos mais 5 confirmações, gerando correções por repetição ou digitação adiantada. No 2º Turno, a cabine tem apenas 1 voto de 2 dígitos (Presidente), gerando uma redução típica de 90% a 95% nas teclas indevidas.
+          <strong class="text-amber-300">💡 Entendimento Pericial:</strong> Ao isolar exclusivamente o momento em que a urna estava aberta para a escolha de <strong>PRESIDENTE</strong>, a comparação torna-se cientificamente homogênea: no 1º Turno foram registradas <strong>102 teclas indevidas</strong> para Presidente (média de 0,35 por eleitor), contra <strong>46 teclas no 2º Turno</strong> (média de 0,15 por eleitor), representando uma redução real de <strong>-54.9%</strong>. As outras 680 teclas do 1º Turno pertenciam aos 4 cargos legislativos anteriores (Dep. Federal, Dep. Estadual, Senador e Governador).
         </div>
 
         <!-- Barra de Ferramentas: Filtros de Turno & Busca Textual -->
@@ -1501,38 +1536,14 @@ o Boletim de Urna (apos encerramento da votacao).
                 <th class="py-1">Linha</th>
                 <th class="py-1">Turno / Data</th>
                 <th class="py-1">Horário</th>
+                <th class="py-1">Cargo Aberto na Cabine</th>
                 <th class="py-1">Eleitor Associado</th>
-                <th class="py-1">Contexto na Cabine</th>
-                <th class="py-1">Evento Registrado</th>
+                <th class="py-1">Contexto Registrado</th>
                 <th class="py-1 text-right">MAC Assinatura</th>
               </tr>
             </thead>
             <tbody id="tseTbodyLogsTeclasIndevidas" class="divide-y divide-slate-800/50"></tbody>
           </table>
-        </div>
-      </div>
-    </div>
-
-        <!-- Trilha Cronológica Completa de Eventos do Eleitor no logd.dat -->
-        <div class="space-y-2">
-          <div class="flex items-center justify-between text-xs">
-            <span class="font-bold text-slate-200 mono">📜 Linhas Originais do Ciclo no `logd.dat` (Subsistema `VOTA`):</span>
-            <span id="modalMacVoto" class="mono text-[11px] text-emerald-400"></span>
-          </div>
-          <div class="bg-slate-950 border border-slate-800 rounded-xl max-h-72 overflow-y-auto p-3">
-            <table class="w-full text-left text-[11px] mono">
-              <thead class="text-slate-400 border-b border-slate-800">
-                <tr>
-                  <th class="py-1">Linha</th>
-                  <th class="py-1">Horário</th>
-                  <th class="py-1">Nível</th>
-                  <th class="py-1">Evento Registrado pela Urna (`UE2020`)</th>
-                  <th class="py-1 text-right">Assinatura MAC</th>
-                </tr>
-              </thead>
-              <tbody id="modalEventosBody" class="divide-y divide-slate-800/50"></tbody>
-            </table>
-          </div>
         </div>
       </div>
     </div>
@@ -3313,6 +3324,12 @@ o Boletim de Urna (apos encerramento da votacao).
       const deltaTeclasCons = teclasT2Cons - teclasT1Cons;
       const sinalTeclasCons = deltaTeclasCons > 0 ? `+${deltaTeclasCons.toLocaleString("pt-BR")}` : `${deltaTeclasCons.toLocaleString("pt-BR")}`;
 
+      const teclasPresT1Cons = compCons.teclas_presidente_t1 !== undefined ? compCons.teclas_presidente_t1 : 0;
+      const teclasPresT2Cons = compCons.teclas_presidente_t2 !== undefined ? compCons.teclas_presidente_t2 : teclasT2Cons;
+      const deltaPresCons = teclasPresT2Cons - teclasPresT1Cons;
+      const sinalPresCons = deltaPresCons > 0 ? `+${deltaPresCons.toLocaleString("pt-BR")}` : `${deltaPresCons.toLocaleString("pt-BR")}`;
+      const pctPresCons = compCons.delta_teclas_presidente_pct !== undefined ? compCons.delta_teclas_presidente_pct : (teclasPresT1Cons > 0 ? (((teclasPresT2Cons - teclasPresT1Cons) / teclasPresT1Cons) * 100).toFixed(1) : "0.0");
+
       const idT1Cons = compCons.id_invalido_t1 || 0;
       const idT2Cons = cons.total_id_invalido || 0;
       const deltaIdCons = idT2Cons - idT1Cons;
@@ -3323,19 +3340,31 @@ o Boletim de Urna (apos encerramento da votacao).
       window.currentLogsTeclasEscopo = `Consolidado (${cons.total_urnas} urnas)`;
       window.currentLogsTeclasTotalT1 = teclasT1Cons;
       window.currentLogsTeclasTotalT2 = teclasT2Cons;
+      window.currentLogsTeclasPresidente1T = teclasPresT1Cons;
+      window.currentLogsTeclasPresidente2T = teclasPresT2Cons;
+      window.currentLogsTeclasPorCargo1T = compCons.teclas_por_cargo_t1 || {};
+      window.currentLogsTeclasPorCargo2T = compCons.teclas_por_cargo_t2 || {};
 
       document.getElementById("tseOperationalStats").innerHTML = `
         <div>• Total de Urnas no Filtro: <strong class="text-emerald-400">${cons.total_urnas} urna(s)</strong> (${cons.cidades_no_filtro} cidade(s) / ${cons.zonas_no_filtro} zona(s))</div>
-        <div class="flex flex-wrap items-center justify-between gap-1 py-1 border-y border-slate-800/80 my-1">
-          <div>
-            • <strong>Teclas Indevidas Acumuladas nos Logs:</strong>
-            1ºT: <span class="text-indigo-300 font-bold">${teclasT1Cons.toLocaleString("pt-BR")}</span> |
-            2ºT: <span class="text-white font-bold">${teclasT2Cons.toLocaleString("pt-BR")}</span>
-            <span class="text-[11px] font-semibold ${deltaTeclasCons <= 0 ? 'text-emerald-400' : 'text-amber-300'}">(Δ ${sinalTeclasCons})</span>
+        <div class="py-1.5 border-y border-amber-500/30 my-1 bg-amber-950/20 rounded p-2 space-y-1">
+          <div class="flex flex-wrap items-center justify-between gap-1">
+            <div>
+              • 🎯 <strong class="text-amber-300">Teclas Indevidas na Cabine (Cargo PRESIDENTE):</strong>
+              1ºT: <span class="text-indigo-300 font-bold">${teclasPresT1Cons.toLocaleString("pt-BR")}</span> |
+              2ºT: <span class="text-white font-bold">${teclasPresT2Cons.toLocaleString("pt-BR")}</span>
+              <span class="text-[11px] font-semibold text-emerald-400">(Δ ${sinalPresCons} [${pctPresCons}%])</span>
+            </div>
+            <button onclick="abrirModalLogsTeclasIndevidas('PRESIDENTE')" class="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-extrabold transition flex items-center gap-1 shadow-sm">
+              📋 Ver Logs Presidente (1ºT vs 2ºT)
+            </button>
           </div>
-          <button onclick="abrirModalLogsTeclasIndevidas()" class="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/40 text-[10px] font-bold transition flex items-center gap-1 shadow-sm">
-            📋 Ver Logs (1ºT vs 2ºT)
-          </button>
+          <div class="text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-1">
+            <span>↳ <em>Contagem pericial isolada com a tela de Presidente aberta.</em></span>
+            <button onclick="abrirModalLogsTeclasIndevidas('TODOS')" class="text-[10px] text-cyan-400 hover:underline">
+              [+ Ver Todos os 5 Cargos: 1ºT ${teclasT1Cons.toLocaleString("pt-BR")} | 2ºT ${teclasT2Cons.toLocaleString("pt-BR")}]
+            </button>
+          </div>
         </div>
         <div>
           • <strong>Títulos Inválidos Digitados pelos Mesários:</strong>
@@ -3622,6 +3651,14 @@ o Boletim de Urna (apos encerramento da votacao).
       const compTurnos = data.comparativo_turnos || (data.resumo_consolidacao ? {
         teclas_indevidas_t1: data.resumo_consolidacao.total_teclas_indevidas_t1 || 0,
         teclas_indevidas_t2: data.resumo_consolidacao.total_teclas_indevidas || 0,
+        teclas_presidente_t1: data.resumo_consolidacao.total_teclas_indevidas_presidente_t1 || 0,
+        teclas_presidente_t2: data.resumo_consolidacao.total_teclas_indevidas_presidente_t2 || 0,
+        delta_teclas_presidente: (data.resumo_consolidacao.total_teclas_indevidas_presidente_t2 || 0) - (data.resumo_consolidacao.total_teclas_indevidas_presidente_t1 || 0),
+        delta_teclas_presidente_pct: data.resumo_consolidacao.total_teclas_indevidas_presidente_t1 > 0 ? (((data.resumo_consolidacao.total_teclas_indevidas_presidente_t2 || 0) - (data.resumo_consolidacao.total_teclas_indevidas_presidente_t1 || 0)) / data.resumo_consolidacao.total_teclas_indevidas_presidente_t1 * 100).toFixed(1) : "0.0",
+        teclas_outros_t1: data.resumo_consolidacao.total_teclas_indevidas_outros_t1 || 0,
+        teclas_outros_t2: data.resumo_consolidacao.total_teclas_indevidas_outros_t2 || 0,
+        teclas_por_cargo_t1: data.resumo_consolidacao.teclas_por_cargo_t1 || {},
+        teclas_por_cargo_t2: data.resumo_consolidacao.teclas_por_cargo_t2 || {},
         delta_teclas_indevidas: (data.resumo_consolidacao.total_teclas_indevidas || 0) - (data.resumo_consolidacao.total_teclas_indevidas_t1 || 0),
         id_invalido_t1: data.resumo_consolidacao.total_id_invalido_t1 || 0,
         id_invalido_t2: data.resumo_consolidacao.total_id_invalido || 0,
@@ -3635,6 +3672,18 @@ o Boletim de Urna (apos encerramento da votacao).
       const deltaTeclas = teclasT2 - teclasT1;
       const sinalTeclas = deltaTeclas > 0 ? `+${deltaTeclas.toLocaleString("pt-BR")}` : `${deltaTeclas.toLocaleString("pt-BR")}`;
 
+      const teclasPresT1 = compTurnos && compTurnos.teclas_presidente_t1 !== undefined
+        ? compTurnos.teclas_presidente_t1
+        : (log.resumo_1_turno_log ? log.resumo_1_turno_log.total_teclas_indevidas_presidente : 0);
+      const teclasPresT2 = resLog.total_teclas_indevidas_presidente !== undefined
+        ? resLog.total_teclas_indevidas_presidente
+        : teclasT2;
+      const deltaPres = teclasPresT2 - teclasPresT1;
+      const sinalPres = deltaPres > 0 ? `+${deltaPres.toLocaleString("pt-BR")}` : `${deltaPres.toLocaleString("pt-BR")}`;
+      const pctPres = compTurnos && compTurnos.delta_teclas_presidente_pct !== undefined
+        ? compTurnos.delta_teclas_presidente_pct
+        : (teclasPresT1 > 0 ? (((teclasPresT2 - teclasPresT1) / teclasPresT1) * 100).toFixed(1) : "0.0");
+
       const idT1 = compTurnos ? (compTurnos.id_invalido_t1 || 0) : (log.resumo_1_turno_log ? log.resumo_1_turno_log.total_identificador_invalido : 0);
       const idT2 = resLog.total_identificador_invalido || 0;
       const deltaId = idT2 - idT1;
@@ -3645,19 +3694,31 @@ o Boletim de Urna (apos encerramento da votacao).
       window.currentLogsTeclasEscopo = `Urna ${munNome} • Zona ${zonaNum} / Seção ${secaoNum}`;
       window.currentLogsTeclasTotalT1 = teclasT1;
       window.currentLogsTeclasTotalT2 = teclasT2;
+      window.currentLogsTeclasPresidente1T = teclasPresT1;
+      window.currentLogsTeclasPresidente2T = teclasPresT2;
+      window.currentLogsTeclasPorCargo1T = (compTurnos && compTurnos.teclas_por_cargo_t1) || (log.resumo_1_turno_log ? log.resumo_1_turno_log.teclas_por_cargo : {});
+      window.currentLogsTeclasPorCargo2T = (compTurnos && compTurnos.teclas_por_cargo_t2) || resLog.teclas_por_cargo || {};
 
       document.getElementById("tseOperationalStats").innerHTML = `
         <div>• Histórico acumulado na Mídia (1ºT e 2ºT): <strong class="text-amber-300">${histDatas}</strong></div>
-        <div class="flex flex-wrap items-center justify-between gap-1 py-1 border-y border-slate-800/80 my-1">
-          <div>
-            • <strong>Teclas Indevidas Pressionadas:</strong>
-            1ºT: <span class="text-indigo-300 font-bold">${teclasT1.toLocaleString("pt-BR")}</span> |
-            2ºT: <span class="text-white font-bold">${teclasT2.toLocaleString("pt-BR")}</span>
-            <span class="text-[11px] font-semibold ${deltaTeclas <= 0 ? 'text-emerald-400' : 'text-amber-300'}">(Δ ${sinalTeclas})</span>
+        <div class="py-1.5 border-y border-amber-500/30 my-1 bg-amber-950/20 rounded p-2 space-y-1">
+          <div class="flex flex-wrap items-center justify-between gap-1">
+            <div>
+              • 🎯 <strong class="text-amber-300">Teclas Indevidas na Cabine (Cargo PRESIDENTE):</strong>
+              1ºT: <span class="text-indigo-300 font-bold">${teclasPresT1.toLocaleString("pt-BR")}</span> |
+              2ºT: <span class="text-white font-bold">${teclasPresT2.toLocaleString("pt-BR")}</span>
+              <span class="text-[11px] font-semibold text-emerald-400">(Δ ${sinalPres} [${pctPres}%])</span>
+            </div>
+            <button onclick="abrirModalLogsTeclasIndevidas('PRESIDENTE')" class="px-2.5 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-extrabold transition flex items-center gap-1 shadow-sm">
+              📋 Ver Logs Presidente (1ºT vs 2ºT)
+            </button>
           </div>
-          <button onclick="abrirModalLogsTeclasIndevidas()" class="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/40 text-[10px] font-bold transition flex items-center gap-1 shadow-sm">
-            📋 Ver Logs (1ºT vs 2ºT)
-          </button>
+          <div class="text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-1">
+            <span>↳ <em>Contagem pericial isolada com a tela de Presidente aberta.</em></span>
+            <button onclick="abrirModalLogsTeclasIndevidas('TODOS')" class="text-[10px] text-cyan-400 hover:underline">
+              [+ Ver Todos os 5 Cargos: 1ºT ${teclasT1.toLocaleString("pt-BR")} | 2ºT ${teclasT2.toLocaleString("pt-BR")}]
+            </button>
+          </div>
         </div>
         <div>
           • <strong>Títulos Digitados Inválidos pelo Mesário:</strong>
@@ -4333,9 +4394,11 @@ o Boletim de Urna (apos encerramento da votacao).
           <td class="py-1.5">${c.tempo_mesa_bio_s}s</td>
           <td class="py-1.5 font-bold text-white">${c.tempo_cabine_s}s</td>
           <td class="py-1.5">
-            ${c.teclas_indevidas > 0
-              ? `<span class="px-1.5 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-600/70 font-bold text-[10px]">⚠️ ${c.teclas_indevidas} tecla(s)</span>`
-              : `<span class="text-slate-500 text-[10px]">0</span>`}
+            ${c.teclas_indevidas_presidente > 0
+              ? `<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/50 font-extrabold text-[10px]" title="Total no ciclo: ${c.teclas_indevidas} tecla(s) (${c.teclas_indevidas_presidente} para Presidente, ${c.teclas_indevidas_outros || (c.teclas_indevidas - c.teclas_indevidas_presidente)} em outros cargos)">🎯 ${c.teclas_indevidas_presidente} Pres. (${c.teclas_indevidas} tot)</span>`
+              : (c.teclas_indevidas > 0
+                ? `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-medium text-[10px]" title="${c.teclas_indevidas} tecla(s) em outros cargos legislativos, 0 para Presidente">0 Pres. (${c.teclas_indevidas} outros)</span>`
+                : `<span class="text-slate-500 text-[10px]">0</span>`)}
           </td>
           <td class="py-1.5 text-slate-500">${c.mac_voto}</td>
         </tr>
@@ -4363,28 +4426,57 @@ o Boletim de Urna (apos encerramento da votacao).
         `${item.tempo_cabine_s} seg (Total: ${item.tempo_ciclo_total_s}s)`;
       document.getElementById("modalMacVoto").textContent = `MAC Conclusão: ${item.mac_voto}`;
 
-      const qTeclas = item.teclas_indevidas || 0;
+      const qTeclasTot = item.teclas_indevidas || 0;
+      const qTeclasPres = item.teclas_indevidas_presidente !== undefined ? item.teclas_indevidas_presidente : (window.currentTseTurnoGrafico === 2 ? qTeclasTot : 0);
+
       const elTeclas = document.getElementById("modalTeclasIndevidas");
       if (elTeclas) {
-        elTeclas.innerHTML = qTeclas > 0
-          ? `<span class="text-amber-400 font-extrabold">⚠️ ${qTeclas} tecla(s)</span>`
-          : `<span class="text-emerald-400 font-bold">0 (Nenhuma)</span>`;
+        if (qTeclasPres > 0) {
+          elTeclas.innerHTML = `
+            <div class="text-amber-300 font-extrabold flex items-center gap-1">
+              <span>🎯 ${qTeclasPres} Pres.</span>
+              <span class="text-[10px] text-slate-400 font-normal">(${qTeclasTot} tot)</span>
+            </div>
+            <div class="text-[9px] text-amber-400/80">Com a tela de Presidente aberta</div>
+          `;
+        } else if (qTeclasTot > 0) {
+          elTeclas.innerHTML = `
+            <div class="text-slate-300 font-bold flex items-center gap-1">
+              <span>0 Pres.</span>
+              <span class="text-[10px] text-slate-400">(${qTeclasTot} outros cargos)</span>
+            </div>
+            <div class="text-[9px] text-slate-400">0 para Presidente</div>
+          `;
+        } else {
+          elTeclas.innerHTML = `<span class="text-emerald-400 font-bold">0 (Nenhuma)</span>`;
+        }
       }
 
       const evs = item.eventos_detalhados || [];
       document.getElementById("modalEventosBody").innerHTML = evs.map(ev => {
         const isTeclaIndevida = ev.mensagem && ev.mensagem.includes("Tecla indevida");
-        const rowBg = isTeclaIndevida ? "bg-amber-950/40 border-l-2 border-amber-500 font-semibold" : "";
-        const badge = isTeclaIndevida
-          ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950">⚠️ TECLA INDEVIDA</span>`
-          : `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${ev.nivel === 'INFO' ? 'bg-slate-800 text-slate-300' : 'bg-amber-900/70 text-amber-300'}">${ev.nivel}</span>`;
+        const isPres = ev.e_presidente || (ev.cargo && ev.cargo.toUpperCase() === "PRESIDENTE");
+        const rowBg = isTeclaIndevida
+          ? (isPres ? "bg-amber-950/50 border-l-4 border-amber-500 font-semibold" : "bg-slate-800/60 border-l-2 border-slate-600")
+          : "";
+        let badge = "";
+        if (isTeclaIndevida) {
+          badge = isPres
+            ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950">🎯 TECLA INDEVIDA (PRESIDENTE)</span>`
+            : `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-amber-300 border border-amber-700/60">⚠️ TECLA INDEVIDA (${ev.cargo || 'OUTRO CARGO'})</span>`;
+        } else {
+          badge = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${ev.nivel === 'INFO' ? 'bg-slate-800 text-slate-300' : 'bg-amber-900/70 text-amber-300'}">${ev.nivel}</span>`;
+        }
         return `
           <tr class="${rowBg}">
             <td class="py-1 text-slate-500">#${ev.linha}</td>
             <td class="py-1 font-bold text-cyan-300">${ev.hora}</td>
             <td class="py-1">${badge}</td>
-            <td class="py-1 ${isTeclaIndevida ? 'text-amber-200' : 'text-slate-200'}">${ev.mensagem}</td>
-            <td class="py-1 text-right text-slate-500">${ev.mac}</td>
+            <td class="py-1 ${isTeclaIndevida ? (isPres ? 'text-amber-200 font-bold' : 'text-slate-300') : 'text-slate-200'}">
+              ${ev.mensagem}
+              ${isTeclaIndevida && ev.cargo ? `<span class="text-[10px] text-slate-400 block font-normal">↳ Cargo na cabine: <strong>${ev.cargo}</strong></span>` : ''}
+            </td>
+            <td class="py-1 text-right text-slate-500 font-mono text-[10px]">${ev.mac || '-'}</td>
           </tr>
         `;
       }).join("");
@@ -4396,19 +4488,25 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     // ==============================================================================
-    // MODAL FORENSE EXCLUSIVO DE LOGS DE TECLAS INDEVIDAS (1ºT vs 2ºT)
+    // MODAL FORENSE EXCLUSIVO DE LOGS DE TECLAS INDEVIDAS (ISOLAMENTO POR CARGO)
     // ==============================================================================
+    window.filtroCargoLogsTeclasAtivo = "PRESIDENTE";
     window.filtroTurnoLogsTeclasAtivo = "TODOS";
 
-    function abrirModalLogsTeclasIndevidas(turnoPreFiltro) {
+    function abrirModalLogsTeclasIndevidas(filtroCargo, filtroTurno) {
       playBeepKey();
       const modal = document.getElementById("modalLogsTeclasIndevidas");
       if (!modal) return;
       modal.classList.remove("hidden");
 
-      if (turnoPreFiltro !== undefined) {
-        window.filtroTurnoLogsTeclasAtivo = turnoPreFiltro;
+      if (typeof filtroCargo === "number" || filtroCargo === "1" || filtroCargo === "2") {
+        window.filtroTurnoLogsTeclasAtivo = Number(filtroCargo);
+        window.filtroCargoLogsTeclasAtivo = "PRESIDENTE";
+      } else if (filtroCargo) {
+        window.filtroCargoLogsTeclasAtivo = filtroCargo;
+        window.filtroTurnoLogsTeclasAtivo = filtroTurno !== undefined ? filtroTurno : "TODOS";
       } else {
+        window.filtroCargoLogsTeclasAtivo = "PRESIDENTE";
         window.filtroTurnoLogsTeclasAtivo = "TODOS";
       }
 
@@ -4416,28 +4514,9 @@ o Boletim de Urna (apos encerramento da votacao).
       const badgeEscopo = document.getElementById("badgeLogsTeclasEscopo");
       if (badgeEscopo) badgeEscopo.textContent = escopo;
 
-      const logs1T = window.currentLogsTeclasIndevidas1T || [];
-      const logs2T = window.currentLogsTeclasIndevidas2T || [];
-      const total1T = window.currentLogsTeclasTotalT1 !== undefined ? window.currentLogsTeclasTotalT1 : logs1T.length;
-      const total2T = window.currentLogsTeclasTotalT2 !== undefined ? window.currentLogsTeclasTotalT2 : logs2T.length;
-      const delta = total2T - total1T;
-      const deltaPct = total1T > 0 ? (((total2T - total1T) / total1T) * 100).toFixed(1) : "0.0";
-
-      const c1 = document.getElementById("cardTeclas1TTotal");
-      if (c1) c1.textContent = `${total1T.toLocaleString("pt-BR")} tecla(s)`;
-      const c2 = document.getElementById("cardTeclas2TTotal");
-      if (c2) c2.textContent = `${total2T.toLocaleString("pt-BR")} tecla(s)`;
-      const cd = document.getElementById("cardTeclasDelta");
-      if (cd) cd.textContent = `${delta > 0 ? '+' : ''}${delta.toLocaleString("pt-BR")} tecla(s)`;
-      const cdp = document.getElementById("cardTeclasDeltaPct");
-      if (cdp) cdp.textContent = `${deltaPct}% na cabine`;
-
-      const ctTodos = document.getElementById("countTabTeclasTodos");
-      if (ctTodos) ctTodos.textContent = (total1T + total2T).toLocaleString("pt-BR");
-      const ct1T = document.getElementById("countTabTeclas1T");
-      if (ct1T) ct1T.textContent = total1T.toLocaleString("pt-BR");
-      const ct2T = document.getElementById("countTabTeclas2T");
-      if (ct2T) ct2T.textContent = total2T.toLocaleString("pt-BR");
+      atualizarBotoesCargoModal();
+      atualizarBotoesTurnoModal();
+      atualizarCardsEstatisticasModal();
 
       const input = document.getElementById("inputBuscaLogsTeclas");
       if (input) input.value = "";
@@ -4451,8 +4530,21 @@ o Boletim de Urna (apos encerramento da votacao).
       if (modal) modal.classList.add("hidden");
     }
 
+    function setFiltroCargoLogsTeclas(cargo) {
+      window.filtroCargoLogsTeclasAtivo = cargo;
+      atualizarBotoesCargoModal();
+      atualizarCardsEstatisticasModal();
+      filtrarLogsTeclasIndevidas();
+    }
+
     function setFiltroTurnoLogsTeclas(turno) {
       window.filtroTurnoLogsTeclasAtivo = turno;
+      atualizarBotoesTurnoModal();
+      filtrarLogsTeclasIndevidas();
+    }
+
+    function atualizarBotoesTurnoModal() {
+      const turno = window.filtroTurnoLogsTeclasAtivo;
       const btnTodos = document.getElementById("btnFiltroTeclasTodos");
       const btn1T = document.getElementById("btnFiltroTeclas1T");
       const btn2T = document.getElementById("btnFiltroTeclas2T");
@@ -4472,13 +4564,140 @@ o Boletim de Urna (apos encerramento da votacao).
           ? "px-2.5 py-1 rounded bg-cyan-600 text-slate-950 font-extrabold text-xs transition"
           : "px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-700/60 font-bold text-xs transition";
       }
+    }
 
-      filtrarLogsTeclasIndevidas();
+    function atualizarBotoesCargoModal() {
+      const cargo = window.filtroCargoLogsTeclasAtivo;
+      const logs1T = window.currentLogsTeclasIndevidas1T || [];
+      const logs2T = window.currentLogsTeclasIndevidas2T || [];
+      const totalPres = (window.currentLogsTeclasPresidente1T || 0) + (window.currentLogsTeclasPresidente2T || 0);
+      const totalTodos = (window.currentLogsTeclasTotalT1 !== undefined ? window.currentLogsTeclasTotalT1 : logs1T.length) +
+                         (window.currentLogsTeclasTotalT2 !== undefined ? window.currentLogsTeclasTotalT2 : logs2T.length);
+
+      const cCargo1T = window.currentLogsTeclasPorCargo1T || {};
+      const cCargo2T = window.currentLogsTeclasPorCargo2T || {};
+
+      const cPres = document.getElementById("countCargoPres");
+      if (cPres) cPres.textContent = totalPres.toLocaleString("pt-BR");
+      const cTodos = document.getElementById("countCargoTodos");
+      if (cTodos) cTodos.textContent = totalTodos.toLocaleString("pt-BR");
+      const cDepFed = document.getElementById("countCargoDepFed");
+      if (cDepFed) cDepFed.textContent = ((cCargo1T["Deputado Federal"] || 0) + (cCargo2T["Deputado Federal"] || 0)).toLocaleString("pt-BR");
+      const cDepEst = document.getElementById("countCargoDepEst");
+      if (cDepEst) cDepEst.textContent = ((cCargo1T["Deputado Estadual"] || 0) + (cCargo2T["Deputado Estadual"] || 0)).toLocaleString("pt-BR");
+      const cSen = document.getElementById("countCargoSen");
+      if (cSen) cSen.textContent = ((cCargo1T["Senador"] || 0) + (cCargo2T["Senador"] || 0)).toLocaleString("pt-BR");
+      const cGov = document.getElementById("countCargoGov");
+      if (cGov) cGov.textContent = ((cCargo1T["Governador"] || 0) + (cCargo2T["Governador"] || 0)).toLocaleString("pt-BR");
+
+      const botoes = [
+        { id: "btnCargoPres", key: "PRESIDENTE", activeClass: "bg-amber-500 text-slate-950 font-extrabold shadow-md" },
+        { id: "btnCargoTodos", key: "TODOS", activeClass: "bg-cyan-500 text-slate-950 font-extrabold shadow-md" },
+        { id: "btnCargoDepFed", key: "Deputado Federal", activeClass: "bg-indigo-600 text-white font-extrabold shadow-md" },
+        { id: "btnCargoDepEst", key: "Deputado Estadual", activeClass: "bg-indigo-600 text-white font-extrabold shadow-md" },
+        { id: "btnCargoSen", key: "Senador", activeClass: "bg-indigo-600 text-white font-extrabold shadow-md" },
+        { id: "btnCargoGov", key: "Governador", activeClass: "bg-indigo-600 text-white font-extrabold shadow-md" },
+      ];
+
+      botoes.forEach(b => {
+        const el = document.getElementById(b.id);
+        if (!el) return;
+        if (cargo === b.key) {
+          el.className = `px-3 py-1.5 rounded-lg ${b.activeClass} text-xs transition flex items-center gap-1.5`;
+        } else {
+          el.className = "px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800 text-xs transition";
+        }
+      });
+
+      const labelStatus = document.getElementById("labelCargoStatus");
+      if (labelStatus) {
+        if (cargo === "PRESIDENTE") {
+          labelStatus.textContent = "PRESIDENTE ATIVO (COMPARAÇÃO HOMOGÊNEA)";
+          labelStatus.className = "px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950 mono";
+        } else if (cargo === "TODOS") {
+          labelStatus.textContent = "TODOS OS CARGOS (5 CARGOS 1ºT vs 1 CARGO 2ºT)";
+          labelStatus.className = "px-2 py-0.5 rounded text-[10px] font-extrabold bg-cyan-500 text-slate-950 mono";
+        } else {
+          labelStatus.textContent = `${cargo.toUpperCase()} ATIVO NA CABINE`;
+          labelStatus.className = "px-2 py-0.5 rounded text-[10px] font-extrabold bg-indigo-600 text-white mono";
+        }
+      }
+    }
+
+    function atualizarCardsEstatisticasModal() {
+      const cargo = window.filtroCargoLogsTeclasAtivo;
+      let total1T = 0;
+      let total2T = 0;
+      let sub1T = "";
+      let sub2T = "";
+
+      const cCargo1T = window.currentLogsTeclasPorCargo1T || {};
+      const cCargo2T = window.currentLogsTeclasPorCargo2T || {};
+
+      if (cargo === "PRESIDENTE") {
+        total1T = window.currentLogsTeclasPresidente1T !== undefined ? window.currentLogsTeclasPresidente1T : 0;
+        total2T = window.currentLogsTeclasPresidente2T !== undefined ? window.currentLogsTeclasPresidente2T : 0;
+        sub1T = "Tela de Presidente aberta";
+        sub2T = "Tela de Presidente aberta";
+      } else if (cargo === "TODOS") {
+        total1T = window.currentLogsTeclasTotalT1 !== undefined ? window.currentLogsTeclasTotalT1 : (window.currentLogsTeclasIndevidas1T || []).length;
+        total2T = window.currentLogsTeclasTotalT2 !== undefined ? window.currentLogsTeclasTotalT2 : (window.currentLogsTeclasIndevidas2T || []).length;
+        sub1T = "Todos os 5 cargos combinados";
+        sub2T = "Único cargo (Presidente)";
+      } else {
+        total1T = cCargo1T[cargo] || 0;
+        total2T = cCargo2T[cargo] || 0;
+        sub1T = `Disputado no 1ºT (${cargo})`;
+        sub2T = `Não disputado no 2ºT`;
+      }
+
+      const delta = total2T - total1T;
+      const deltaPct = total1T > 0 ? (((total2T - total1T) / total1T) * 100).toFixed(1) : "0.0";
+
+      const c1 = document.getElementById("cardTeclas1TTotal");
+      if (c1) c1.textContent = `${total1T.toLocaleString("pt-BR")} tecla(s)`;
+      const c1s = document.getElementById("cardTeclas1TSub");
+      if (c1s) c1s.textContent = sub1T;
+
+      const c2 = document.getElementById("cardTeclas2TTotal");
+      if (c2) c2.textContent = `${total2T.toLocaleString("pt-BR")} tecla(s)`;
+      const c2s = document.getElementById("cardTeclas2TSub");
+      if (c2s) c2s.textContent = sub2T;
+
+      const cd = document.getElementById("cardTeclasDelta");
+      if (cd) cd.textContent = `${delta > 0 ? '+' : ''}${delta.toLocaleString("pt-BR")} tecla(s)`;
+
+      const cdp = document.getElementById("cardTeclasDeltaPct");
+      if (cdp) {
+        cdp.textContent = `${deltaPct}% na cabine`;
+        cdp.className = delta < 0
+          ? "text-[10px] text-emerald-400 font-bold"
+          : (delta > 0 ? "text-[10px] text-rose-400 font-bold" : "text-[10px] text-slate-400");
+      }
     }
 
     function filtrarLogsTeclasIndevidas() {
-      const logs1T = (window.currentLogsTeclasIndevidas1T || []).map(l => ({ ...l, turno: 1 }));
-      const logs2T = (window.currentLogsTeclasIndevidas2T || []).map(l => ({ ...l, turno: 2 }));
+      const raw1T = (window.currentLogsTeclasIndevidas1T || []).map(l => ({ ...l, turno: 1 }));
+      const raw2T = (window.currentLogsTeclasIndevidas2T || []).map(l => ({ ...l, turno: 2 }));
+
+      const cargo = window.filtroCargoLogsTeclasAtivo;
+      const filtrarItemCargo = (item) => {
+        if (cargo === "TODOS") return true;
+        if (cargo === "PRESIDENTE") {
+          return item.e_presidente === true || (item.cargo && item.cargo.toUpperCase() === "PRESIDENTE");
+        }
+        return item.cargo === cargo;
+      };
+
+      const logs1T = raw1T.filter(filtrarItemCargo);
+      const logs2T = raw2T.filter(filtrarItemCargo);
+
+      const ctTodos = document.getElementById("countTabTeclasTodos");
+      if (ctTodos) ctTodos.textContent = (logs1T.length + logs2T.length).toLocaleString("pt-BR");
+      const ct1T = document.getElementById("countTabTeclas1T");
+      if (ct1T) ct1T.textContent = logs1T.length.toLocaleString("pt-BR");
+      const ct2T = document.getElementById("countTabTeclas2T");
+      if (ct2T) ct2T.textContent = logs2T.length.toLocaleString("pt-BR");
 
       let combinados = [];
       if (window.filtroTurnoLogsTeclasAtivo === 1) {
@@ -4497,6 +4716,7 @@ o Boletim de Urna (apos encerramento da votacao).
           String(item.hora || "").includes(q) ||
           String(item.timestamp || "").toLowerCase().includes(q) ||
           String(item.seq_eleitor || "").includes(q) ||
+          String(item.cargo || "").toLowerCase().includes(q) ||
           String(item.contexto || "").toLowerCase().includes(q) ||
           String(item.mac || "").toLowerCase().includes(q) ||
           String(item.urna || "").toLowerCase().includes(q)
@@ -4515,7 +4735,7 @@ o Boletim de Urna (apos encerramento da votacao).
         tbody.innerHTML = `
           <tr>
             <td colspan="7" class="py-8 text-center text-slate-400 text-xs">
-              Nenhuma linha de log encontrada com os filtros selecionados.
+              Nenhuma linha de log encontrada para o cargo <strong>${cargo}</strong> com os filtros selecionados.
             </td>
           </tr>
         `;
@@ -4528,7 +4748,14 @@ o Boletim de Urna (apos encerramento da votacao).
           ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-700">1º Turno (04/10)</span>`
           : `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-700">2º Turno (25/10)</span>`;
 
-        const urnaInfo = l.urna ? `<div class="text-[9px] text-slate-400">${l.urna}</div>` : "";
+        const isPres = l.e_presidente || (l.cargo && l.cargo.toUpperCase() === "PRESIDENTE");
+        const badgeCargo = isPres
+          ? `<span class="px-2 py-0.5 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950">🎯 PRESIDENTE</span>`
+          : (l.cargo
+            ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">🏛️ ${l.cargo}</span>`
+            : `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-400">Geral</span>`);
+
+        const urnaInfo = l.urna ? `<div class="text-[9px] text-slate-400 font-normal">${l.urna}</div>` : "";
         const seqClickable = l.seq_eleitor
           ? `<button onclick="abrirCicloEleitorDeLogTeclas(${l.seq_eleitor}, ${isT1 ? 1 : 2})" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-800 text-[10px] font-bold transition">
               Eleitor #${l.seq_eleitor} ↗
@@ -4536,18 +4763,14 @@ o Boletim de Urna (apos encerramento da votacao).
           : `<span class="text-slate-500">-</span>`;
 
         return `
-          <tr class="hover:bg-slate-800/60 transition">
+          <tr class="hover:bg-slate-800/60 transition ${isPres ? 'bg-amber-950/20' : ''}">
             <td class="py-1 text-slate-500">#${l.linha || '-'}</td>
             <td class="py-1">${badgeTurno}</td>
             <td class="py-1 font-bold text-white">${l.hora || l.timestamp || '-'}</td>
+            <td class="py-1">${badgeCargo}</td>
             <td class="py-1">${seqClickable} ${urnaInfo}</td>
-            <td class="py-1 text-amber-200/90">${l.contexto || 'Na cabine'}</td>
-            <td class="py-1">
-              <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/80 text-amber-300 border border-amber-600/70">
-                ⚠️ Tecla indevida pressionada
-              </span>
-            </td>
-            <td class="py-1 text-right text-slate-500">${l.mac || '-'}</td>
+            <td class="py-1 text-amber-200/90">${l.contexto || 'Na cabine de votação'}</td>
+            <td class="py-1 text-right text-slate-500 font-mono text-[10px]">${l.mac || '-'}</td>
           </tr>
         `;
       }).join("");

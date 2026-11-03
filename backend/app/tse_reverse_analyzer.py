@@ -531,10 +531,14 @@ def _novo_estado_dia_log(data_str: str) -> dict:
         "hab_biografica_log": 0,
         "hab_sem_bio_log": 0,
         "total_teclas_indevidas": 0,
+        "total_teclas_indevidas_presidente": 0,
+        "total_teclas_indevidas_outros": 0,
+        "total_teclas_por_cargo": Counter(),
         "total_id_invalido": 0,
         "logs_teclas_indevidas": [],
         "logs_id_invalido": [],
         # Estado transitório do ciclo do eleitor atual
+        "in_cabine": False,
         "t_aguardando": None,
         "t_id_digitado": None,
         "tipo_doc_digitado": "",
@@ -543,6 +547,9 @@ def _novo_estado_dia_log(data_str: str) -> dict:
         "t_habilitado": None,
         "tipo_habilitacao": "",
         "teclas_indevidas_ciclo": 0,
+        "teclas_indevidas_presidente_ciclo": 0,
+        "teclas_indevidas_outros_ciclo": 0,
+        "teclas_por_cargo_ciclo": Counter(),
         "cargos_confirmados": [],
         "eventos_ciclo_atual": [],
     }
@@ -576,6 +583,9 @@ def _compilar_resumo_dia_log(est: dict) -> dict:
         "habilitacao_biografica": est["hab_biografica_log"],
         "habilitacao_sem_biometria": est["hab_sem_bio_log"],
         "total_teclas_indevidas": est["total_teclas_indevidas"],
+        "total_teclas_indevidas_presidente": est.get("total_teclas_indevidas_presidente", 0),
+        "total_teclas_indevidas_outros": est.get("total_teclas_indevidas_outros", 0),
+        "teclas_por_cargo": dict(est.get("total_teclas_por_cargo", {})),
         "total_identificador_invalido": est["total_id_invalido"],
         "logs_teclas_indevidas": est.get("logs_teclas_indevidas", []),
         "logs_id_invalido": est.get("logs_id_invalido", []),
@@ -626,6 +636,28 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
 
     datas_interesse = {d for d in (data_eleicao_principal, data_1_turno, data_2_turno) if d} | set(datas_votacao_ordenadas)
     estados_por_data: dict[str, dict] = {d: _novo_estado_dia_log(d) for d in datas_interesse}
+
+    # Pré-passo pericial: descobre a sequência exata de cargos da cédula eletrônica para cada data
+    sequencia_cargos_por_data: dict[str, list[str]] = {}
+    seq_temp: list[str] = []
+    in_ciclo_temp = False
+    data_temp = ""
+    for l in lines:
+        if "VOTA" not in l:
+            continue
+        d_l = l[:10]
+        if "Eleitor foi habilitado" in l:
+            in_ciclo_temp = True
+            seq_temp = []
+            data_temp = d_l
+        elif "Voto confirmado para" in l and in_ciclo_temp:
+            m_c = re.search(r"\[(.*?)\]", l)
+            if m_c:
+                seq_temp.append(m_c.group(1))
+        elif "O voto do eleitor foi computado" in l and in_ciclo_temp:
+            in_ciclo_temp = False
+            if data_temp and data_temp not in sequencia_cargos_por_data and seq_temp:
+                sequencia_cargos_por_data[data_temp] = list(seq_temp)
 
     metadados_urna = {
         "modelo_ue": "",
@@ -754,7 +786,11 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                 est["t_habilitado"] = None
                 est["tipo_habilitacao"] = ""
                 est["teclas_indevidas_ciclo"] = 0
+                est["teclas_indevidas_presidente_ciclo"] = 0
+                est["teclas_indevidas_outros_ciclo"] = 0
+                est["teclas_por_cargo_ciclo"] = Counter()
                 est["cargos_confirmados"] = []
+                est["in_cabine"] = False
                 est["eventos_ciclo_atual"] = [{
                     "linha": line_num,
                     "hora": dt.strftime("%H:%M:%S"),
@@ -812,6 +848,11 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
 
             elif "Eleitor foi habilitado" in msg:
                 est["t_habilitado"] = dt
+                est["in_cabine"] = True
+                est["teclas_indevidas_ciclo"] = 0
+                est["teclas_indevidas_presidente_ciclo"] = 0
+                est["teclas_indevidas_outros_ciclo"] = 0
+                est["teclas_por_cargo_ciclo"] = Counter()
                 if est["tipo_habilitacao"] == "BIOMETRICA":
                     est["hab_biometrica_log"] += 1
                 elif est["foi_habilitacao_biografica"] or est["tipo_habilitacao"] == "BIOGRAFICA":
@@ -824,13 +865,41 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
             elif "Tecla indevida pressionada" in msg:
                 est["teclas_indevidas_ciclo"] += 1
                 est["total_teclas_indevidas"] += 1
+
+                seq_cargos_dia = sequencia_cargos_por_data.get(data_cur, [])
+                idx_c = len(est["cargos_confirmados"])
+                if seq_cargos_dia and idx_c < len(seq_cargos_dia):
+                    cargo_ativo = seq_cargos_dia[idx_c]
+                elif "Governador" in est["cargos_confirmados"]:
+                    cargo_ativo = "Presidente"
+                elif not est["cargos_confirmados"] and data_cur != data_1_turno:
+                    cargo_ativo = "Presidente"
+                else:
+                    cargo_ativo = "Presidente" if idx_c >= len(seq_cargos_dia) - 1 else "Deputado Federal"
+
+                e_presidente = bool(cargo_ativo == "Presidente")
+
+                if e_presidente:
+                    est["teclas_indevidas_presidente_ciclo"] += 1
+                    est["total_teclas_indevidas_presidente"] += 1
+                else:
+                    est["teclas_indevidas_outros_ciclo"] += 1
+                    est["total_teclas_indevidas_outros"] += 1
+
+                est["teclas_por_cargo_ciclo"][cargo_ativo] += 1
+                est["total_teclas_por_cargo"][cargo_ativo] += 1
+
+                contexto_desc = "Seção para escolha do Presidente aberta para voto" if e_presidente else f"Tela de {cargo_ativo} aberta na cabine"
+
                 est["logs_teclas_indevidas"].append({
                     "linha": line_num,
                     "timestamp": ts_str,
                     "data": data_cur,
                     "hora": dt.strftime("%H:%M:%S") if dt else hora_cur,
                     "seq_eleitor": len(est["ciclos_votacao"]) + 1,
-                    "contexto": (f"Após votar para {est['cargos_confirmados'][-1]}" if est["cargos_confirmados"] else "Início da votação na cabine"),
+                    "cargo": cargo_ativo,
+                    "e_presidente": e_presidente,
+                    "contexto": contexto_desc,
                     "cargos_votados": list(est["cargos_confirmados"]),
                     "nivel": nivel,
                     "subsistema": subsistema,
@@ -847,6 +916,7 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                         est["cargos_distintos"].append(nome_c)
 
             elif "O voto do eleitor foi computado" in msg:
+                est["in_cabine"] = False
                 t_computado = dt
                 inicio_ref = est["t_id_digitado"] or est["t_aguardando"] or est["t_habilitado"] or t_computado
                 hab_ref = est["t_habilitado"] or inicio_ref
@@ -868,6 +938,9 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                     "tipo_habilitacao": est["tipo_habilitacao"] or "BIOMETRICA",
                     "tentativas_digital": est["tentativas_digital"],
                     "teclas_indevidas": est["teclas_indevidas_ciclo"],
+                    "teclas_indevidas_presidente": est["teclas_indevidas_presidente_ciclo"],
+                    "teclas_indevidas_outros": est["teclas_indevidas_outros_ciclo"],
+                    "teclas_por_cargo": dict(est["teclas_por_cargo_ciclo"]),
                     "cargos": list(est["cargos_confirmados"]),
                     "tempo_mesa_bio_s": round(tempo_mesa_bio_s, 1),
                     "tempo_cabine_s": round(tempo_cabine_s, 1),
@@ -942,6 +1015,14 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                 "delta_tempo_ciclo_s": dcic,
                 "delta_tempo_ciclo_pct": dcic_pct,
                 "delta_teclas_indevidas": resumo_t2["total_teclas_indevidas"] - resumo_t1["total_teclas_indevidas"],
+                "teclas_presidente_t1": resumo_t1.get("total_teclas_indevidas_presidente", 0),
+                "teclas_presidente_t2": resumo_t2.get("total_teclas_indevidas_presidente", 0),
+                "delta_teclas_presidente": resumo_t2.get("total_teclas_indevidas_presidente", 0) - resumo_t1.get("total_teclas_indevidas_presidente", 0),
+                "delta_teclas_presidente_pct": round(((resumo_t2.get("total_teclas_indevidas_presidente", 0) - resumo_t1.get("total_teclas_indevidas_presidente", 0)) / max(resumo_t1.get("total_teclas_indevidas_presidente", 1), 1)) * 100.0, 1),
+                "teclas_outros_t1": resumo_t1.get("total_teclas_indevidas_outros", 0),
+                "teclas_outros_t2": resumo_t2.get("total_teclas_indevidas_outros", 0),
+                "teclas_por_cargo_t1": resumo_t1.get("teclas_por_cargo", {}),
+                "teclas_por_cargo_t2": resumo_t2.get("teclas_por_cargo", {}),
                 "delta_id_invalido": resumo_t2["total_identificador_invalido"] - resumo_t1["total_identificador_invalido"],
                 "delta_linhas_log": resumo_t2["linhas_log_dia"] - resumo_t1["linhas_log_dia"],
             },
@@ -1277,7 +1358,15 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
         "tempo_minimo_cabine_t1_s": res_t1.get("tempo_minimo_cabine_s", 0.0) if tem_comp_1t_log else 0.0,
         "tempo_maximo_ciclo_t1_s": res_t1.get("tempo_maximo_ciclo_s", 0.0) if tem_comp_1t_log else 0.0,
         "total_teclas_indevidas_t1": res_t1.get("total_teclas_indevidas", 0) if tem_comp_1t_log else 0,
+        "total_teclas_indevidas_t2": res_log.get("total_teclas_indevidas", 0),
+        "total_teclas_indevidas_presidente_t1": res_t1.get("total_teclas_indevidas_presidente", 0) if tem_comp_1t_log else 0,
+        "total_teclas_indevidas_presidente_t2": res_log.get("total_teclas_indevidas_presidente", 0),
+        "total_teclas_indevidas_outros_t1": res_t1.get("total_teclas_indevidas_outros", 0) if tem_comp_1t_log else 0,
+        "total_teclas_indevidas_outros_t2": res_log.get("total_teclas_indevidas_outros", 0),
+        "teclas_por_cargo_t1": res_t1.get("teclas_por_cargo", {}) if tem_comp_1t_log else {},
+        "teclas_por_cargo_t2": res_log.get("teclas_por_cargo", {}),
         "total_id_invalido_t1": res_t1.get("total_identificador_invalido", 0) if tem_comp_1t_log else 0,
+        "total_id_invalido_t2": res_log.get("total_identificador_invalido", 0),
         "logs_teclas_indevidas": res_log.get("logs_teclas_indevidas", []),
         "logs_teclas_indevidas_t1": res_t1.get("logs_teclas_indevidas", []) if tem_comp_1t_log else [],
         "logs_id_invalido": res_log.get("logs_id_invalido", []),
@@ -1638,6 +1727,12 @@ def _construir_comparativo_turnos(
 
     teclas_t1 = 0
     teclas_t2 = 0
+    teclas_pres_t1 = 0
+    teclas_pres_t2 = 0
+    teclas_outros_t1 = 0
+    teclas_outros_t2 = 0
+    teclas_por_cargo_t1_map = Counter()
+    teclas_por_cargo_t2_map = Counter()
     id_inv_t1 = 0
     id_inv_t2 = 0
     linhas_t1 = 0
@@ -1728,6 +1823,14 @@ def _construir_comparativo_turnos(
 
             teclas_t1 += s.get("total_teclas_indevidas_t1", 0)
             teclas_t2 += s.get("total_teclas_indevidas", 0)
+            teclas_pres_t1 += s.get("total_teclas_indevidas_presidente_t1", 0)
+            teclas_pres_t2 += s.get("total_teclas_indevidas_presidente_t2", s.get("total_teclas_indevidas_presidente", s.get("total_teclas_indevidas", 0)))
+            teclas_outros_t1 += s.get("total_teclas_indevidas_outros_t1", 0)
+            teclas_outros_t2 += s.get("total_teclas_indevidas_outros_t2", s.get("total_teclas_indevidas_outros", 0))
+            for cg, q in s.get("teclas_por_cargo_t1", {}).items():
+                teclas_por_cargo_t1_map[cg] += q
+            for cg, q in s.get("teclas_por_cargo_t2", {}).items():
+                teclas_por_cargo_t2_map[cg] += q
             id_inv_t1 += s.get("total_id_invalido_t1", 0)
             id_inv_t2 += s.get("total_id_invalido", 0)
             linhas_t1 += s.get("linhas_log_t1", 0)
@@ -1880,6 +1983,14 @@ def _construir_comparativo_turnos(
         "teclas_indevidas_t1": teclas_t1,
         "teclas_indevidas_t2": teclas_t2,
         "delta_teclas_indevidas": teclas_t2 - teclas_t1,
+        "teclas_presidente_t1": teclas_pres_t1,
+        "teclas_presidente_t2": teclas_pres_t2,
+        "delta_teclas_presidente": teclas_pres_t2 - teclas_pres_t1,
+        "delta_teclas_presidente_pct": round(((teclas_pres_t2 - teclas_pres_t1) / max(teclas_pres_t1, 1)) * 100.0, 1) if teclas_pres_t1 > 0 else 0.0,
+        "teclas_outros_t1": teclas_outros_t1,
+        "teclas_outros_t2": teclas_outros_t2,
+        "teclas_por_cargo_t1": dict(teclas_por_cargo_t1_map),
+        "teclas_por_cargo_t2": dict(teclas_por_cargo_t2_map),
         "logs_teclas_indevidas_t1": logs_teclas_t1,
         "logs_teclas_indevidas_t2": logs_teclas_t2,
         "id_invalido_t1": id_inv_t1,
@@ -2360,6 +2471,8 @@ def consolidar_secoes_tse(
     total_linhas_logd = 0
     total_macs_validos = 0
     total_teclas_indevidas = 0
+    total_teclas_presidente = 0
+    total_teclas_outros = 0
     total_id_invalido = 0
 
     for s in secoes_filtradas:
@@ -2375,6 +2488,8 @@ def consolidar_secoes_tse(
         total_linhas_logd += s.get("total_linhas_logd", 0)
         total_macs_validos += s.get("macs_validos", 0)
         total_teclas_indevidas += s.get("total_teclas_indevidas", 0)
+        total_teclas_presidente += s.get("total_teclas_indevidas_presidente_t2", s.get("total_teclas_indevidas_presidente", s.get("total_teclas_indevidas", 0)))
+        total_teclas_outros += s.get("total_teclas_indevidas_outros_t2", s.get("total_teclas_indevidas_outros", 0))
         total_id_invalido += s.get("total_id_invalido", 0)
 
     tempo_medio_ciclo_global = round(soma_ponderada_ciclo / max(total_votos_com_log, 1), 1) if total_votos_com_log else 0.0
@@ -2425,6 +2540,8 @@ def consolidar_secoes_tse(
             "total_linhas_logd": total_linhas_logd,
             "total_macs_validos": total_macs_validos,
             "total_teclas_indevidas": total_teclas_indevidas,
+            "total_teclas_indevidas_presidente": total_teclas_presidente,
+            "total_teclas_indevidas_outros": total_teclas_outros,
             "total_id_invalido": total_id_invalido,
             "placar_candidatos": placar_candidatos,
             "batimentos_cruzados": batimentos_consolidados,
