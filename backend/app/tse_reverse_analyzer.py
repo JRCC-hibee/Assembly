@@ -1287,8 +1287,18 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
 
     uf_sigla = (id_info.get("uf") or "PR").upper()
     chave_secao_geo = f"{uf_sigla}-{mun_cod}-{zona_str}-{secao_str}"
-    turno_pacote = imgbu_report.get("turno", 2) if tem_bu else (
-        1 if id_info.get("pleito") in ("03220", "00406", "00407") else 2
+
+    # Detecção robusta e unificada de Turno (1º Turno vs 2º Turno):
+    is_1t = False
+    if id_info.get("pleito") in ("03220", "00406") or bool(re.search(r"[_\-]1t[_\-]|1[°ºo]_turno", prefixo, re.I)):
+        is_1t = True
+    elif imgbu_report.get("turno") == 1 or (imgbu_report.get("data_abertura") or "").startswith(("04/10", "02/10", "06/10")):
+        is_1t = True
+    elif res_log.get("data_eleicao", "").startswith(("04/10", "02/10", "06/10")):
+        is_1t = True
+
+    turno_pacote = 1 if is_1t else (
+        2 if (imgbu_report.get("turno") == 2 or id_info.get("pleito") in ("03221", "00407")) else imgbu_report.get("turno", 2)
     )
 
     comp_log_t1 = res_t1.get("total_votos_computados", 0)
@@ -1516,7 +1526,25 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
     storage = _get_tse_storage_dir()
 
     grupos: dict[str, dict[str, bytes]] = {}
-    for raw_name, content in arquivos_dict.items():
+    arquivos_expandidos = dict(arquivos_dict)
+
+    # Suporte nativo à descompactação transparente de arquivos .zip (1ºT ou 2ºT)
+    for raw_name, content in list(arquivos_dict.items()):
+        base_name = raw_name.split("/")[-1].split("\\")[-1]
+        if base_name.lower().endswith(".zip"):
+            try:
+                import io, zipfile
+                with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                    for zinfo in zf.infolist():
+                        if zinfo.is_dir():
+                            continue
+                        zname = zinfo.filename.split("/")[-1].split("\\")[-1]
+                        if any(zname.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                            arquivos_expandidos[zname] = zf.read(zinfo)
+            except Exception:
+                pass
+
+    for raw_name, content in arquivos_expandidos.items():
         base_name = raw_name.split("/")[-1].split("\\")[-1]
         if not base_name or base_name.startswith("."):
             continue

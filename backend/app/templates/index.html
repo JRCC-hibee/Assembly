@@ -884,14 +884,14 @@ o Boletim de Urna (apos encerramento da votacao).
               <span id="lblVincularPastaLocalTse">🔗 Vincular Pasta PR p/ Log.jez Automático</span>
             </button>
 
-            <label class="px-3.5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2">
-              <span>📂 Selecionar Arquivos (.jez, .dat, .vsc)</span>
-              <input id="tseFilesInput" type="file" multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
+            <label class="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2" title="Selecione uma pasta inteira no seu computador (1ºT ou 2ºT)">
+              <span>🗂️ Selecionar Pasta Inteira (1ºT ou 2ºT)</span>
+              <input id="tseFolderInput" type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
             </label>
 
-            <label class="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2">
-              <span>🗂️ Selecionar Pasta Inteira (PR / Cidades)</span>
-              <input id="tseFolderInput" type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
+            <label class="px-3.5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2" title="Selecione arquivos avulsos .jez, .dat, .vsc ou .zip">
+              <span>📂 Selecionar Arquivos (.jez, .dat, .vsc, .zip)</span>
+              <input id="tseFilesInput" type="file" multiple accept=".jez,.dat,.vsc,.zip" onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
             </label>
 
             <button
@@ -1135,13 +1135,18 @@ o Boletim de Urna (apos encerramento da votacao).
             </div>
             <div class="flex flex-wrap items-center gap-2 text-xs mono">
               <span id="tseComparativoStatusBadge" class="px-2.5 py-1 rounded-lg bg-indigo-950 text-indigo-300 border border-indigo-600/50 font-bold text-[11px]"></span>
-              <button
-                onclick="selecionarArquivoJezManualDaUrna(window.currentTsePrefixoAtivo || '')"
-                class="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-600/40 font-bold text-[11px] transition"
-                title="Envie arquivos -log.jez ou BUs/RDVs do 1º Turno (o03220...) para pareamento automático"
-              >
-                📂 Subir .jez / BU 1º Turno
-              </button>
+              
+              <!-- Opção 1: Subir Pasta Inteira do 1º Turno (Diretório completo do PR) -->
+              <label class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-[11px] cursor-pointer shadow-md transition inline-flex items-center gap-1.5" title="Selecione a pasta completa do 1º Turno (ex: bu_imgbu_logjez_rdv_vscmr_2026_1t_PR) para pareamento global de todas as urnas">
+                <span>🗂️ Subir Pasta Inteira 1º Turno</span>
+                <input type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
+              </label>
+
+              <!-- Opção 2: Subir Arquivos Avulsos do 1º Turno (.jez, .dat, .vsc, .zip) -->
+              <label class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-600/50 font-bold text-[11px] cursor-pointer transition inline-flex items-center gap-1.5" title="Selecione arquivos avulsos do 1º Turno ou arquivos .zip">
+                <span>📂 Subir Arquivos 1ºT (.jez / BU / .zip)</span>
+                <input type="file" multiple accept=".jez,.dat,.vsc,.zip" onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
+              </label>
             </div>
           </div>
 
@@ -1546,6 +1551,93 @@ o Boletim de Urna (apos encerramento da votacao).
           </table>
         </div>
       </div>
+    </div>
+
+    <!-- MODAL DE ESCOLHA DE UPLOAD: PASTA INTEIRA vs ARQUIVOS INDIVIDUAIS -->
+    <div id="modalEscolhaUploadTse" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4" onclick="fecharModalEscolhaUploadTse(event)">
+      <div class="bg-slate-900 border-2 border-cyan-500/70 rounded-2xl max-w-2xl w-full p-6 space-y-5 shadow-2xl" onclick="event.stopPropagation()">
+        <div class="flex items-start justify-between border-b border-slate-800 pb-3">
+          <div>
+            <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
+              INGESTÃO OFICIAL TSE • 1º TURNO &amp; 2º TURNO
+            </span>
+            <h3 class="text-lg font-extrabold text-white mt-1">
+              Como deseja carregar os dados eleitorais?
+            </h3>
+            <p class="text-xs text-slate-400">
+              Para o comparativo do 1º Turno (04/10/2026) com o 2º Turno (25/10/2026), você pode selecionar a <strong>pasta inteira</strong> ou arquivos avulsos.
+            </p>
+          </div>
+          <button onclick="fecharModalEscolhaUploadTse()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition">
+            ✕ Fechar (ESC)
+          </button>
+        </div>
+
+        <!-- 2 Opções em Cards Destacados -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <!-- OPÇÃO 1: PASTA INTEIRA (RECOMENDADO) -->
+          <div class="bg-slate-950 border-2 border-emerald-500/60 hover:border-emerald-400 rounded-xl p-4 flex flex-col justify-between space-y-3 transition group">
+            <div class="space-y-2">
+              <div class="w-10 h-10 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xl font-bold">
+                🗂️
+              </div>
+              <div class="font-extrabold text-sm text-white group-hover:text-emerald-300 transition">
+                Subir Pasta Inteira (Diretório)
+              </div>
+              <p class="text-xs text-slate-400 leading-relaxed">
+                Selecione sua pasta completa (como <code class="text-emerald-400 font-mono text-[11px]">bu_imgbu_logjez_..._1t_PR</code> ou <code class="text-emerald-400 font-mono text-[11px]">_2t_PR</code>).
+              </p>
+              <ul class="text-[11px] text-slate-400 space-y-1">
+                <li>• Envia em micro-lotes de alta velocidade</li>
+                <li>• Ignora arquivos já carregados</li>
+                <li>• Pareamento automático 1ºT × 2ºT de todas as seções</li>
+              </ul>
+            </div>
+            <label class="w-full py-2.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition flex items-center justify-center gap-2">
+              <span>🗂️ Selecionar Pasta no Mac</span>
+              <input type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event); fecharModalEscolhaUploadTse();" class="hidden" />
+            </label>
+          </div>
+
+          <!-- OPÇÃO 2: ARQUIVOS INDIVIDUAIS OU ZIP -->
+          <div class="bg-slate-950 border border-slate-800 hover:border-cyan-500/60 rounded-xl p-4 flex flex-col justify-between space-y-3 transition group">
+            <div class="space-y-2">
+              <div class="w-10 h-10 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xl font-bold">
+                📂
+              </div>
+              <div class="font-extrabold text-sm text-white group-hover:text-cyan-300 transition">
+                Arquivos Avulsos ou ZIP
+              </div>
+              <p class="text-xs text-slate-400 leading-relaxed">
+                Selecione arquivos específicos (<code class="text-cyan-300 font-mono text-[11px]">.jez</code>, <code class="text-cyan-300 font-mono text-[11px]">.dat</code>, <code class="text-cyan-300 font-mono text-[11px]">.vsc</code>) ou um arquivo <code class="text-cyan-300 font-mono text-[11px]">.zip</code>.
+              </p>
+              <ul class="text-[11px] text-slate-400 space-y-1">
+                <li>• Ideal para seções individuais ou amostras</li>
+                <li>• Suporta seleção múltipla de arquivos</li>
+                <li>• Descompactação automática de .zip</li>
+              </ul>
+            </div>
+            <label class="w-full py-2.5 px-3 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition flex items-center justify-center gap-2">
+              <span>📂 Selecionar Arquivos (.jez / .dat / .zip)</span>
+              <input type="file" multiple accept=".jez,.dat,.vsc,.zip" onchange="iniciarImportacaoLoteTse(event); fecharModalEscolhaUploadTse();" class="hidden" />
+            </label>
+          </div>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 flex items-center gap-3 text-xs text-slate-400">
+          <span class="text-amber-400 text-base">💡</span>
+          <div>
+            <strong>Dica:</strong> Você também pode simplesmente <strong>arrastar e soltar (Drag &amp; Drop)</strong> qualquer pasta ou conjunto de arquivos do Finder diretamente sobre a janela do sistema!
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- OVERLAY DRAG & DROP GLOBAL -->
+    <div id="dragDropOverlayTse" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 hidden flex flex-col items-center justify-center border-4 border-dashed border-cyan-400 m-4 rounded-3xl pointer-events-none transition">
+      <div class="text-6xl mb-4 animate-bounce">📥</div>
+      <h2 class="text-2xl font-extrabold text-white">Solte a pasta ou arquivos do TSE aqui</h2>
+      <p class="text-sm text-cyan-300 mt-2 mono">A importação e o pareamento de 1º e 2º Turno iniciarão automaticamente!</p>
     </div>
   </main>
 
@@ -2411,7 +2503,9 @@ o Boletim de Urna (apos encerramento da votacao).
       const base = filename.split("/").pop().split("\\").pop().toLowerCase();
       const m = base.match(/^(o\d{5}[a-z]{2}\d{13,14})-/i);
       if (m) return m[1].toLowerCase();
-      return base.replace(/-(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc)$/i, "");
+      const mZip = base.match(/^(o\d{5}[a-z]{2}\d{13,14})\.zip$/i);
+      if (mZip) return mZip[1].toLowerCase();
+      return base.replace(/-(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc|\.zip)$/i, "");
     }
 
     function pararImportacaoLoteTse() {
@@ -2420,8 +2514,16 @@ o Boletim de Urna (apos encerramento da votacao).
         "⏹ Finalizando lote atual e abrindo consolidação das urnas já carregadas...";
     }
 
-    async function iniciarImportacaoLoteTse(event) {
-      const fileList = event.target.files;
+    async function iniciarImportacaoLoteTse(eventOrFiles) {
+      let fileList = [];
+      let inputEl = null;
+
+      if (eventOrFiles && eventOrFiles.target && eventOrFiles.target.files) {
+        fileList = Array.from(eventOrFiles.target.files);
+        inputEl = eventOrFiles.target;
+      } else if (eventOrFiles instanceof FileList || Array.isArray(eventOrFiles)) {
+        fileList = Array.from(eventOrFiles);
+      }
       if (!fileList || fileList.length === 0) return;
 
       const progBox = document.getElementById("tseBatchProgressBox");
@@ -2434,14 +2536,14 @@ o Boletim de Urna (apos encerramento da votacao).
       progPct.textContent = "0%";
       progText.textContent = `🔍 Lendo ${fileList.length.toLocaleString("pt-BR")} arquivo(s) e consultando o catálogo do servidor para ignorar duplicados...`;
 
-      // 1. Filtra arquivos oficiais TSE (.jez, .dat, .vsc) e agrupa por prefixo de seção
+      // 1. Filtra arquivos oficiais TSE (.jez, .dat, .vsc, .zip) e agrupa por prefixo de seção
       const gruposPorPrefixo = new Map();
 
       for (let i = 0; i < fileList.length; i++) {
         const f = fileList[i];
         const base = f.name.toLowerCase();
         if (base.startsWith(".")) continue;
-        if (!(base.endsWith(".jez") || base.endsWith(".dat") || base.endsWith(".vsc"))) continue;
+        if (!(base.endsWith(".jez") || base.endsWith(".dat") || base.endsWith(".vsc") || base.endsWith(".zip"))) continue;
 
         const prefixo = extrairPrefixoNoCliente(f.name);
         if (!prefixo) continue;
@@ -2549,7 +2651,7 @@ o Boletim de Urna (apos encerramento da votacao).
         setTimeout(() => {
           progBox.classList.add("hidden");
         }, 4500);
-        event.target.value = "";
+        if (inputEl) inputEl.value = "";
         playBeepBiometriaOk();
         const secaoAtiva = window.arvoreTseState?.secao;
         if (secaoAtiva && secaoAtiva !== "CONSOLIDADO") {
@@ -2619,7 +2721,7 @@ o Boletim de Urna (apos encerramento da votacao).
         progBox.classList.add("hidden");
       }, 3500);
 
-      event.target.value = "";
+      if (inputEl) inputEl.value = "";
       hideSecurityAlert();
       playBeepBiometriaOk();
 
@@ -2819,31 +2921,20 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
+    function abrirModalEscolhaUploadTse() {
+      playBeepKey();
+      const m = document.getElementById("modalEscolhaUploadTse");
+      if (m) m.classList.remove("hidden");
+    }
+
+    function fecharModalEscolhaUploadTse(event) {
+      if (event && event.target && event.target.id !== "modalEscolhaUploadTse") return;
+      const m = document.getElementById("modalEscolhaUploadTse");
+      if (m) m.classList.add("hidden");
+    }
+
     async function selecionarArquivoJezManualDaUrna(prefixo) {
-      const inp = document.createElement("input");
-      inp.type = "file";
-      inp.accept = ".jez,.dat,.vsc";
-      inp.multiple = true;
-      inp.onchange = async (ev) => {
-        const files = Array.from(ev.target.files || []);
-        if (!files.length) return;
-        showSecurityAlert(`Enviando ${files.map(f => f.name).join(", ")}...`, false);
-        const fd = new FormData();
-        files.forEach(f => fd.append("files", f, f.name));
-        try {
-          const r = await fetch("/api/tse-reverso/upload-lote", { method: "POST", body: fd });
-          if (r.ok) {
-            hideSecurityAlert();
-            playBeepBiometriaOk();
-            await atualizarConsolidacaoTse(true);
-          } else {
-            showSecurityAlert("Erro ao enviar arquivo -log.jez.", true);
-          }
-        } catch (err) {
-          showSecurityAlert(`Falha no upload: ${err.message}`, true);
-        }
-      };
-      inp.click();
+      abrirModalEscolhaUploadTse();
     }
 
     async function garantirLogJezSobDemanda(prefixo, forcarMesmoSeTentado = false) {
@@ -3633,11 +3724,15 @@ o Boletim de Urna (apos encerramento da votacao).
             <div class="text-amber-300 font-bold">⚡ Urna importada no Modo Turbo (BU + RDV já auditados).</div>
             <div class="text-slate-300">Para exibir a vazão horária e o gráfico de logs por eleitor desta urna (<code>${prefAtivo}-log.jez</code>), vincule sua pasta local do PR abaixo (1 clique):</div>
             <div class="flex flex-wrap gap-2 pt-1">
-              <button onclick="vincularPastaLocalTseShowDirectoryPicker(true)" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] transition">
-                🔗 Vincular Pasta PR e Carregar Log.jez Agora
-              </button>
+              <label class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-[11px] cursor-pointer shadow-md transition inline-flex items-center gap-1.5" title="Selecione a pasta completa (1ºT ou 2ºT)">
+                <span>🗂️ Subir Pasta Inteira</span>
+                <input type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
+              </label>
               <button onclick="selecionarArquivoJezManualDaUrna('${prefAtivo}')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-600/50 font-bold text-[11px] transition">
-                📂 Selecionar ${prefAtivo}-log.jez
+                📂 Selecionar Arquivos / Opções
+              </button>
+              <button onclick="vincularPastaLocalTseShowDirectoryPicker(true)" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] transition">
+                🔗 Vincular Pasta PR
               </button>
             </div>
           </div>
@@ -4004,12 +4099,16 @@ o Boletim de Urna (apos encerramento da votacao).
               <div class="text-amber-300 font-bold">⚡ Como liberar o Comparativo Completo 1º Turno (04/10/2026) × 2º Turno (25/10/2026) neste escopo?</div>
               <div class="text-slate-300">O arquivo <code>-log.jez</code> (Mídia Interna da Urna) guarda simultaneamente todos os eleitores, tempos de cabine, biometria e vazão horária do <strong>1º Turno (04/10/2026)</strong> e do <strong>2º Turno (25/10/2026)</strong>. Abra uma urna individual ou vincule a pasta local do PR para carregar o <code>-log.jez</code>!</div>
             </div>
-            <div class="flex gap-2">
+            <div class="flex flex-wrap gap-2">
+              <label class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs cursor-pointer shadow-md transition inline-flex items-center gap-1.5" title="Selecione a pasta do 1º Turno (bu_imgbu_logjez_rdv_vscmr_2026_1t_PR)">
+                <span>🗂️ Subir Pasta Inteira 1º Turno</span>
+                <input type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
+              </label>
+              <button onclick="selecionarArquivoJezManualDaUrna(window.currentTsePrefixoAtivo || '')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition">
+                📂 Enviar Arquivos / ZIP
+              </button>
               <button onclick="vincularPastaLocalTseShowDirectoryPicker(true)" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs transition">
                 🔗 Vincular Pasta Local PR
-              </button>
-              <button onclick="selecionarArquivoJezManualDaUrna(window.currentTsePrefixoAtivo || '')" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-500/40 font-bold text-xs transition">
-                📂 Enviar .jez / BU 1ºT
               </button>
             </div>
           </div>
@@ -4784,10 +4883,86 @@ o Boletim de Urna (apos encerramento da votacao).
       }, 100);
     }
 
+    // ==============================================================================
+    // DRAG & DROP GLOBAL DE PASTAS E ARQUIVOS (1ºT E 2ºT)
+    // ==============================================================================
+    window.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      const ov = document.getElementById("dragDropOverlayTse");
+      if (ov) ov.classList.remove("hidden");
+    });
+
+    window.addEventListener("dragleave", (e) => {
+      if (e.relatedTarget === null || e.clientX === 0 || e.clientY === 0) {
+        const ov = document.getElementById("dragDropOverlayTse");
+        if (ov) ov.classList.add("hidden");
+      }
+    });
+
+    window.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      const ov = document.getElementById("dragDropOverlayTse");
+      if (ov) ov.classList.add("hidden");
+
+      if (!e.dataTransfer) return;
+
+      const files = await extrairArquivosDeDataTransfer(e.dataTransfer);
+      if (files && files.length > 0) {
+        await iniciarImportacaoLoteTse(files);
+      }
+    });
+
+    async function extrairArquivosDeDataTransfer(dataTransfer) {
+      const files = [];
+      const items = dataTransfer.items;
+      if (!items) return Array.from(dataTransfer.files || []);
+
+      const readEntry = (entry) => {
+        return new Promise((resolve) => {
+          if (!entry) return resolve();
+          if (entry.isFile) {
+            entry.file((file) => {
+              files.push(file);
+              resolve();
+            }, () => resolve());
+          } else if (entry.isDirectory) {
+            const dirReader = entry.createReader();
+            const readEntries = () => {
+              dirReader.readEntries(async (entries) => {
+                if (!entries || !entries.length) {
+                  resolve();
+                } else {
+                  await Promise.all(entries.map(readEntry));
+                  readEntries();
+                }
+              }, () => resolve());
+            };
+            readEntries();
+          } else {
+            resolve();
+          }
+        });
+      };
+
+      const entries = [];
+      for (let i = 0; i < items.length; i++) {
+        const entry = items[i].webkitGetAsEntry ? items[i].webkitGetAsEntry() : null;
+        if (entry) entries.push(entry);
+        else if (items[i].kind === "file") {
+          const f = items[i].getAsFile();
+          if (f) files.push(f);
+        }
+      }
+
+      await Promise.all(entries.map(readEntry));
+      return files;
+    }
+
     window.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         fecharModalEleitorTse();
         fecharModalLogsTeclasIndevidas();
+        fecharModalEscolhaUploadTse();
         return;
       }
       if (document.getElementById("tab-urna").classList.contains("hidden")) return;
