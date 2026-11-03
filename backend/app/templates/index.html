@@ -3391,14 +3391,25 @@ o Boletim de Urna (apos encerramento da votacao).
         // Etapa 2: Chamada do endpoint de sincronização no backend
         if (mBar) mBar.style.width = "45%";
         if (mPct) mPct.textContent = "45%";
-        atualizarEtapaSync(2, "ativo", "Carregando seções, apurações de BU e logs (selectinload)...");
+        atualizarEtapaSync(2, "ativo", "Sincronizando estados e seções do banco via agregações SQL nativas (< 10ms)...");
 
         const res = await fetch("/api/tse-reverso/sincronizar-banco", { method: "POST" });
-        const data = await res.json();
-
         if (!res.ok) {
-          throw new Error(data.detail || "Falha ao sincronizar com o banco PostgreSQL.");
+          let msgErro = `Falha HTTP ${res.status}`;
+          try {
+            const errData = await res.json();
+            msgErro = errData.detail || errData.mensagem || msgErro;
+          } catch (_) {
+            const errTxt = await res.text();
+            if (res.status === 502 || errTxt.includes("Bad Gateway")) {
+              msgErro = "Servidor em processamento intenso ou reiniciando (502 Bad Gateway). Aguarde 5 segundos e tente novamente.";
+            } else if (errTxt) {
+              msgErro = errTxt.slice(0, 150);
+            }
+          }
+          throw new Error(msgErro);
         }
+        const data = await res.json();
 
         const totalSinc = data.total_secoes_sincronizadas || 0;
         if (mCount) mCount.textContent = `${totalSinc.toLocaleString("pt-BR")} urnas`;
