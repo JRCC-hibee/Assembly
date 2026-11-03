@@ -1329,6 +1329,7 @@ o Boletim de Urna (apos encerramento da votacao).
                       <th class="py-1.5">Tent. Bio</th>
                       <th class="py-1.5">Mesa(s)</th>
                       <th class="py-1.5">Cabine(s)</th>
+                      <th class="py-1.5 text-amber-300">Teclas Indev.</th>
                       <th class="py-1.5">MAC 16-Hex</th>
                     </tr>
                   </thead>
@@ -1365,24 +1366,152 @@ o Boletim de Urna (apos encerramento da votacao).
         </div>
 
         <!-- Cartões de Métricas do Eleitor no Modal -->
-        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mono">
-          <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
-            <div class="text-[10px] text-slate-400">DOCUMENTO / HABILITAÇÃO</div>
-            <div id="modalDocHab" class="font-bold text-emerald-400 mt-0.5">-</div>
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs mono">
+          <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+            <div class="text-[10px] text-slate-400">DOCUMENTO / HAB.</div>
+            <div id="modalDocHab" class="font-bold text-emerald-400 mt-0.5 truncate">-</div>
           </div>
-          <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
-            <div class="text-[10px] text-slate-400">TENTATIVAS BIOMÉTRICAS</div>
+          <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+            <div class="text-[10px] text-slate-400">TENT. BIOMÉTRICAS</div>
             <div id="modalTentBio" class="font-bold text-cyan-300 mt-0.5">-</div>
           </div>
-          <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
-            <div class="text-[10px] text-slate-400">TEMPO MESA / BIOMETRIA</div>
+          <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+            <div class="text-[10px] text-slate-400">TEMPO NA MESA</div>
             <div id="modalTempoMesa" class="font-bold text-amber-300 mt-0.5">-</div>
           </div>
-          <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
-            <div class="text-[10px] text-slate-400">TEMPO NA CABINE (VOTO)</div>
+          <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+            <div class="text-[10px] text-slate-400">TEMPO NA CABINE</div>
             <div id="modalTempoCabine" class="font-bold text-white mt-0.5">-</div>
           </div>
+          <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+            <div class="text-[10px] text-slate-400">TECLAS INDEVIDAS</div>
+            <div id="modalTeclasIndevidas" class="font-bold text-slate-200 mt-0.5">-</div>
+          </div>
         </div>
+
+        <!-- Trilha Cronológica Completa de Eventos do Eleitor no logd.dat -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span class="font-bold text-slate-200 mono">📜 Linhas Originais do Ciclo no `logd.dat` (Subsistema `VOTA`):</span>
+            <span id="modalMacVoto" class="mono text-[11px] text-emerald-400"></span>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 rounded-xl max-h-72 overflow-y-auto p-3">
+            <table class="w-full text-left text-[11px] mono">
+              <thead class="text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th class="py-1">Linha</th>
+                  <th class="py-1">Horário</th>
+                  <th class="py-1">Nível</th>
+                  <th class="py-1">Evento Registrado pela Urna (`UE2020`)</th>
+                  <th class="py-1 text-right">Assinatura MAC</th>
+                </tr>
+              </thead>
+              <tbody id="modalEventosBody" class="divide-y divide-slate-800/50"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL FORENSE EXCLUSIVO DE LOGS DE TECLAS INDEVIDAS (1ºT vs 2ºT) -->
+    <div id="modalLogsTeclasIndevidas" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4" onclick="fecharModalLogsTeclasIndevidas(event)">
+      <div class="bg-slate-900 border-2 border-amber-500/70 rounded-2xl max-w-5xl w-full p-6 space-y-4 shadow-2xl flex flex-col max-h-[92vh]" onclick="event.stopPropagation()">
+        <div class="flex items-start justify-between border-b border-slate-800 pb-3">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded bg-amber-950 text-amber-300 border border-amber-700 mono">
+                SUBSISTEMA VOTA • EVENTO: TECLA INDEVIDA PRESSIONADA
+              </span>
+              <span id="badgeLogsTeclasEscopo" class="px-2 py-0.5 text-[10px] font-bold rounded bg-slate-800 text-slate-300 mono">
+                Urna
+              </span>
+            </div>
+            <h3 class="text-lg font-extrabold text-white mt-1 flex items-center gap-2">
+              ⚠️ Auditoria de Teclas Indevidas: 1º Turno vs 2º Turno (<code>logd.dat</code>)
+            </h3>
+            <p id="subtituloModalLogsTeclas" class="text-xs text-slate-400 mono">
+              Todos os registros autênticos com assinatura digital HMAC SHA-512 de 16-hex gerados pela urna.
+            </p>
+          </div>
+          <button onclick="fecharModalLogsTeclasIndevidas()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition">
+            ✕ Fechar (ESC)
+          </button>
+        </div>
+
+        <!-- 4 Cartões de Estatísticas Comparativas do Evento -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mono">
+          <div class="bg-slate-950 border border-indigo-900/50 p-3 rounded-xl">
+            <div class="text-[10px] text-indigo-400 font-bold">🟣 1º TURNO (04/10/2026)</div>
+            <div id="cardTeclas1TTotal" class="text-base font-extrabold text-indigo-300 mt-0.5">0</div>
+            <div class="text-[10px] text-slate-500">5 cargos (2 a 5 dígitos)</div>
+          </div>
+          <div class="bg-slate-950 border border-cyan-900/50 p-3 rounded-xl">
+            <div class="text-[10px] text-cyan-400 font-bold">🔵 2º TURNO (25/10/2026)</div>
+            <div id="cardTeclas2TTotal" class="text-base font-extrabold text-cyan-300 mt-0.5">0</div>
+            <div class="text-[10px] text-slate-500">Apenas 1 cargo (2 dígitos)</div>
+          </div>
+          <div class="bg-slate-950 border border-amber-900/50 p-3 rounded-xl">
+            <div class="text-[10px] text-amber-400 font-bold">Δ VARIAÇÃO NA CABINE</div>
+            <div id="cardTeclasDelta" class="text-base font-extrabold text-amber-300 mt-0.5">0</div>
+            <div id="cardTeclasDeltaPct" class="text-[10px] text-emerald-400">Redução de erros</div>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl">
+            <div class="text-[10px] text-slate-400 font-bold">ASSINATURA MAC (HMAC)</div>
+            <div class="text-base font-extrabold text-emerald-400 mt-0.5">100% VÁLIDO</div>
+            <div class="text-[10px] text-slate-500">Integridade criptográfica</div>
+          </div>
+        </div>
+
+        <!-- Explicação Técnica Pericial -->
+        <div class="bg-amber-950/30 border border-amber-500/30 rounded-xl p-3 text-xs text-amber-200/90 leading-relaxed">
+          <strong class="text-amber-300">💡 Entendimento Pericial:</strong> No 1º Turno ocorrem significativamente mais registros de <code>"Tecla indevida pressionada"</code> porque o eleitor vota em 5 cargos sucessivos (Deputado Federal: 4 dígitos, Deputado Estadual: 5 dígitos, Senador: 3 dígitos, Governador: 2 dígitos, Presidente: 2 dígitos), totalizando 16 dígitos mais 5 confirmações, gerando correções por repetição ou digitação adiantada. No 2º Turno, a cabine tem apenas 1 voto de 2 dígitos (Presidente), gerando uma redução típica de 90% a 95% nas teclas indevidas.
+        </div>
+
+        <!-- Barra de Ferramentas: Filtros de Turno & Busca Textual -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+          <div class="flex items-center gap-1.5 text-xs mono">
+            <span class="text-slate-400 text-[11px] mr-1">Filtrar Turno:</span>
+            <button id="btnFiltroTeclasTodos" onclick="setFiltroTurnoLogsTeclas('TODOS')" class="px-2.5 py-1 rounded bg-amber-500 text-slate-950 font-extrabold text-xs transition">
+              Todos (<span id="countTabTeclasTodos">0</span>)
+            </button>
+            <button id="btnFiltroTeclas1T" onclick="setFiltroTurnoLogsTeclas(1)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-700/60 font-bold text-xs transition">
+              🟣 1º Turno (<span id="countTabTeclas1T">0</span>)
+            </button>
+            <button id="btnFiltroTeclas2T" onclick="setFiltroTurnoLogsTeclas(2)" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-700/60 font-bold text-xs transition">
+              🔵 2º Turno (<span id="countTabTeclas2T">0</span>)
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <input
+              id="inputBuscaLogsTeclas"
+              type="text"
+              placeholder="🔍 Buscar linha, horário, #eleitor, MAC..."
+              oninput="filtrarLogsTeclasIndevidas()"
+              class="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1 text-xs mono text-white focus:outline-none focus:border-amber-500 w-64"
+            />
+            <span id="labelTotalLogsTeclasExibidos" class="text-xs text-slate-400 mono"></span>
+          </div>
+        </div>
+
+        <!-- Tabela com Todas as Ocorrências de "Tecla indevida pressionada" -->
+        <div class="bg-slate-950 border border-slate-800 rounded-xl flex-1 overflow-y-auto max-h-[46vh] p-3">
+          <table class="w-full text-left text-[11px] mono">
+            <thead class="text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-950 pb-2">
+              <tr>
+                <th class="py-1">Linha</th>
+                <th class="py-1">Turno / Data</th>
+                <th class="py-1">Horário</th>
+                <th class="py-1">Eleitor Associado</th>
+                <th class="py-1">Contexto na Cabine</th>
+                <th class="py-1">Evento Registrado</th>
+                <th class="py-1 text-right">MAC Assinatura</th>
+              </tr>
+            </thead>
+            <tbody id="tseTbodyLogsTeclasIndevidas" class="divide-y divide-slate-800/50"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
 
         <!-- Trilha Cronológica Completa de Eventos do Eleitor no logd.dat -->
         <div class="space-y-2">
@@ -3178,10 +3307,42 @@ o Boletim de Urna (apos encerramento da votacao).
         hourlyContainer.innerHTML = `<div class="text-slate-400 text-xs">Clique em qualquer urna abaixo para carregar seu <code>-log.jez</code> e visualizar a vazão horária detalhada.</div>`;
       }
 
+      const compCons = cons.comparativo_turnos || {};
+      const teclasT1Cons = compCons.teclas_indevidas_t1 || 0;
+      const teclasT2Cons = cons.total_teclas_indevidas || 0;
+      const deltaTeclasCons = teclasT2Cons - teclasT1Cons;
+      const sinalTeclasCons = deltaTeclasCons > 0 ? `+${deltaTeclasCons.toLocaleString("pt-BR")}` : `${deltaTeclasCons.toLocaleString("pt-BR")}`;
+
+      const idT1Cons = compCons.id_invalido_t1 || 0;
+      const idT2Cons = cons.total_id_invalido || 0;
+      const deltaIdCons = idT2Cons - idT1Cons;
+      const sinalIdCons = deltaIdCons > 0 ? `+${deltaIdCons.toLocaleString("pt-BR")}` : `${deltaIdCons.toLocaleString("pt-BR")}`;
+
+      window.currentLogsTeclasIndevidas1T = compCons.logs_teclas_indevidas_t1 || [];
+      window.currentLogsTeclasIndevidas2T = compCons.logs_teclas_indevidas_t2 || [];
+      window.currentLogsTeclasEscopo = `Consolidado (${cons.total_urnas} urnas)`;
+      window.currentLogsTeclasTotalT1 = teclasT1Cons;
+      window.currentLogsTeclasTotalT2 = teclasT2Cons;
+
       document.getElementById("tseOperationalStats").innerHTML = `
         <div>• Total de Urnas no Filtro: <strong class="text-emerald-400">${cons.total_urnas} urna(s)</strong> (${cons.cidades_no_filtro} cidade(s) / ${cons.zonas_no_filtro} zona(s))</div>
-        <div>• Teclas Indevidas Acumuladas nos Logs: <strong class="text-white">${cons.total_teclas_indevidas.toLocaleString("pt-BR")}</strong></div>
-        <div>• Títulos Inválidos Digitados pelos Mesários: <strong class="text-white">${cons.total_id_invalido.toLocaleString("pt-BR")}</strong></div>
+        <div class="flex flex-wrap items-center justify-between gap-1 py-1 border-y border-slate-800/80 my-1">
+          <div>
+            • <strong>Teclas Indevidas Acumuladas nos Logs:</strong>
+            1ºT: <span class="text-indigo-300 font-bold">${teclasT1Cons.toLocaleString("pt-BR")}</span> |
+            2ºT: <span class="text-white font-bold">${teclasT2Cons.toLocaleString("pt-BR")}</span>
+            <span class="text-[11px] font-semibold ${deltaTeclasCons <= 0 ? 'text-emerald-400' : 'text-amber-300'}">(Δ ${sinalTeclasCons})</span>
+          </div>
+          <button onclick="abrirModalLogsTeclasIndevidas()" class="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/40 text-[10px] font-bold transition flex items-center gap-1 shadow-sm">
+            📋 Ver Logs (1ºT vs 2ºT)
+          </button>
+        </div>
+        <div>
+          • <strong>Títulos Inválidos Digitados pelos Mesários:</strong>
+          1ºT: <span class="text-indigo-300 font-bold">${idT1Cons.toLocaleString("pt-BR")}</span> |
+          2ºT: <span class="text-white font-bold">${idT2Cons.toLocaleString("pt-BR")}</span>
+          <span class="text-[11px] text-slate-400 font-semibold">(Δ ${sinalIdCons})</span>
+        </div>
       `;
 
       // Renderiza Painel Comparativo 1º Turno (04/10/2026) x 2º Turno (25/10/2026) no Consolidado
@@ -3458,10 +3619,52 @@ o Boletim de Urna (apos encerramento da votacao).
         ? Object.entries(meta.historico_votos_por_data_no_log).map(([dt, q]) => `${dt}: ${q} votos`).join(" | ")
         : "-";
 
+      const compTurnos = data.comparativo_turnos || (data.resumo_consolidacao ? {
+        teclas_indevidas_t1: data.resumo_consolidacao.total_teclas_indevidas_t1 || 0,
+        teclas_indevidas_t2: data.resumo_consolidacao.total_teclas_indevidas || 0,
+        delta_teclas_indevidas: (data.resumo_consolidacao.total_teclas_indevidas || 0) - (data.resumo_consolidacao.total_teclas_indevidas_t1 || 0),
+        id_invalido_t1: data.resumo_consolidacao.total_id_invalido_t1 || 0,
+        id_invalido_t2: data.resumo_consolidacao.total_id_invalido || 0,
+        delta_id_invalido: (data.resumo_consolidacao.total_id_invalido || 0) - (data.resumo_consolidacao.total_id_invalido_t1 || 0),
+        logs_teclas_indevidas_t1: data.resumo_consolidacao.logs_teclas_indevidas_t1 || log.logs_teclas_indevidas_1_turno || [],
+        logs_teclas_indevidas_t2: data.resumo_consolidacao.logs_teclas_indevidas || log.logs_teclas_indevidas || [],
+      } : null);
+
+      const teclasT1 = compTurnos ? (compTurnos.teclas_indevidas_t1 || 0) : (log.resumo_1_turno_log ? log.resumo_1_turno_log.total_teclas_indevidas : 0);
+      const teclasT2 = resLog.total_teclas_indevidas || 0;
+      const deltaTeclas = teclasT2 - teclasT1;
+      const sinalTeclas = deltaTeclas > 0 ? `+${deltaTeclas.toLocaleString("pt-BR")}` : `${deltaTeclas.toLocaleString("pt-BR")}`;
+
+      const idT1 = compTurnos ? (compTurnos.id_invalido_t1 || 0) : (log.resumo_1_turno_log ? log.resumo_1_turno_log.total_identificador_invalido : 0);
+      const idT2 = resLog.total_identificador_invalido || 0;
+      const deltaId = idT2 - idT1;
+      const sinalId = deltaId > 0 ? `+${deltaId.toLocaleString("pt-BR")}` : `${deltaId.toLocaleString("pt-BR")}`;
+
+      window.currentLogsTeclasIndevidas1T = (compTurnos && compTurnos.logs_teclas_indevidas_t1) || log.logs_teclas_indevidas_1_turno || [];
+      window.currentLogsTeclasIndevidas2T = (compTurnos && compTurnos.logs_teclas_indevidas_t2) || log.logs_teclas_indevidas || [];
+      window.currentLogsTeclasEscopo = `Urna ${munNome} • Zona ${zonaNum} / Seção ${secaoNum}`;
+      window.currentLogsTeclasTotalT1 = teclasT1;
+      window.currentLogsTeclasTotalT2 = teclasT2;
+
       document.getElementById("tseOperationalStats").innerHTML = `
         <div>• Histórico acumulado na Mídia (1ºT e 2ºT): <strong class="text-amber-300">${histDatas}</strong></div>
-        <div>• Teclas Indevidas Pressionadas no 2ºT: <strong class="text-white">${resLog.total_teclas_indevidas || 0}</strong></div>
-        <div>• Títulos Digitados Inválidos pelo Mesário: <strong class="text-white">${resLog.total_identificador_invalido || 0}</strong></div>
+        <div class="flex flex-wrap items-center justify-between gap-1 py-1 border-y border-slate-800/80 my-1">
+          <div>
+            • <strong>Teclas Indevidas Pressionadas:</strong>
+            1ºT: <span class="text-indigo-300 font-bold">${teclasT1.toLocaleString("pt-BR")}</span> |
+            2ºT: <span class="text-white font-bold">${teclasT2.toLocaleString("pt-BR")}</span>
+            <span class="text-[11px] font-semibold ${deltaTeclas <= 0 ? 'text-emerald-400' : 'text-amber-300'}">(Δ ${sinalTeclas})</span>
+          </div>
+          <button onclick="abrirModalLogsTeclasIndevidas()" class="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/40 text-amber-300 border border-amber-500/40 text-[10px] font-bold transition flex items-center gap-1 shadow-sm">
+            📋 Ver Logs (1ºT vs 2ºT)
+          </button>
+        </div>
+        <div>
+          • <strong>Títulos Digitados Inválidos pelo Mesário:</strong>
+          1ºT: <span class="text-indigo-300 font-bold">${idT1.toLocaleString("pt-BR")}</span> |
+          2ºT: <span class="text-white font-bold">${idT2.toLocaleString("pt-BR")}</span>
+          <span class="text-[11px] text-slate-400 font-semibold">(Δ ${sinalId})</span>
+        </div>
         <div>• Etapas de Assinatura Digital Verificadas no Boot: <strong class="text-emerald-400">${log.etapas_assinatura_software_ok || 0} [SUCESSO]</strong></div>
       `;
 
@@ -4129,6 +4332,11 @@ o Boletim de Urna (apos encerramento da votacao).
           <td class="py-1.5 text-center">${c.tentativas_digital}/4</td>
           <td class="py-1.5">${c.tempo_mesa_bio_s}s</td>
           <td class="py-1.5 font-bold text-white">${c.tempo_cabine_s}s</td>
+          <td class="py-1.5">
+            ${c.teclas_indevidas > 0
+              ? `<span class="px-1.5 py-0.5 rounded bg-amber-950/80 text-amber-300 border border-amber-600/70 font-bold text-[10px]">⚠️ ${c.teclas_indevidas} tecla(s)</span>`
+              : `<span class="text-slate-500 text-[10px]">0</span>`}
+          </td>
           <td class="py-1.5 text-slate-500">${c.mac_voto}</td>
         </tr>
       `).join("");
@@ -4155,20 +4363,31 @@ o Boletim de Urna (apos encerramento da votacao).
         `${item.tempo_cabine_s} seg (Total: ${item.tempo_ciclo_total_s}s)`;
       document.getElementById("modalMacVoto").textContent = `MAC Conclusão: ${item.mac_voto}`;
 
+      const qTeclas = item.teclas_indevidas || 0;
+      const elTeclas = document.getElementById("modalTeclasIndevidas");
+      if (elTeclas) {
+        elTeclas.innerHTML = qTeclas > 0
+          ? `<span class="text-amber-400 font-extrabold">⚠️ ${qTeclas} tecla(s)</span>`
+          : `<span class="text-emerald-400 font-bold">0 (Nenhuma)</span>`;
+      }
+
       const evs = item.eventos_detalhados || [];
-      document.getElementById("modalEventosBody").innerHTML = evs.map(ev => `
-        <tr>
-          <td class="py-1 text-slate-500">#${ev.linha}</td>
-          <td class="py-1 font-bold text-cyan-300">${ev.hora}</td>
-          <td class="py-1">
-            <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${
-              ev.nivel === 'INFO' ? 'bg-slate-800 text-slate-300' : 'bg-amber-900/70 text-amber-300'
-            }">${ev.nivel}</span>
-          </td>
-          <td class="py-1 text-slate-200">${ev.mensagem}</td>
-          <td class="py-1 text-right text-slate-500">${ev.mac}</td>
-        </tr>
-      `).join("");
+      document.getElementById("modalEventosBody").innerHTML = evs.map(ev => {
+        const isTeclaIndevida = ev.mensagem && ev.mensagem.includes("Tecla indevida");
+        const rowBg = isTeclaIndevida ? "bg-amber-950/40 border-l-2 border-amber-500 font-semibold" : "";
+        const badge = isTeclaIndevida
+          ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950">⚠️ TECLA INDEVIDA</span>`
+          : `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${ev.nivel === 'INFO' ? 'bg-slate-800 text-slate-300' : 'bg-amber-900/70 text-amber-300'}">${ev.nivel}</span>`;
+        return `
+          <tr class="${rowBg}">
+            <td class="py-1 text-slate-500">#${ev.linha}</td>
+            <td class="py-1 font-bold text-cyan-300">${ev.hora}</td>
+            <td class="py-1">${badge}</td>
+            <td class="py-1 ${isTeclaIndevida ? 'text-amber-200' : 'text-slate-200'}">${ev.mensagem}</td>
+            <td class="py-1 text-right text-slate-500">${ev.mac}</td>
+          </tr>
+        `;
+      }).join("");
     }
 
     function fecharModalEleitorTse(event) {
@@ -4176,9 +4395,176 @@ o Boletim de Urna (apos encerramento da votacao).
       document.getElementById("voterDetailModal").classList.add("hidden");
     }
 
+    // ==============================================================================
+    // MODAL FORENSE EXCLUSIVO DE LOGS DE TECLAS INDEVIDAS (1ºT vs 2ºT)
+    // ==============================================================================
+    window.filtroTurnoLogsTeclasAtivo = "TODOS";
+
+    function abrirModalLogsTeclasIndevidas(turnoPreFiltro) {
+      playBeepKey();
+      const modal = document.getElementById("modalLogsTeclasIndevidas");
+      if (!modal) return;
+      modal.classList.remove("hidden");
+
+      if (turnoPreFiltro !== undefined) {
+        window.filtroTurnoLogsTeclasAtivo = turnoPreFiltro;
+      } else {
+        window.filtroTurnoLogsTeclasAtivo = "TODOS";
+      }
+
+      const escopo = window.currentLogsTeclasEscopo || "Urna";
+      const badgeEscopo = document.getElementById("badgeLogsTeclasEscopo");
+      if (badgeEscopo) badgeEscopo.textContent = escopo;
+
+      const logs1T = window.currentLogsTeclasIndevidas1T || [];
+      const logs2T = window.currentLogsTeclasIndevidas2T || [];
+      const total1T = window.currentLogsTeclasTotalT1 !== undefined ? window.currentLogsTeclasTotalT1 : logs1T.length;
+      const total2T = window.currentLogsTeclasTotalT2 !== undefined ? window.currentLogsTeclasTotalT2 : logs2T.length;
+      const delta = total2T - total1T;
+      const deltaPct = total1T > 0 ? (((total2T - total1T) / total1T) * 100).toFixed(1) : "0.0";
+
+      const c1 = document.getElementById("cardTeclas1TTotal");
+      if (c1) c1.textContent = `${total1T.toLocaleString("pt-BR")} tecla(s)`;
+      const c2 = document.getElementById("cardTeclas2TTotal");
+      if (c2) c2.textContent = `${total2T.toLocaleString("pt-BR")} tecla(s)`;
+      const cd = document.getElementById("cardTeclasDelta");
+      if (cd) cd.textContent = `${delta > 0 ? '+' : ''}${delta.toLocaleString("pt-BR")} tecla(s)`;
+      const cdp = document.getElementById("cardTeclasDeltaPct");
+      if (cdp) cdp.textContent = `${deltaPct}% na cabine`;
+
+      const ctTodos = document.getElementById("countTabTeclasTodos");
+      if (ctTodos) ctTodos.textContent = (total1T + total2T).toLocaleString("pt-BR");
+      const ct1T = document.getElementById("countTabTeclas1T");
+      if (ct1T) ct1T.textContent = total1T.toLocaleString("pt-BR");
+      const ct2T = document.getElementById("countTabTeclas2T");
+      if (ct2T) ct2T.textContent = total2T.toLocaleString("pt-BR");
+
+      const input = document.getElementById("inputBuscaLogsTeclas");
+      if (input) input.value = "";
+
+      filtrarLogsTeclasIndevidas();
+    }
+
+    function fecharModalLogsTeclasIndevidas(event) {
+      if (event && event.target && event.target.id !== "modalLogsTeclasIndevidas") return;
+      const modal = document.getElementById("modalLogsTeclasIndevidas");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    function setFiltroTurnoLogsTeclas(turno) {
+      window.filtroTurnoLogsTeclasAtivo = turno;
+      const btnTodos = document.getElementById("btnFiltroTeclasTodos");
+      const btn1T = document.getElementById("btnFiltroTeclas1T");
+      const btn2T = document.getElementById("btnFiltroTeclas2T");
+
+      if (btnTodos) {
+        btnTodos.className = turno === "TODOS"
+          ? "px-2.5 py-1 rounded bg-amber-500 text-slate-950 font-extrabold text-xs transition"
+          : "px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition";
+      }
+      if (btn1T) {
+        btn1T.className = turno === 1
+          ? "px-2.5 py-1 rounded bg-indigo-600 text-white font-extrabold text-xs transition"
+          : "px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-700/60 font-bold text-xs transition";
+      }
+      if (btn2T) {
+        btn2T.className = turno === 2
+          ? "px-2.5 py-1 rounded bg-cyan-600 text-slate-950 font-extrabold text-xs transition"
+          : "px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-700/60 font-bold text-xs transition";
+      }
+
+      filtrarLogsTeclasIndevidas();
+    }
+
+    function filtrarLogsTeclasIndevidas() {
+      const logs1T = (window.currentLogsTeclasIndevidas1T || []).map(l => ({ ...l, turno: 1 }));
+      const logs2T = (window.currentLogsTeclasIndevidas2T || []).map(l => ({ ...l, turno: 2 }));
+
+      let combinados = [];
+      if (window.filtroTurnoLogsTeclasAtivo === 1) {
+        combinados = logs1T;
+      } else if (window.filtroTurnoLogsTeclasAtivo === 2) {
+        combinados = logs2T;
+      } else {
+        combinados = [...logs1T, ...logs2T];
+      }
+
+      const q = (document.getElementById("inputBuscaLogsTeclas")?.value || "").trim().toLowerCase();
+      const filtrados = combinados.filter(item => {
+        if (!q) return true;
+        return (
+          String(item.linha || "").includes(q) ||
+          String(item.hora || "").includes(q) ||
+          String(item.timestamp || "").toLowerCase().includes(q) ||
+          String(item.seq_eleitor || "").includes(q) ||
+          String(item.contexto || "").toLowerCase().includes(q) ||
+          String(item.mac || "").toLowerCase().includes(q) ||
+          String(item.urna || "").toLowerCase().includes(q)
+        );
+      });
+
+      const labelCount = document.getElementById("labelTotalLogsTeclasExibidos");
+      if (labelCount) {
+        labelCount.textContent = `Exibindo ${filtrados.length.toLocaleString("pt-BR")} de ${combinados.length.toLocaleString("pt-BR")} log(s)`;
+      }
+
+      const tbody = document.getElementById("tseTbodyLogsTeclasIndevidas");
+      if (!tbody) return;
+
+      if (filtrados.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="7" class="py-8 text-center text-slate-400 text-xs">
+              Nenhuma linha de log encontrada com os filtros selecionados.
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = filtrados.slice(0, 500).map(l => {
+        const isT1 = l.turno === 1 || (l.data && l.data.startsWith("04/10"));
+        const badgeTurno = isT1
+          ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-700">1º Turno (04/10)</span>`
+          : `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-700">2º Turno (25/10)</span>`;
+
+        const urnaInfo = l.urna ? `<div class="text-[9px] text-slate-400">${l.urna}</div>` : "";
+        const seqClickable = l.seq_eleitor
+          ? `<button onclick="abrirCicloEleitorDeLogTeclas(${l.seq_eleitor}, ${isT1 ? 1 : 2})" class="px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-800 text-[10px] font-bold transition">
+              Eleitor #${l.seq_eleitor} ↗
+             </button>`
+          : `<span class="text-slate-500">-</span>`;
+
+        return `
+          <tr class="hover:bg-slate-800/60 transition">
+            <td class="py-1 text-slate-500">#${l.linha || '-'}</td>
+            <td class="py-1">${badgeTurno}</td>
+            <td class="py-1 font-bold text-white">${l.hora || l.timestamp || '-'}</td>
+            <td class="py-1">${seqClickable} ${urnaInfo}</td>
+            <td class="py-1 text-amber-200/90">${l.contexto || 'Na cabine'}</td>
+            <td class="py-1">
+              <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950/80 text-amber-300 border border-amber-600/70">
+                ⚠️ Tecla indevida pressionada
+              </span>
+            </td>
+            <td class="py-1 text-right text-slate-500">${l.mac || '-'}</td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function abrirCicloEleitorDeLogTeclas(seqNum, turnoNum) {
+      fecharModalLogsTeclasIndevidas();
+      alternarTurnoGraficoEleitoresTse(turnoNum);
+      setTimeout(() => {
+        abrirModalEleitorTse(seqNum);
+      }, 100);
+    }
+
     window.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         fecharModalEleitorTse();
+        fecharModalLogsTeclasIndevidas();
         return;
       }
       if (document.getElementById("tab-urna").classList.contains("hidden")) return;

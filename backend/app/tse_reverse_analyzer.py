@@ -532,6 +532,8 @@ def _novo_estado_dia_log(data_str: str) -> dict:
         "hab_sem_bio_log": 0,
         "total_teclas_indevidas": 0,
         "total_id_invalido": 0,
+        "logs_teclas_indevidas": [],
+        "logs_id_invalido": [],
         # Estado transitório do ciclo do eleitor atual
         "t_aguardando": None,
         "t_id_digitado": None,
@@ -575,6 +577,8 @@ def _compilar_resumo_dia_log(est: dict) -> dict:
         "habilitacao_sem_biometria": est["hab_sem_bio_log"],
         "total_teclas_indevidas": est["total_teclas_indevidas"],
         "total_identificador_invalido": est["total_id_invalido"],
+        "logs_teclas_indevidas": est.get("logs_teclas_indevidas", []),
+        "logs_id_invalido": est.get("logs_id_invalido", []),
         "qtd_alertas_dia": len(est["alertas_e_erros"]),
         "tempo_medio_mesa_bio_s": round(sum(tempos_mesa) / max(len(tempos_mesa), 1), 1),
         "tempo_medio_cabine_s": round(sum(tempos_cabine) / max(len(tempos_cabine), 1), 1),
@@ -780,6 +784,17 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
 
             elif "Identificador do eleitor digitado inválido" in msg:
                 est["total_id_invalido"] += 1
+                est["logs_id_invalido"].append({
+                    "linha": line_num,
+                    "timestamp": ts_str,
+                    "data": data_cur,
+                    "hora": dt.strftime("%H:%M:%S") if dt else hora_cur,
+                    "nivel": nivel,
+                    "subsistema": subsistema,
+                    "mensagem": msg,
+                    "mac": mac_hex,
+                    "seq_eleitor_previsto": len(est["ciclos_votacao"]) + 1,
+                })
 
             elif "Solicita digital. Tentativa" in msg:
                 est["tentativas_digital"] += 1
@@ -809,6 +824,19 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
             elif "Tecla indevida pressionada" in msg:
                 est["teclas_indevidas_ciclo"] += 1
                 est["total_teclas_indevidas"] += 1
+                est["logs_teclas_indevidas"].append({
+                    "linha": line_num,
+                    "timestamp": ts_str,
+                    "data": data_cur,
+                    "hora": dt.strftime("%H:%M:%S") if dt else hora_cur,
+                    "seq_eleitor": len(est["ciclos_votacao"]) + 1,
+                    "contexto": (f"Após votar para {est['cargos_confirmados'][-1]}" if est["cargos_confirmados"] else "Início da votação na cabine"),
+                    "cargos_votados": list(est["cargos_confirmados"]),
+                    "nivel": nivel,
+                    "subsistema": subsistema,
+                    "mensagem": msg,
+                    "mac": mac_hex,
+                })
 
             elif "Voto confirmado para" in msg:
                 m_cargo = re.search(r"\[(.*?)\]", msg)
@@ -932,8 +960,12 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
         "contagem_niveis": dict(contagem_niveis),
         "resumo_votacao_log": resumo_principal,
         "ciclos_eleitores": est_principal["ciclos_votacao"],
+        "logs_teclas_indevidas": est_principal.get("logs_teclas_indevidas", []),
+        "logs_id_invalido": est_principal.get("logs_id_invalido", []),
         "resumo_1_turno_log": resumo_t1,
         "ciclos_eleitores_1_turno": est_t1["ciclos_votacao"] if est_t1 else [],
+        "logs_teclas_indevidas_1_turno": est_t1.get("logs_teclas_indevidas", []) if est_t1 else [],
+        "logs_id_invalido_1_turno": est_t1.get("logs_id_invalido", []) if est_t1 else [],
         "alertas_1_turno": est_t1["alertas_e_erros"][:80] if est_t1 else [],
         "comparativo_turnos_log": comparativo_turnos_log,
         "alertas_dia_eleicao": est_principal["alertas_e_erros"][:80],
@@ -1246,6 +1278,10 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
         "tempo_maximo_ciclo_t1_s": res_t1.get("tempo_maximo_ciclo_s", 0.0) if tem_comp_1t_log else 0.0,
         "total_teclas_indevidas_t1": res_t1.get("total_teclas_indevidas", 0) if tem_comp_1t_log else 0,
         "total_id_invalido_t1": res_t1.get("total_identificador_invalido", 0) if tem_comp_1t_log else 0,
+        "logs_teclas_indevidas": res_log.get("logs_teclas_indevidas", []),
+        "logs_teclas_indevidas_t1": res_t1.get("logs_teclas_indevidas", []) if tem_comp_1t_log else [],
+        "logs_id_invalido": res_log.get("logs_id_invalido", []),
+        "logs_id_invalido_t1": res_t1.get("logs_id_invalido", []) if tem_comp_1t_log else [],
         "linhas_log_t1": res_t1.get("linhas_log_dia", 0) if tem_comp_1t_log else 0,
         "linhas_log_t2": res_log.get("linhas_log_dia", 0),
         "votos_por_hora_t1": res_t1.get("votos_por_hora", {}) if tem_comp_1t_log else {},
@@ -1772,6 +1808,29 @@ def _construir_comparativo_turnos(
 
     s0 = secoes_escopo[0] if len(secoes_escopo) == 1 else {}
 
+    logs_teclas_t1 = []
+    logs_teclas_t2 = []
+    for s in secoes_escopo:
+        pref = s.get("prefixo", "")
+        m_nome = s.get("municipio_nome", "")
+        z_str = s.get("zona", "")
+        sec_str = s.get("secao", "")
+        info_urna = f"{m_nome} • Z{z_str}/S{sec_str}" if m_nome else pref
+
+        for item in s.get("logs_teclas_indevidas_t1", []):
+            if len(logs_teclas_t1) < 2500:
+                item_copy = dict(item)
+                item_copy["urna"] = info_urna
+                item_copy["prefixo"] = pref
+                logs_teclas_t1.append(item_copy)
+
+        for item in s.get("logs_teclas_indevidas", []):
+            if len(logs_teclas_t2) < 2500:
+                item_copy = dict(item)
+                item_copy["urna"] = info_urna
+                item_copy["prefixo"] = pref
+                logs_teclas_t2.append(item_copy)
+
     return {
         "escopo": escopo_label,
         "disponivel": urnas_com_log_1t_2t > 0 or urnas_com_bu_1t > 0,
@@ -1821,6 +1880,8 @@ def _construir_comparativo_turnos(
         "teclas_indevidas_t1": teclas_t1,
         "teclas_indevidas_t2": teclas_t2,
         "delta_teclas_indevidas": teclas_t2 - teclas_t1,
+        "logs_teclas_indevidas_t1": logs_teclas_t1,
+        "logs_teclas_indevidas_t2": logs_teclas_t2,
         "id_invalido_t1": id_inv_t1,
         "id_invalido_t2": id_inv_t2,
         "delta_id_invalido": id_inv_t2 - id_inv_t1,
