@@ -948,8 +948,8 @@ o Boletim de Urna (apos encerramento da votacao).
               title="Recarrega e sincroniza todas as seções já salvas no PostgreSQL com o catálogo de auditoria"
               class="px-3.5 py-2.5 bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/50 text-emerald-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
             >
-              <span>🔄</span>
-              <span>Sincronizar Base</span>
+              <span id="iconBtnSync">🔄</span>
+              <span id="textBtnSync">Sincronizar Base</span>
             </button>
 
             <button
@@ -1761,6 +1761,92 @@ o Boletim de Urna (apos encerramento da votacao).
             class="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 font-extrabold text-xs transition"
           >
             ⏹ Parar e Consolidar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL / HUD INTELIGENTE DE SINCRONIZAÇÃO DA BASE ELEITORAL (FEEDBACK VISUAL EM TEMPO REAL) -->
+    <div id="tseSyncBaseModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+      <div class="bg-slate-900 border-2 border-emerald-500/80 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl relative">
+        <!-- Topo: Título + Badge + Percentual -->
+        <div class="flex items-start justify-between border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-3">
+            <div id="tseSyncModalIconBox" class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xl font-bold animate-pulse">
+              🔄
+            </div>
+            <div>
+              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-emerald-950 text-emerald-300 border border-emerald-700 mono">
+                POSTGRESQL ZERO-DISK RAW • SINCRONIZAÇÃO
+              </span>
+              <h3 id="tseSyncModalTitle" class="text-base font-extrabold text-white mt-0.5">
+                Sincronizando Base de Auditoria
+              </h3>
+            </div>
+          </div>
+          <span id="tseSyncModalPct" class="text-2xl font-black text-emerald-400 mono">0%</span>
+        </div>
+
+        <!-- Barra de Progresso Animada -->
+        <div class="space-y-1.5">
+          <div class="w-full bg-slate-950 rounded-full h-3.5 overflow-hidden border border-slate-800 p-0.5">
+            <div id="tseSyncModalProgressBar" style="width: 5%" class="bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-400 h-full rounded-full transition-all duration-300 shadow-[0_0_15px_rgba(16,185,129,0.5)]"></div>
+          </div>
+          <div class="flex items-center justify-between text-[11px] mono text-slate-400">
+            <span id="tseSyncModalStatusText">Conectando ao banco de dados...</span>
+            <span id="tseSyncModalUrnasCount" class="text-emerald-300 font-bold"></span>
+          </div>
+        </div>
+
+        <!-- Etapas do Stepper Visual -->
+        <div id="tseSyncStepperBox" class="space-y-2 bg-slate-950/70 border border-slate-800/80 rounded-xl p-3 text-xs mono">
+          <div id="syncStep1" class="flex items-center gap-2 text-slate-400">
+            <span id="syncStepIcon1" class="text-sm">⏳</span>
+            <span>1. Conexão ao PostgreSQL VPS e leitura das tabelas relacionais</span>
+          </div>
+          <div id="syncStep2" class="flex items-center gap-2 text-slate-500">
+            <span id="syncStepIcon2" class="text-sm">⚪</span>
+            <span>2. Ingestão em lote de BUs, RDVs e Métricas com <code class="text-cyan-300">selectinload</code></span>
+          </div>
+          <div id="syncStep3" class="flex items-center gap-2 text-slate-500">
+            <span id="syncStepIcon3" class="text-sm">⚪</span>
+            <span>3. Construção da Árvore Forense de 5 Níveis (Regiões > UFs > Cidades > Zonas)</span>
+          </div>
+          <div id="syncStep4" class="flex items-center gap-2 text-slate-500">
+            <span id="syncStepIcon4" class="text-sm">⚪</span>
+            <span>4. Consolidação da Matriz de Teclas de Presidente e Votos</span>
+          </div>
+        </div>
+
+        <!-- Bloco de Diagnóstico Final (exibido ao concluir) -->
+        <div id="tseSyncResultCard" class="hidden space-y-3 pt-1">
+          <div class="bg-slate-950 border border-emerald-500/40 rounded-xl p-3.5 space-y-2.5">
+            <div class="flex items-center justify-between border-b border-slate-800/80 pb-2">
+              <span class="text-xs font-bold text-white uppercase tracking-wider">📊 Resumo dos Dados Auditados</span>
+              <span id="tseSyncTotalBadge" class="text-xs font-black text-emerald-400 mono">0 Urnas</span>
+            </div>
+            <div id="tseSyncEstadosList" class="space-y-2 text-xs"></div>
+          </div>
+
+          <!-- Banner Informativo Inteligente (quando algum estado estiver parcial) -->
+          <div id="tseSyncAvisoParcialBox" class="hidden bg-amber-950/40 border border-amber-500/50 rounded-xl p-3 text-xs text-amber-200 space-y-1">
+            <div class="flex items-center gap-1.5 font-bold text-amber-300">
+              <span>💡</span>
+              <span>Aviso de Ingestão de Santa Catarina</span>
+            </div>
+            <p id="tseSyncAvisoParcialText" class="text-[11px] leading-relaxed text-amber-100/90"></p>
+          </div>
+        </div>
+
+        <!-- Rodapé com Botão -->
+        <div class="flex items-center justify-between pt-2 border-t border-slate-800">
+          <span id="tseSyncTempoDecorrido" class="text-[11px] text-slate-500 mono">Tempo: 0.0s</span>
+          <button
+            id="btnFecharModalSync"
+            onclick="fecharModalSyncTse()"
+            class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs transition shadow-lg shadow-emerald-950/50"
+          >
+            <span>🚀 Abrir Navegação Forense</span>
           </button>
         </div>
       </div>
@@ -3196,23 +3282,211 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
+    let _timerAutoFecharSync = null;
+
+    function fecharModalSyncTse() {
+      if (_timerAutoFecharSync) {
+        clearTimeout(_timerAutoFecharSync);
+        _timerAutoFecharSync = null;
+      }
+      const modal = document.getElementById("tseSyncBaseModal");
+      if (modal) modal.classList.add("hidden");
+    }
+
     async function forcarSincronizacaoBancoTse() {
-      showSecurityAlert("🔄 Sincronizando dados gravados no PostgreSQL com o catálogo de navegação...", false);
+      const btnSync = document.getElementById("btnSincronizarBancoTse");
+      const iconBtn = document.getElementById("iconBtnSync");
+      const textBtn = document.getElementById("textBtnSync");
+
+      if (btnSync) {
+        btnSync.disabled = true;
+        btnSync.className = "px-3.5 py-2.5 bg-emerald-700/60 border border-emerald-400 text-white font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5 opacity-90 cursor-wait shadow-lg shadow-emerald-950/60";
+        if (iconBtn) iconBtn.className = "inline-block animate-spin";
+        if (textBtn) textBtn.textContent = "Sincronizando Base...";
+      }
+
+      // Abre o Modal HUD Flutuante
+      const modal = document.getElementById("tseSyncBaseModal");
+      if (modal) modal.classList.remove("hidden");
+
+      const mBar = document.getElementById("tseSyncModalProgressBar");
+      const mPct = document.getElementById("tseSyncModalPct");
+      const mStatus = document.getElementById("tseSyncModalStatusText");
+      const mCount = document.getElementById("tseSyncModalUrnasCount");
+      const mTempo = document.getElementById("tseSyncTempoDecorrido");
+      const resultCard = document.getElementById("tseSyncResultCard");
+      const avisoParcial = document.getElementById("tseSyncAvisoParcialBox");
+      const stepper = document.getElementById("tseSyncStepperBox");
+
+      if (resultCard) resultCard.classList.add("hidden");
+      if (avisoParcial) avisoParcial.classList.add("hidden");
+      if (stepper) stepper.classList.remove("hidden");
+
+      const t0 = Date.now();
+      const intervalTimer = setInterval(() => {
+        const seg = ((Date.now() - t0) / 1000).toFixed(1);
+        if (mTempo) mTempo.textContent = `Tempo: ${seg}s`;
+      }, 100);
+
+      // Função auxiliar para atualizar o Stepper visual
+      function atualizarEtapaSync(num, status, texto) {
+        for (let i = 1; i <= 4; i++) {
+          const el = document.getElementById(`syncStep${i}`);
+          const icon = document.getElementById(`syncStepIcon${i}`);
+          if (!el || !icon) continue;
+          if (i < num) {
+            el.className = "flex items-center gap-2 text-emerald-400 font-bold";
+            icon.textContent = "✅";
+          } else if (i === num) {
+            el.className = "flex items-center gap-2 text-cyan-300 font-extrabold animate-pulse";
+            icon.textContent = "⏳";
+          } else {
+            el.className = "flex items-center gap-2 text-slate-500";
+            icon.textContent = "⚪";
+          }
+        }
+        if (mStatus) mStatus.textContent = texto;
+      }
+
       try {
+        // Etapa 1: Conexão inicial
+        if (mBar) mBar.style.width = "20%";
+        if (mPct) mPct.textContent = "20%";
+        atualizarEtapaSync(1, "ativo", "Conectando ao banco PostgreSQL e lendo tabelas relacionais...");
+        await new Promise(r => setTimeout(r, 120));
+
+        // Etapa 2: Chamada do endpoint de sincronização no backend
+        if (mBar) mBar.style.width = "45%";
+        if (mPct) mPct.textContent = "45%";
+        atualizarEtapaSync(2, "ativo", "Carregando seções, apurações de BU e logs (selectinload)...");
+
         const res = await fetch("/api/tse-reverso/sincronizar-banco", { method: "POST" });
         const data = await res.json();
-        hideSecurityAlert();
-        if (res.ok) {
-          playBeepBiometriaOk();
-          showSecurityAlert(data.mensagem || `Base sincronizada: ${data.total_secoes_sincronizadas} urnas carregadas.`, false);
-          await atualizarStatusBancoAuditoria();
-          await atualizarConsolidacaoTse(true);
-        } else {
-          showSecurityAlert("Erro ao sincronizar base do PostgreSQL.", true);
+
+        if (!res.ok) {
+          throw new Error(data.detail || "Falha ao sincronizar com o banco PostgreSQL.");
         }
+
+        const totalSinc = data.total_secoes_sincronizadas || 0;
+        if (mCount) mCount.textContent = `${totalSinc.toLocaleString("pt-BR")} urnas`;
+
+        // Etapa 3: Atualiza badges e consolidação
+        if (mBar) mBar.style.width = "75%";
+        if (mPct) mPct.textContent = "75%";
+        atualizarEtapaSync(3, "ativo", "Construindo hierarquia de 5 níveis (Região > UFs > Cidades > Zonas)...");
+
+        await atualizarStatusBancoAuditoria();
+        await new Promise(r => setTimeout(r, 100));
+
+        // Etapa 4: Renderização final da árvore e dos painéis
+        if (mBar) mBar.style.width = "95%";
+        if (mPct) mPct.textContent = "95%";
+        atualizarEtapaSync(4, "ativo", "Consolidando comparativo forense e matriz de teclas...");
+
+        await atualizarConsolidacaoTse(true);
+
+        // Concluído 100%
+        if (mBar) mBar.style.width = "100%";
+        if (mPct) mPct.textContent = "100%";
+        atualizarEtapaSync(5, "done", "Base sincronizada e auditada com sucesso!");
+
+        clearInterval(intervalTimer);
+        const segTotal = ((Date.now() - t0) / 1000).toFixed(1);
+        if (mTempo) mTempo.textContent = `Concluído em ${segTotal}s`;
+
+        playBeepBiometriaOk();
+
+        // Renderiza o Card de Diagnóstico Inteligente
+        if (resultCard) {
+          resultCard.classList.remove("hidden");
+          const totalBadge = document.getElementById("tseSyncTotalBadge");
+          if (totalBadge) totalBadge.textContent = `${totalSinc.toLocaleString("pt-BR")} Urnas`;
+
+          const estadosList = document.getElementById("tseSyncEstadosList");
+          let temEstadoParcial = false;
+          let parcialNome = "";
+          let parcialIngerido = 0;
+          let parcialOficial = 0;
+
+          if (estadosList) {
+            const estados = data.estados || [];
+            estadosList.innerHTML = estados.map(e => {
+              const completo = e.status === "COMPLETO";
+              if (!completo) {
+                temEstadoParcial = true;
+                parcialNome = e.nome;
+                parcialIngerido = e.urnas;
+                parcialOficial = e.oficial_tse;
+              }
+              return `
+                <div class="flex items-center justify-between p-2 rounded-lg ${completo ? 'bg-slate-900 border border-slate-800' : 'bg-amber-950/30 border border-amber-500/40'}">
+                  <div class="flex items-center gap-2">
+                    <span class="font-extrabold ${completo ? 'text-emerald-400' : 'text-amber-300'}">🏛️ ${e.uf} — ${e.nome}</span>
+                    <span class="text-[10px] text-slate-400 mono">(${e.cidades} cidades / ${e.zonas} zonas)</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-extrabold text-white mono">${e.urnas.toLocaleString("pt-BR")} urnas</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded font-extrabold uppercase ${completo ? 'bg-emerald-950 text-emerald-300 border border-emerald-700' : 'bg-amber-950 text-amber-300 border border-amber-600'}">
+                      ${completo ? '100% Completo' : `${e.pct_concluido}% (Parcial)`}
+                    </span>
+                  </div>
+                </div>
+              `;
+            }).join("");
+          }
+
+          if (temEstadoParcial && avisoParcial) {
+            avisoParcial.classList.remove("hidden");
+            const avisoTxt = document.getElementById("tseSyncAvisoParcialText");
+            if (avisoTxt) {
+              avisoTxt.innerHTML = `O estado de <strong>${parcialNome}</strong> possui <strong>${parcialOficial.toLocaleString("pt-BR")}</strong> seções oficiais no TSE. No momento, <strong>${parcialIngerido.toLocaleString("pt-BR")}</strong> seções estão no banco.<br/>
+              <em>Dica:</em> O upload anterior foi interrompido por timeout do servidor antigo. Para completar 100%, clique em <strong>Subir Arquivo(s) .ZIP</strong> e selecione o arquivo do estado novamente — o processamento continuará em segundo plano até 100%!`;
+            }
+          }
+        }
+
+        // Restaura o botão
+        if (btnSync) {
+          btnSync.disabled = false;
+          btnSync.className = "px-3.5 py-2.5 bg-emerald-600/40 hover:bg-emerald-600/60 border border-emerald-400 text-emerald-200 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5 shadow-md shadow-emerald-950/40";
+          if (iconBtn) {
+            iconBtn.className = "";
+            iconBtn.textContent = "✅";
+          }
+          if (textBtn) textBtn.textContent = "Base Atualizada!";
+          setTimeout(() => {
+            if (iconBtn) iconBtn.textContent = "🔄";
+            if (textBtn) textBtn.textContent = "Sincronizar Base";
+          }, 3500);
+        }
+
+        // Auto-fecha após 4 segundos caso o usuário não clique no botão
+        _timerAutoFecharSync = setTimeout(() => {
+          fecharModalSyncTse();
+        }, 4500);
+
       } catch (err) {
-        hideSecurityAlert();
-        showSecurityAlert(`Falha de comunicação: ${err.message}`, true);
+        clearInterval(intervalTimer);
+        if (mStatus) mStatus.textContent = `Erro: ${err.message}`;
+        if (mBar) {
+          mBar.className = "bg-rose-500 h-full rounded-full";
+          mBar.style.width = "100%";
+        }
+        if (mPct) {
+          mPct.className = "text-2xl font-black text-rose-400 mono";
+          mPct.textContent = "ERRO";
+        }
+        showSecurityAlert(`Falha na sincronização: ${err.message}`, true);
+
+        if (btnSync) {
+          btnSync.disabled = false;
+          btnSync.className = "px-3.5 py-2.5 bg-rose-950/40 border border-rose-500 text-rose-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5";
+          if (iconBtn) {
+            iconBtn.className = "";
+            iconBtn.textContent = "⚠️";
+          }
+          if (textBtn) textBtn.textContent = "Tentar Sincronizar";
+        }
       }
     }
 
@@ -3709,7 +3983,17 @@ o Boletim de Urna (apos encerramento da votacao).
           <span class="text-[10px] opacity-90">${totalNoFiltro.toLocaleString("pt-BR")}u</span>
         </button>`;
 
-        html += secoes.slice(0, 300).map(s => {
+        // Aviso visual inteligente caso o usuário esteja visualizando um estado inteiro sem ter filtrado uma cidade
+        if (cSel === "TODAS" && totalNoFiltro > 300) {
+          html += `
+            <div class="px-2.5 py-2 my-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[10px] text-amber-300 leading-snug">
+              <span class="font-bold">💡 Exibindo amostra de 500 de ${totalNoFiltro.toLocaleString("pt-BR")} urnas.</span>
+              <div class="text-slate-400 mt-0.5">Selecione uma <strong>Cidade (coluna 3)</strong> para ver 100% das suas seções, ou busque pelo número acima.</div>
+            </div>
+          `;
+        }
+
+        html += secoes.slice(0, 500).map(s => {
           const active = sSel === s.prefixo;
           const riscoBadge = s.nivel_risco !== "BAIXO" ? "🚨" : "🗳️";
           return `<button onclick="selecionarNoArvoreTse('${s.regiao || rSel}','${s.uf || uSel}','${s.municipio_codigo || cSel}','${s.zona || zSel}','${s.prefixo}')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
@@ -3732,8 +4016,9 @@ o Boletim de Urna (apos encerramento da votacao).
       document.getElementById("tseCard5Label").textContent = "COMPARECIMENTO GLOBAL";
       document.getElementById("tseCard6Label").textContent = "CADÊNCIA PONDERADA";
 
+      const ufNomeAtivo = hier.estados?.find(e => e.uf === hier.uf_selecionada)?.nome || hier.uf_selecionada;
       const cidSel = hier.municipio_selecionado === "TODAS"
-        ? `PARANÁ (${cons.cidades_no_filtro} Cidades)`
+        ? (hier.uf_selecionada === "TODAS" ? `BRASIL (${cons.cidades_no_filtro} Cidades)` : `${ufNomeAtivo} (${cons.cidades_no_filtro} Cidades)`)
         : (hier.cidades.find(c => c.codigo === hier.municipio_selecionado)?.nome || hier.municipio_selecionado);
       const zonaSel = hier.zona_selecionada === "TODAS"
         ? `${cons.zonas_no_filtro} Zona(s)`

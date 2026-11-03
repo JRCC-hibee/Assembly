@@ -1000,6 +1000,7 @@ def api_tse_reverso_sincronizar_banco():
     return {
         "ok": res.get("ok", True),
         "total_secoes_sincronizadas": res.get("total", 0),
+        "estados": res.get("estados", []),
         "mensagem": f"{res.get('total', 0)} seções sincronizadas com sucesso do PostgreSQL.",
     }
 
@@ -1072,20 +1073,33 @@ def api_tse_reverso_status_banco():
     total de seções, estados, municípios, apurações e métricas de log cadastradas.
     """
     from .database import TseSecao, TseApuracaoBU, TseMetricasLog, TseVotoCandidato, DATABASE_URL
-    from .tse_reverse_analyzer import TSE_ZERO_DISK_RAW
+    from .tse_reverse_analyzer import TSE_ZERO_DISK_RAW, _carregar_catalogo_disco
     db = SessionLocal()
     try:
-        total_secoes = db.query(TseSecao).count()
-        total_ufs = db.query(TseSecao.uf).distinct().count()
+        total_secoes_db = db.query(TseSecao).count()
+        total_ufs_db = db.query(TseSecao.uf).distinct().count()
         total_municipios = db.query(TseSecao.municipio_codigo).distinct().count()
         total_bu = db.query(TseApuracaoBU).count()
         total_metricas = db.query(TseMetricasLog).count()
         total_votos = db.query(TseVotoCandidato).count()
+
+        catalogo = _carregar_catalogo_disco()
+        total_catalogo = len(catalogo)
+        ufs_catalogo = list(set(s.get("uf") for s in catalogo.values() if s.get("uf")))
+
+        total_secoes = max(total_secoes_db, total_catalogo)
+        total_ufs = max(total_ufs_db, len(ufs_catalogo))
+
         return {
             "banco": "PostgreSQL" if "postgres" in DATABASE_URL.lower() else "SQLite",
             "zero_disk_raw_ativo": TSE_ZERO_DISK_RAW,
             "total_secoes": total_secoes,
+            "total_secoes_db": total_secoes_db,
+            "total_secoes_catalogo": total_catalogo,
             "total_ufs": total_ufs,
+            "total_ufs_db": total_ufs_db,
+            "total_ufs_catalogo": len(ufs_catalogo),
+            "ufs_catalogo": ufs_catalogo,
             "total_municipios": total_municipios,
             "total_apuracoes_bu": total_bu,
             "total_metricas_log": total_metricas,

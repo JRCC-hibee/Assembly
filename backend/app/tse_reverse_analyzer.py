@@ -1504,8 +1504,52 @@ def sincronizar_catalogo_com_banco() -> dict:
             if s.municipio_codigo and s.municipio_nome and not s.municipio_nome.startswith("MUNICÍPIO"):
                 MUNICIPIOS_PR_TSE[s.municipio_codigo] = s.municipio_nome
 
+        # Monta resumo inteligente por estado para auditoria e feedback visual na interface
+        stats_ufs: dict[str, dict] = {}
+        for item in _CATALOGO_MEMORIA.values():
+            uf = (item.get("uf") or "PR").upper()
+            if uf not in stats_ufs:
+                stats_ufs[uf] = {"urnas": 0, "cidades": set(), "zonas": set()}
+            stats_ufs[uf]["urnas"] += 1
+            if item.get("municipio_codigo"):
+                stats_ufs[uf]["cidades"].add(item.get("municipio_codigo"))
+            if item.get("zona"):
+                stats_ufs[uf]["zonas"].add(item.get("zona"))
+
+        resumo_estados = []
+        OFS_TSE = {
+            "SC": 17536,
+            "PR": 27142,
+            "RS": 27954,
+            "SP": 105658,
+            "RJ": 34185,
+            "MG": 48259,
+            "BA": 34091,
+        }
+        for uf, st in sorted(stats_ufs.items()):
+            tot_urnas = st["urnas"]
+            tot_cidades = len(st["cidades"])
+            oficial = OFS_TSE.get(uf, tot_urnas)
+            pct = round((tot_urnas / oficial) * 100, 1) if oficial > 0 else 100.0
+            info_est = ESTADOS_E_REGIOES_BR.get(uf, {"nome": uf, "regiao": "SUL"})
+            resumo_estados.append({
+                "uf": uf,
+                "nome": info_est.get("nome", uf),
+                "regiao": info_est.get("regiao", "SUL"),
+                "urnas": tot_urnas,
+                "cidades": tot_cidades,
+                "zonas": len(st["zonas"]),
+                "oficial_tse": oficial,
+                "pct_concluido": min(100.0, pct),
+                "status": "COMPLETO" if pct >= 99.0 else "PARCIAL",
+            })
+
         _CATALOGO_CARREGADO = True
-        return {"ok": True, "total": len(_CATALOGO_MEMORIA)}
+        return {
+            "ok": True,
+            "total": len(_CATALOGO_MEMORIA),
+            "estados": resumo_estados,
+        }
     except Exception as exc:
         print(f"[TSE-DB] Erro ao sincronizar catalogo do PostgreSQL: {exc}")
         return {"ok": False, "erro": str(exc), "total": len(_CATALOGO_MEMORIA)}
