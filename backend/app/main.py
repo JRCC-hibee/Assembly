@@ -1,5 +1,7 @@
 import os
 import glob
+import time
+import zipfile
 import hashlib
 from datetime import datetime, timezone
 from typing import Optional
@@ -39,6 +41,7 @@ from .tse_reverse_analyzer import (
     obter_indice_secoes_carregadas,
     reauditar_urnas_divergentes_catalogo,
     limpar_catalogo_tse,
+    extrair_prefixo_seccao,
 )
 
 app = FastAPI(
@@ -802,6 +805,76 @@ async def api_tse_reverso_upload_lote(request: Request):
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Erro ao processar lote TSE: {exc}")
+
+
+@app.post("/api/tse-reverso/upload-zip")
+async def api_tse_reverso_upload_zip(request: Request):
+    """
+    Recebe um ou mais arquivos .ZIP completos do TSE (ex: PR_2T.zip, SP_1T.zip, etc.),
+    extrai diretamente em micro-lotes na memória sem buffering excessivo,
+    persiste as métricas e dados de apuração no PostgreSQL sob a estratégia
+    Zero-Disk Raw e descarta o arquivo temporário imediatamente.
+    """
+    form = await request.form(max_files=100, max_fields=100)
+    files = form.getlist("files")
+    if not files:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo .ZIP enviado.")
+
+    total_secoes_gravadas = 0
+    total_zips_processados = 0
+    t0 = time.time()
+
+    for f in files:
+        filename = getattr(f, "filename", "") or ""
+        if not filename.lower().endswith(".zip"):
+            continue
+
+        try:
+            # Abre o ZIP diretamente do arquivo temporário spoolado do FastAPI
+            with zipfile.ZipFile(f.file, "r") as zf:
+                infolist = [
+                    info for info in zf.infolist()
+                    if not info.is_dir() and any(info.filename.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc"))
+                ]
+
+                # Agrupa metadados dos arquivos por prefixo de urna (baixo uso de RAM)
+                grupos_info = {}
+                for info in infolist:
+                    base = os.path.basename(info.filename)
+                    pref = extrair_prefixo_seccao(base)
+                    if pref:
+                        grupos_info.setdefault(pref, []).append((base, info))
+
+                prefixos = list(grupos_info.keys())
+                chunk_size = 50  # 50 seções por micro-lote
+
+                for i in range(0, len(prefixos), chunk_size):
+                    fatia = prefixos[i : i + chunk_size]
+                    micro_lote_bytes = {}
+                    for pref in fatia:
+                        for base_name, zinfo in grupos_info[pref]:
+                            try:
+                                micro_lote_bytes[base_name] = zf.read(zinfo)
+                            except Exception:
+                                pass
+                    if micro_lote_bytes:
+                        res = processar_lote_arquivos_tse(micro_lote_bytes)
+                        total_secoes_gravadas += res.get("secoes_processadas_neste_lote", 0)
+                        micro_lote_bytes.clear()
+
+            total_zips_processados += 1
+        except Exception as exc:
+            print(f"[TSE-ZIP] Erro ao processar arquivo {filename}: {exc}")
+            raise HTTPException(status_code=400, detail=f"Erro ao processar {filename}: {exc}")
+
+    duracao = time.time() - t0
+    return {
+        "ok": True,
+        "zips_processados": total_zips_processados,
+        "total_secoes_gravadas": total_secoes_gravadas,
+        "tempo_segundos": round(duracao, 2),
+    }
+
 
 
 @app.get("/api/tse-reverso/consolidar")

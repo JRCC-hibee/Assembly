@@ -125,17 +125,44 @@
   </style>
 </head>
 <body class="min-h-screen pb-16">
-  <!-- Header -->
-  <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-30">
+  <!-- Header com Seletor Mestre de Módulos: Simulador de Urna vs. Auditoria Eleições -->
+  <header class="bg-slate-900 border-b border-slate-800 sticky top-0 z-30 shadow-xl">
     <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-4">
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-lg bg-emerald-600 flex items-center justify-center font-extrabold text-xl">BR</div>
+        <div id="moduloIconLogo" class="w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-600 to-cyan-600 flex items-center justify-center font-extrabold text-xl shadow-md text-white">BR</div>
         <div>
-          <h1 class="font-bold text-lg leading-tight">Sistema Eleitoral — Urna Eletrônica Brasileira</h1>
-          <p class="text-xs text-slate-400 mono">ESP32-C3/C6 RISC-V Assembly (ILI9341 320x240 SPI) + Terminal do Mesário Biométrico + Python Core</p>
+          <div class="flex items-center gap-2">
+            <h1 id="moduloMainTitle" class="font-bold text-lg leading-tight text-white">Sistema Eleitoral — Urna Eletrônica Brasileira</h1>
+            <span id="moduloIndicatorBadge" class="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase mono bg-emerald-950 text-emerald-300 border border-emerald-700">Módulo Simulador</span>
+          </div>
+          <p id="moduloSubtitle" class="text-xs text-slate-400 mono">ESP32-C3/C6 RISC-V Assembly (ILI9341 SPI) + Terminal do Mesário Biométrico</p>
         </div>
       </div>
 
+      <!-- Seletor Mestre de 2 Módulos Distintos -->
+      <div class="flex items-center bg-slate-950 p-1.5 rounded-2xl border border-slate-700/80 shadow-2xl">
+        <button
+          id="btn-modulo-simulador"
+          onclick="ativarModulo('simulador')"
+          class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-emerald-600 text-white shadow-md shadow-emerald-900/30"
+          title="Terminal do Mesário, Cabine de Votação Virtual, Candidatos, Boletins e Telemetria de Hardware"
+        >
+          <span>🗳️</span>
+          <span>Simulador de Urna</span>
+        </button>
+        <button
+          id="btn-modulo-auditoria"
+          onclick="ativarModulo('auditoria')"
+          class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-transparent"
+          title="Auditoria Forense Multi-Urna TSE, Comparativo 1ºT vs 2ºT, Árvore Nacional e Ingestão de .ZIPs"
+        >
+          <span>🔍</span>
+          <span>Auditoria Eleições (TSE)</span>
+          <span class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 mono">BRASIL</span>
+        </button>
+      </div>
+
+      <!-- Badge de Status do Simulador (Zona, Seção, Turno local) -->
       <div id="headerStatusBadge" class="flex items-center gap-3 text-xs mono bg-slate-800 px-3.5 py-2 rounded-lg border border-slate-700">
         <span>ZONA: <strong id="hdrZona">0001</strong></span>
         <span>•</span>
@@ -145,14 +172,21 @@
         <span>•</span>
         <span>STATUS: <strong id="hdrStatus" class="text-emerald-400">CARREGANDO...</strong></span>
       </div>
+
+      <!-- Badge de Status da Auditoria Eleições TSE (PostgreSQL Zero-Disk Raw) -->
+      <div id="headerAuditoriaBadge" class="hidden flex items-center gap-3 text-xs mono bg-slate-800/90 px-3.5 py-2 rounded-lg border border-cyan-700/60 text-cyan-300">
+        <span>BANCO: <strong class="text-white">PostgreSQL (Zero-Disk Raw)</strong></span>
+        <span>•</span>
+        <span>BASE: <strong id="headerAuditoriaCount" class="text-emerald-400">0 URNAS</strong></span>
+      </div>
     </div>
   </header>
 
-  <!-- Navigation Tabs -->
-  <div class="max-w-7xl mx-auto px-4 mt-6">
+  <!-- Sub-navegação interna exclusiva do MÓDULO 1: SIMULADOR DE URNA -->
+  <div id="subnav-simulador" class="max-w-7xl mx-auto px-4 mt-5">
     <div class="flex flex-wrap gap-2 border-b border-slate-800 pb-3">
       <button onclick="switchTab('tab-urna')" id="btn-tab-urna" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-emerald-600 text-white">
-        1. Terminal do Mesário (Biometria) & Urna Eletrônica
+        1. Terminal do Mesário & Urna Eletrônica
       </button>
       <button onclick="switchTab('tab-candidatos')" id="btn-tab-candidatos" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-slate-300 hover:bg-slate-700">
         2. Cadastro de Candidatos & Caderno de Eleitores
@@ -164,13 +198,11 @@
         4. Telemetria Assembly RISC-V (ESP32 + ILI9341)
       </button>
       <button onclick="switchTab('tab-simulacao')" id="btn-tab-simulacao" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-500/30">
-        5. Simulador de Cadência & Auditoria Forense de Logs
-      </button>
-      <button onclick="switchTab('tab-tse-reverso')" id="btn-tab-tse-reverso" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-cyan-300 hover:bg-slate-700 border border-cyan-500/30">
-        6. Engenharia Reversa Oficial TSE (PR 2026: .jez / .dat / .vsc)
+        5. Simulador de Cadência & Auditoria Forense Local
       </button>
     </div>
   </div>
+
 
   <!-- Banner de Alerta / Bloqueio de Segurança TSE -->
   <div id="securityAlertContainer" class="max-w-7xl mx-auto px-4 mt-4 hidden">
@@ -857,70 +889,89 @@ o Boletim de Urna (apos encerramento da votacao).
       </div>
     </section>
 
-    <!-- TAB 6: ENGENHARIA REVERSA OFICIAL TSE (.LOG.JEZ / .IMGBU.DAT / .RDV.DAT / .BU.DAT / .VOTA.VSC) -->
+    <!-- MÓDULO 2: AUDITORIA FORENSE ELEIÇÕES (TSE) — COMPARATIVO 1ºT VS 2ºT E ÁRVORE NACIONAL -->
     <section id="tab-tse-reverso" class="hidden space-y-6">
-      <!-- Barra de Upload em Lote (Estadual / Municipal / Seção) e Amostra Oficial PR 2026 -->
-      <div class="bg-slate-900 border-2 border-cyan-500/40 rounded-xl p-5 space-y-4">
+      <!-- Central de Ingestão de Arquivos e Pastas .ZIP / Estado Inteiro -->
+      <div class="bg-slate-900 border-2 border-cyan-500/50 rounded-2xl p-6 space-y-4 shadow-2xl">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="max-w-2xl">
-            <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
-              Motor Forense Multi-Urna TSE — Consolidação Paraná (Cidade × Zona × Seção)
-            </span>
-            <h2 class="text-base font-bold text-white mt-1">
-              Importação em Lote Estadual e Batimento Triplo (`-log.jez` × `-imgbu.dat` × `-rdv.dat` ASN.1 DER)
+            <div class="flex items-center gap-2">
+              <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
+                MÓDULO DE AUDITORIA FORENSE ELEITORAL — TSE
+              </span>
+              <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-950 text-emerald-300 border border-emerald-800 mono">
+                Zero-Disk Raw Ativo
+              </span>
+            </div>
+            <h2 class="text-lg font-extrabold text-white mt-1.5 flex items-center gap-2">
+              <span>Auditoria Nacional Multi-Urna e Ingestão de Arquivos .ZIP</span>
             </h2>
-            <p class="text-xs text-slate-400 mt-0.5">
-              Selecione <strong>quantas seções ou pastas quiser</strong> da sua pasta <code class="text-cyan-300">bu_imgbu_logjez_rdv_vscmr_2026_2t_PR</code>. O sistema envia em micro-lotes automáticos (sem travar ou estourar limite de upload) e habilita a consolidação por <strong>Cidade, Zona e Urna</strong>.
+            <p class="text-xs text-slate-300 mt-1 leading-relaxed">
+              Suba diretamente os arquivos <code class="text-cyan-300 font-bold">.ZIP</code> do 1º ou 2º turno de qualquer estado (ou pastas inteiras). O sistema realiza a extração em <strong>streaming na memória</strong>, grava as tabelas relacionais no <strong>PostgreSQL</strong> e descarta os arquivos brutos, consumindo <strong>zero gigabytes de armazenamento residual na VPS</strong>.
             </p>
           </div>
 
           <div class="flex flex-wrap items-center gap-2.5">
-            <button
-              id="btnVincularPastaLocalTse"
-              onclick="vincularPastaLocalTseShowDirectoryPicker()"
-              title="Vincula sua pasta local do PR (sem precisar listar 135 mil arquivos) para puxar o arquivo -log.jez automaticamente em 0,2s sempre que você clicar em uma urna na árvore!"
-              class="px-3.5 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-xs rounded-xl shadow-lg transition inline-flex items-center gap-2"
-            >
-              <span id="lblVincularPastaLocalTse">🔗 Vincular Pasta PR p/ Log.jez Automático</span>
-            </button>
+            <!-- Botão Principal: Subir Arquivos .ZIP -->
+            <label class="px-4 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs rounded-xl cursor-pointer shadow-lg shadow-cyan-950/50 transition inline-flex items-center gap-2" title="Selecione um ou vários arquivos .zip de estados ou seções">
+              <span>📦</span>
+              <span>Subir Arquivo(s) .ZIP</span>
+              <input id="tseZipInput" type="file" multiple accept=".zip" onchange="iniciarImportacaoZipTse(event)" class="hidden" />
+            </label>
 
-            <label class="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2" title="Selecione uma pasta inteira no seu computador (1ºT ou 2ºT)">
-              <span>🗂️ Selecionar Pasta Inteira (1ºT ou 2ºT)</span>
+            <!-- Botão: Subir Pasta com .ZIPs -->
+            <label class="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2" title="Selecione uma pasta contendo múltiplos arquivos .zip">
+              <span>🗂️</span>
+              <span>Subir Pasta de .ZIPs</span>
+              <input id="tseZipFolderInput" type="file" webkitdirectory directory multiple onchange="iniciarImportacaoZipTse(event)" class="hidden" />
+            </label>
+
+            <!-- Botão: Subir Pasta Descompactada (.jez, .dat, .vsc) -->
+            <label class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs rounded-xl cursor-pointer transition inline-flex items-center gap-2" title="Subir pasta descompactada com arquivos .jez, .dat e .vsc">
+              <span>📂</span>
+              <span>Pasta Descompactada</span>
               <input id="tseFolderInput" type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
             </label>
 
-            <label class="px-3.5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2" title="Selecione arquivos avulsos .jez, .dat, .vsc ou .zip">
-              <span>📂 Selecionar Arquivos (.jez, .dat, .vsc, .zip)</span>
-              <input id="tseFilesInput" type="file" multiple accept=".jez,.dat,.vsc,.zip" onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
-            </label>
+            <button
+              id="btnVincularPastaLocalTse"
+              onclick="vincularPastaLocalTseShowDirectoryPicker()"
+              title="Vincula sua pasta local do PR para leitura direta do log.jez sob demanda"
+              class="px-3 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
+            >
+              <span id="lblVincularPastaLocalTse">🔗 Vincular Pasta Local</span>
+            </button>
 
             <button
               onclick="carregarAmostraOficialPR()"
-              class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 border border-cyan-500/50 text-cyan-300 font-bold text-xs rounded-xl transition"
+              class="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 border border-cyan-500/50 text-cyan-300 font-bold text-xs rounded-xl transition"
             >
-              ⚡ Amostra PR (Seção 0017)
+              ⚡ Amostra PR
             </button>
 
             <button
               onclick="limparBaseTseReverso()"
-              title="Limpar todas as urnas carregadas no catálogo"
-              class="px-3 py-2.5 bg-slate-950 hover:bg-rose-950 border border-slate-700 hover:border-rose-600 text-slate-400 hover:text-rose-300 font-bold text-xs rounded-xl transition"
+              title="Limpar todas as urnas carregadas no banco de dados e catálogo"
+              class="px-3 py-2.5 bg-slate-950 hover:bg-rose-950 border border-slate-800 hover:border-rose-700 text-slate-400 hover:text-rose-300 font-bold text-xs rounded-xl transition"
             >
-              🗑️ Limpar Base
+              🗑️ Limpar
             </button>
           </div>
         </div>
 
-        <!-- Opção de Estratégia de Upload para Grandes Volumes (Estado Inteiro) -->
-        <div class="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800/80 text-xs">
+        <!-- Opção de Estratégia de Upload e Status da Base -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/80 text-xs">
           <div class="flex flex-wrap items-center gap-2">
-            <span class="text-slate-400 font-semibold mono">Modo de Ingestão p/ Múltiplas Urnas:</span>
+            <span class="text-slate-400 font-semibold mono">Modo de Ingestão:</span>
             <select id="tseUploadStrategy" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-cyan-300 font-bold mono">
-              <option value="AUTO">⚡ Inteligente: Turbo (BU + RDV imediato + Log.jez sob demanda ao abrir urna) p/ &gt;15 urnas</option>
-              <option value="TURBO">🚀 Sempre Turbo Estadual (Sobe milhares de urnas em segundos via BU+RDV; Log.jez ao clicar na urna)</option>
-              <option value="COMPLETO">🔬 Sempre Completo (Enviar todos os arquivos -log.jez de todas as urnas durante o lote)</option>
+              <option value="AUTO">⚡ Inteligente (Stream direto p/ PostgreSQL e Zero-Disk)</option>
+              <option value="TURBO">🚀 Turbo Estadual (Prioriza BU + RDV e Log sob demanda)</option>
+              <option value="COMPLETO">🔬 Completo (Processa 100% dos eventos de log linha a linha)</option>
             </select>
           </div>
+          <div id="tseCatalogCountBadge" class="mono text-[11px] text-emerald-400 font-bold"></div>
+        </div>
+
           <div id="tseCatalogCountBadge" class="mono text-[11px] text-emerald-400 font-bold"></div>
         </div>
 
@@ -1638,10 +1689,11 @@ o Boletim de Urna (apos encerramento da votacao).
 
     <!-- OVERLAY DRAG & DROP GLOBAL -->
     <div id="dragDropOverlayTse" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 hidden flex flex-col items-center justify-center border-4 border-dashed border-cyan-400 m-4 rounded-3xl pointer-events-none transition">
-      <div class="text-6xl mb-4 animate-bounce">📥</div>
-      <h2 class="text-2xl font-extrabold text-white">Solte a pasta ou arquivos do TSE aqui</h2>
-      <p class="text-sm text-cyan-300 mt-2 mono">A importação e o pareamento de 1º e 2º Turno iniciarão automaticamente!</p>
+      <div class="text-6xl mb-4 animate-bounce">📦</div>
+      <h2 class="text-2xl font-extrabold text-white">Solte os arquivos .ZIP ou pastas do TSE aqui</h2>
+      <p class="text-sm text-cyan-300 mt-2 mono">Arquivos .ZIP (1ºT e 2ºT) ou pastas de urnas serão processados em streaming direto para o PostgreSQL!</p>
     </div>
+
 
     <!-- MODAL / HUD FLUTUANTE DE PROGRESSO DE UPLOAD EM LOTE (SEMPRE VISÍVEL) -->
     <div id="tseFloatingProgressModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
@@ -1795,17 +1847,95 @@ o Boletim de Urna (apos encerramento da votacao).
       } catch (e) {}
     }
 
-    function switchTab(tabId) {
+    window.moduloAtual = "simulador"; // "simulador" ou "auditoria"
+
+    function ativarModulo(mod) {
+      window.moduloAtual = mod;
+      try {
+        localStorage.setItem("urna_modulo_ativo", mod);
+      } catch (e) {}
+
+      const btnSimulador = document.getElementById("btn-modulo-simulador");
+      const btnAuditoria = document.getElementById("btn-modulo-auditoria");
+      const subnavSimulador = document.getElementById("subnav-simulador");
+      const hdrStatusSimulador = document.getElementById("headerStatusBadge");
+      const hdrStatusAuditoria = document.getElementById("headerAuditoriaBadge");
+      const badgeIndicator = document.getElementById("moduloIndicatorBadge");
+      const mainTitle = document.getElementById("moduloMainTitle");
+      const subtitle = document.getElementById("moduloSubtitle");
+
+      // Esconde todas as abas
       ["tab-urna", "tab-candidatos", "tab-relatorios", "tab-assembly", "tab-simulacao", "tab-tse-reverso"].forEach(id => {
-        document.getElementById(id).classList.add("hidden");
-        const btn = document.getElementById("btn-" + id);
-        btn.className = "tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-slate-300 hover:bg-slate-700";
+        const el = document.getElementById(id);
+        if (el) el.classList.add("hidden");
       });
-      document.getElementById(tabId).classList.remove("hidden");
-      document.getElementById("btn-" + tabId).className = "tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-emerald-600 text-white";
-      if (tabId === "tab-relatorios") carregarLogs();
-      if (tabId === "tab-tse-reverso") atualizarConsolidacaoTse(false);
+
+      if (mod === "auditoria") {
+        if (btnAuditoria) btnAuditoria.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition duration-150 bg-cyan-600 text-slate-950 shadow-lg shadow-cyan-950/50";
+        if (btnSimulador) btnSimulador.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-700/50";
+        if (subnavSimulador) subnavSimulador.classList.add("hidden");
+        if (hdrStatusSimulador) hdrStatusSimulador.classList.add("hidden");
+        if (hdrStatusAuditoria) hdrStatusAuditoria.classList.remove("hidden");
+        if (badgeIndicator) {
+          badgeIndicator.textContent = "Módulo Auditoria TSE";
+          badgeIndicator.className = "text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase mono bg-cyan-950 text-cyan-300 border border-cyan-700";
+        }
+        if (mainTitle) mainTitle.textContent = "Auditoria Eleições — TSE Nacional (1º e 2º Turno)";
+        if (subtitle) subtitle.textContent = "Batimento Forense Triplo (BU × RDV ASN.1 × Log.jez) • Teclas Isoladas p/ Presidente • PostgreSQL Zero-Disk Raw";
+
+        const tabAuditoria = document.getElementById("tab-tse-reverso");
+        if (tabAuditoria) tabAuditoria.classList.remove("hidden");
+
+        atualizarConsolidacaoTse(false);
+        atualizarStatusBancoAuditoria();
+      } else {
+        if (btnSimulador) btnSimulador.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition duration-150 bg-emerald-600 text-white shadow-md shadow-emerald-900/30";
+        if (btnAuditoria) btnAuditoria.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-700/50";
+        if (subnavSimulador) subnavSimulador.classList.remove("hidden");
+        if (hdrStatusSimulador) hdrStatusSimulador.classList.remove("hidden");
+        if (hdrStatusAuditoria) hdrStatusAuditoria.classList.add("hidden");
+        if (badgeIndicator) {
+          badgeIndicator.textContent = "Módulo Simulador";
+          badgeIndicator.className = "text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase mono bg-emerald-950 text-emerald-300 border border-emerald-700";
+        }
+        if (mainTitle) mainTitle.textContent = "Sistema Eleitoral — Urna Eletrônica Brasileira";
+        if (subtitle) subtitle.textContent = "ESP32-C3/C6 RISC-V Assembly (ILI9341 SPI) + Terminal do Mesário Biométrico";
+
+        // Abre a primeira aba do simulador
+        switchTab("tab-urna");
+      }
     }
+
+    async function atualizarStatusBancoAuditoria() {
+      try {
+        const res = await fetch("/api/tse-reverso/status-banco");
+        if (res.ok) {
+          const d = await res.json();
+          const badge = document.getElementById("headerAuditoriaCount");
+          if (badge) {
+            badge.textContent = `${(d.total_secoes || 0).toLocaleString("pt-BR")} URNAS (${d.total_ufs || 0} UF)`;
+          }
+        }
+      } catch (e) {}
+    }
+
+    function switchTab(tabId) {
+      if (tabId === "tab-tse-reverso") {
+        return ativarModulo("auditoria");
+      }
+      ["tab-urna", "tab-candidatos", "tab-relatorios", "tab-assembly", "tab-simulacao"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.classList.add("hidden");
+        const btn = document.getElementById("btn-" + id);
+        if (btn) btn.className = "tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-slate-300 hover:bg-slate-700";
+      });
+      const targetEl = document.getElementById(tabId);
+      if (targetEl) targetEl.classList.remove("hidden");
+      const targetBtn = document.getElementById("btn-" + tabId);
+      if (targetBtn) targetBtn.className = "tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-emerald-600 text-white";
+      if (tabId === "tab-relatorios") carregarLogs();
+    }
+
 
     async function fetchStatusAndCandidates() {
       const [stRes, candRes, elRes] = await Promise.all([
@@ -2640,6 +2770,105 @@ o Boletim de Urna (apos encerramento da votacao).
       );
     }
 
+    async function iniciarImportacaoZipTse(eventOrFiles) {
+      let fileList = [];
+      if (eventOrFiles && eventOrFiles.target && eventOrFiles.target.files) {
+        fileList = Array.from(eventOrFiles.target.files);
+      } else if (eventOrFiles instanceof FileList || Array.isArray(eventOrFiles)) {
+        fileList = Array.from(eventOrFiles);
+      }
+      if (!fileList || fileList.length === 0) return;
+
+      const zipFiles = fileList.filter(f => f.name && f.name.toLowerCase().endsWith(".zip"));
+      if (zipFiles.length === 0) {
+        showSecurityAlert("Nenhum arquivo com extensão .ZIP foi identificado na seleção.", true);
+        return;
+      }
+
+      const totalZips = zipFiles.length;
+      atualizarProgressoUploadTse(
+        2,
+        `📦 Preparando ingestão de ${totalZips} arquivo(s) .ZIP do TSE...`,
+        "Iniciando...",
+        0,
+        0,
+        totalZips
+      );
+
+      for (let i = 0; i < totalZips; i++) {
+        const zipFile = zipFiles[i];
+        const mbTotal = (zipFile.size / (1024 * 1024)).toFixed(1);
+
+        const formData = new FormData();
+        formData.append("files", zipFile, zipFile.name);
+
+        await new Promise((resolve) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open("POST", "/api/tse-reverso/upload-zip", true);
+
+          xhr.upload.onprogress = (e) => {
+            if (e.lengthComputable) {
+              const pctUpload = Math.round((e.loaded / e.total) * 85);
+              const mbEnviados = (e.loaded / (1024 * 1024)).toFixed(1);
+              atualizarProgressoUploadTse(
+                pctUpload,
+                `⬆️ Enviando [${i + 1}/${totalZips}] ${zipFile.name} (${mbEnviados} MB de ${mbTotal} MB)...`,
+                `${pctUpload}% enviado`,
+                i,
+                0,
+                totalZips
+              );
+            }
+          };
+
+          xhr.onload = async () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              try {
+                const resp = JSON.parse(xhr.responseText);
+                atualizarProgressoUploadTse(
+                  95,
+                  `⚙️ Arquivo ${zipFile.name} extraído! ${resp.total_secoes_gravadas || 0} seções gravadas no PostgreSQL em ${resp.tempo_segundos || 0}s...`,
+                  "Gravando no Banco...",
+                  i + 1,
+                  0,
+                  totalZips
+                );
+                resolve(resp);
+              } catch (err) {
+                resolve({});
+              }
+            } else {
+              showSecurityAlert(`Erro no envio de ${zipFile.name} (${xhr.status}): ${xhr.responseText}`, true);
+              resolve({});
+            }
+          };
+
+          xhr.onerror = () => {
+            showSecurityAlert(`Falha de conexão ao enviar o arquivo .ZIP: ${zipFile.name}`, true);
+            resolve({});
+          };
+
+          xhr.send(formData);
+        });
+      }
+
+      atualizarProgressoUploadTse(
+        100,
+        `✅ Ingestão dos arquivos .ZIP concluída com sucesso! Atualizando base e comparativo...`,
+        "Concluído 100%",
+        totalZips,
+        0,
+        totalZips
+      );
+
+      await atualizarStatusBancoAuditoria();
+      await atualizarConsolidacaoTse(true);
+
+      setTimeout(() => {
+        fecharProgressoUploadTse();
+      }, 1500);
+    }
+
     async function iniciarImportacaoLoteTse(eventOrFiles) {
       let fileList = [];
       let inputEl = null;
@@ -2651,6 +2880,14 @@ o Boletim de Urna (apos encerramento da votacao).
         fileList = Array.from(eventOrFiles);
       }
       if (!fileList || fileList.length === 0) return;
+
+      // Se a seleção contiver apenas arquivos .ZIP, redireciona transparentemente para o pipeline de streaming .ZIP
+      const zipFiles = fileList.filter(f => f.name && f.name.toLowerCase().endsWith(".zip"));
+      const nonZipFiles = fileList.filter(f => f.name && !f.name.toLowerCase().endsWith(".zip") && !f.name.startsWith("."));
+      if (zipFiles.length > 0 && nonZipFiles.length === 0) {
+        return iniciarImportacaoZipTse(zipFiles);
+      }
+
 
       // Mostra o modal flutuante IMEDIATAMENTE (sem delay) no meio da tela
       atualizarProgressoUploadTse(
@@ -5142,6 +5379,12 @@ o Boletim de Urna (apos encerramento da votacao).
     });
 
     fetchStatusAndCandidates();
+    try {
+      const modSalvo = localStorage.getItem("urna_modulo_ativo") || "simulador";
+      ativarModulo(modSalvo);
+    } catch (e) {
+      ativarModulo("simulador");
+    }
   </script>
 </body>
 </html>
