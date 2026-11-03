@@ -73,6 +73,14 @@ def on_startup():
     try:
         get_or_create_seccao(db)
         seed_default_candidates(db)
+        # Migração transparente de arquivos residuais/legados (ex: Paraná em JSONL) para o PostgreSQL
+        try:
+            from .tse_reverse_analyzer import migrar_catalogo_disco_para_postgres
+            migrar_catalogo_disco_para_postgres(db)
+        except Exception as e_mig:
+            print(f"[STARTUP] Aviso migracao TSE: {e_mig}")
+    except Exception as exc:
+        print(f"[STARTUP] Erro startup: {exc}")
     finally:
         db.close()
 

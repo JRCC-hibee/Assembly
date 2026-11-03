@@ -1431,17 +1431,95 @@ _CATALOGO_MEMORIA: dict[str, dict] = {}
 _CATALOGO_CARREGADO = False
 
 
+def migrar_catalogo_disco_para_postgres(db) -> int:
+    """
+    Verifica se existem seções legadas gravadas no disco (catalogo_secoes.jsonl ou catalogo_secoes.json)
+    que ainda não foram inseridas no banco relacional PostgreSQL (ex: Paraná).
+    Importa de forma atômica e em lotes rápidos sem sobrecarregar a memória.
+    """
+    if not db:
+        return 0
+
+    storage = _get_tse_storage_dir()
+    jsonl_path = os.path.join(storage, "catalogo_secoes.jsonl")
+    cat_path = os.path.join(storage, "catalogo_secoes.json")
+
+    itens_para_migrar = []
+    if os.path.exists(jsonl_path):
+        try:
+            with open(jsonl_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            itens_para_migrar.append(json.loads(line))
+                        except Exception:
+                            pass
+        except Exception as exc:
+            print(f"[TSE-MIGRATE] Erro ao ler jsonl para migracao: {exc}")
+
+    if not itens_para_migrar and os.path.exists(cat_path):
+        try:
+            with open(cat_path, "r", encoding="utf-8") as f:
+                cat = json.load(f)
+                if isinstance(cat, dict):
+                    itens_para_migrar = list(cat.values())
+        except Exception:
+            pass
+
+    if not itens_para_migrar:
+        return 0
+
+    try:
+        from .database import salvar_resumo_tse_no_banco, TseSecao
+
+        chaves_existentes = set(r[0] for r in db.query(TseSecao.chave_secao).all())
+        migradas = 0
+        lote_count = 0
+
+        for resumo in itens_para_migrar:
+            uf = (resumo.get("uf") or "PR").upper().strip()
+            mun_cod = str(resumo.get("municipio_codigo") or "00000").strip()
+            try:
+                zona_int = int(resumo.get("zona") or 0)
+                secao_int = int(resumo.get("secao") or 0)
+            except Exception:
+                continue
+
+            chave_secao = f"{uf}_{mun_cod}_{zona_int:04d}_{secao_int:04d}"
+            if chave_secao not in chaves_existentes:
+                salvar_resumo_tse_no_banco(db, resumo)
+                chaves_existentes.add(chave_secao)
+                migradas += 1
+                lote_count += 1
+                if lote_count >= 250:
+                    db.commit()
+                    lote_count = 0
+
+        if lote_count > 0:
+            db.commit()
+
+        if migradas > 0:
+            print(f"[TSE-MIGRATE] {migradas} seções migradas com sucesso para o PostgreSQL!")
+        return migradas
+    except Exception as exc:
+        print(f"[TSE-MIGRATE] Erro ao migrar seções do disco: {exc}")
+        return 0
+
+
 def sincronizar_catalogo_com_banco() -> dict:
     """
     Sincroniza e consolida as estatísticas com 100% das seções gravadas no PostgreSQL.
-    Utiliza agregações SQL nativas diretas (GROUP BY, COUNT, DISTINCT) executando em sub-5ms
-    com consumo ultrabaixo de memória (< 1MB RAM), eliminando qualquer risco de OOM ou 502 Bad Gateway.
+    Verifica e migra registros pendentes de disco, executando agregações SQL em sub-5ms.
     """
     global _CATALOGO_MEMORIA, _CATALOGO_CARREGADO
     db = _obter_db_session()
     if not db:
         return {"ok": False, "total": len(_CATALOGO_MEMORIA), "estados": []}
     try:
+        # Migração transparente e rápida de arquivos em disco se houver
+        migrar_catalogo_disco_para_postgres(db)
+
         from sqlalchemy import func
         from .database import TseSecao, ESTADOS_E_REGIOES_BR
 
