@@ -22,6 +22,12 @@ from .database import (
     Candidato,
     RegistroDigitalVoto,
     LogAuditoriaUrna,
+    TseHistoricoUpload,
+    criar_historico_upload,
+    atualizar_historico_upload,
+    finalizar_historico_upload,
+    listar_historico_uploads,
+    excluir_historico_upload,
 )
 from .election_engine import (
     get_cargos_por_turno,
@@ -783,14 +789,16 @@ def api_tse_reverso_indice_ja_carregados():
 
 
 @app.post("/api/tse-reverso/upload-lote")
-async def api_tse_reverso_upload_lote(request: Request):
+async def api_tse_reverso_upload_lote(request: Request, db: Session = Depends(get_db)):
     """
     Endpoint otimizado para ingestão em lote (chunked) de dezenas, centenas ou milhares
     de seções/urnas do estado (ex: Paraná inteiro). Agrupa por prefixo da seção,
     ignora arquivos duplicados, persiste no catálogo e retorna o progresso.
+    Registra audit trail no histórico persistente do PostgreSQL.
     """
     form = await request.form(max_files=5000, max_fields=5000)
     files = form.getlist("files")
+    job_id = form.get("job_id")
     if not files:
         raise HTTPException(status_code=400, detail="Nenhum arquivo enviado no lote.")
 
@@ -802,15 +810,102 @@ async def api_tse_reverso_upload_lote(request: Request):
 
     try:
         lote_res = processar_lote_arquivos_tse(arquivos_dict)
+        if job_id:
+            try:
+                uf_det = lote_res.get("ufs")[0] if lote_res.get("ufs") else None
+                muns = lote_res.get("municipios", [])
+                mun_det = muns[0] if muns else None
+                atualizar_historico_upload(
+                    db=db,
+                    job_id=str(job_id),
+                    arquivos_add=len(files),
+                    urnas_novas_add=lote_res.get("secoes_processadas_neste_lote", 0),
+                    urnas_duplicadas_add=lote_res.get("secoes_ignoradas_duplicadas", 0),
+                    erros_add=len(lote_res.get("erros", [])),
+                    uf=uf_det,
+                    erro_detalhe=lote_res.get("erros")[0] if lote_res.get("erros") else None,
+                    municipio_detalhe=mun_det,
+                )
+            except Exception as e_hist:
+                print(f"[HISTORICO-UPLOAD] Aviso ao atualizar lote: {e_hist}")
+
         return {
             "ok": True,
             "secoes_processadas_neste_lote": lote_res["secoes_processadas_neste_lote"],
             "secoes_ignoradas_duplicadas": lote_res.get("secoes_ignoradas_duplicadas", 0),
             "prefixos_processados": lote_res["prefixos_processados"],
             "total_secoes_no_catalogo": lote_res["total_secoes_no_catalogo"],
+            "ufs": lote_res.get("ufs", []),
+            "municipios": lote_res.get("municipios", []),
+            "erros": lote_res.get("erros", []),
         }
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Erro ao processar lote TSE: {exc}")
+
+
+class HistoricoIniciarSchema(BaseModel):
+    tipo_envio: str = "PASTA_ABERTA"
+    nome_origem: str = "Pasta Selecionada"
+    uf: str = "DESCONHECIDO"
+    total_arquivos: int = 0
+    total_urnas: int = 0
+    total_duplicadas_ignoradas: int = 0
+
+
+@app.post("/api/tse-reverso/historico/iniciar")
+def api_tse_reverso_historico_iniciar(body: HistoricoIniciarSchema, db: Session = Depends(get_db)):
+    job_id = f"up_{int(time.time())}_{uuid.uuid4().hex[:6]}"
+    reg = criar_historico_upload(
+        db=db,
+        job_id=job_id,
+        tipo_envio=body.tipo_envio,
+        nome_origem=body.nome_origem,
+        uf=body.uf,
+        total_arquivos=body.total_arquivos,
+        total_urnas=body.total_urnas,
+        total_duplicadas_ignoradas=body.total_duplicadas_ignoradas,
+    )
+    return {"ok": True, "job_id": job_id, "id": reg.id}
+
+
+class HistoricoFinalizarSchema(BaseModel):
+    job_id: str
+    status: str = "CONCLUIDO"
+    mensagem: Optional[str] = None
+
+
+@app.post("/api/tse-reverso/historico/finalizar")
+def api_tse_reverso_historico_finalizar(body: HistoricoFinalizarSchema, db: Session = Depends(get_db)):
+    reg = finalizar_historico_upload(
+        db=db,
+        job_id=body.job_id,
+        status=body.status,
+        mensagem=body.mensagem,
+    )
+    sincronizar_catalogo_com_banco()
+    if not reg:
+        return {"ok": False, "mensagem": "Job ID não encontrado."}
+    return {
+        "ok": True,
+        "job_id": reg.job_id,
+        "status": reg.status,
+        "duracao_segundos": reg.duracao_segundos,
+        "total_urnas_novas": reg.total_urnas_novas_gravadas,
+        "total_urnas_duplicadas": reg.total_urnas_duplicadas_ignoradas,
+        "total_erros": reg.total_erros,
+        "mensagem": reg.mensagem_resumo,
+    }
+
+
+@app.get("/api/tse-reverso/historico")
+def api_tse_reverso_historico_listar(db: Session = Depends(get_db)):
+    return {"ok": True, "historico": listar_historico_uploads(db)}
+
+
+@app.delete("/api/tse-reverso/historico/{upload_id}")
+def api_tse_reverso_historico_excluir(upload_id: int, db: Session = Depends(get_db)):
+    ok = excluir_historico_upload(db, upload_id)
+    return {"ok": ok}
 
 
 # Gerenciador persistente de jobs em background para importação massiva de arquivos .ZIP
@@ -894,6 +989,18 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
         job["mensagem"] = f"Total estimado: {total_secoes_estimadas} seções. Iniciando decodificação..."
         _salvar_job_status(job_id, job)
 
+        db_hist = SessionLocal()
+        try:
+            criar_historico_upload(
+                db=db_hist,
+                job_id=job_id,
+                tipo_envio="ARQUIVO_ZIP",
+                nome_origem=", ".join(os.path.basename(p) for p in temp_paths),
+                total_urnas=total_secoes_estimadas,
+            )
+        except Exception as e_h:
+            print(f"[HISTORICO-ZIP] Aviso criar: {e_h}")
+
         chunk_size = 50
         for zip_idx, (p, zf, grupos) in enumerate(zips_info):
             nome_zip = os.path.basename(p)
@@ -910,8 +1017,20 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
                             pass
                 if micro_lote_bytes:
                     res = processar_lote_arquivos_tse(micro_lote_bytes)
-                    total_secoes_gravadas += res.get("secoes_processadas_neste_lote", 0)
+                    novas_secoes = res.get("secoes_processadas_neste_lote", 0)
+                    total_secoes_gravadas += novas_secoes
                     micro_lote_bytes.clear()
+                    try:
+                        atualizar_historico_upload(
+                            db=db_hist,
+                            job_id=job_id,
+                            urnas_novas_add=novas_secoes,
+                            urnas_duplicadas_add=res.get("secoes_ignoradas_duplicadas", 0),
+                            erros_add=len(res.get("erros", [])),
+                            uf=res.get("ufs")[0] if res.get("ufs") else None,
+                        )
+                    except Exception:
+                        pass
 
                 progresso = (
                     round((total_secoes_gravadas / max(1, total_secoes_estimadas)) * 100, 1)
@@ -951,6 +1070,17 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
         job["mensagem"] = f"Sucesso! {total_secoes_gravadas} seções processadas e gravadas no PostgreSQL em {duracao}s."
         _salvar_job_status(job_id, job)
 
+        try:
+            finalizar_historico_upload(
+                db=db_hist,
+                job_id=job_id,
+                status="CONCLUIDO",
+                mensagem=job["mensagem"],
+            )
+            db_hist.close()
+        except Exception:
+            pass
+
     except Exception as exc:
         print(f"[TSE-ZIP-JOB] Erro fatal no job {job_id}: {exc}")
         job["status"] = "ERRO"
@@ -958,6 +1088,16 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
         job["erro"] = str(exc)
         job["mensagem"] = f"Erro durante o processamento: {exc}"
         _salvar_job_status(job_id, job)
+        try:
+            finalizar_historico_upload(
+                db=db_hist,
+                job_id=job_id,
+                status="ERRO",
+                mensagem=f"Erro durante o processamento: {exc}",
+            )
+            db_hist.close()
+        except Exception:
+            pass
         for p in temp_paths:
             try:
                 if os.path.exists(p):

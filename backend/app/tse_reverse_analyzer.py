@@ -1749,6 +1749,9 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
     secoes_ignoradas_duplicadas = 0
     resumos_para_append = []
     ultimo_relatorio = None
+    erros_lote = []
+    ufs_detectadas = set()
+    municipios_detectados = {}
 
     for prefixo, novos_arquivos in grupos.items():
         existente = catalogo.get(prefixo)
@@ -1781,30 +1784,40 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
             # Modo Zero-Disk Raw: Decodificação direta na memória sem tocar o disco com arquivos brutos!
             pacote_completo = dict(novos_arquivos)
 
-        relatorio = analisar_pacote_seccao_tse(pacote_completo)
-        resumo = relatorio["resumo_consolidacao"]
-        mc = resumo.get("municipio_codigo")
-        if mc in MUNICIPIOS_PR_TSE:
-            resumo["municipio_nome"] = MUNICIPIOS_PR_TSE[mc]
+        try:
+            relatorio = analisar_pacote_seccao_tse(pacote_completo)
+            resumo = relatorio["resumo_consolidacao"]
+            mc = resumo.get("municipio_codigo")
+            if mc in MUNICIPIOS_PR_TSE:
+                resumo["municipio_nome"] = MUNICIPIOS_PR_TSE[mc]
 
-        # Persistência no Banco PostgreSQL (dados relacionais enxutos)
-        if db:
-            try:
-                from .database import salvar_resumo_tse_no_banco
-                salvar_resumo_tse_no_banco(db, resumo, relatorio)
-            except Exception as exc_db:
-                print(f"[TSE-DB] Aviso ao persistir secao {prefixo} no PostgreSQL: {exc_db}")
+            uf_sec = (resumo.get("uf") or "PR").upper().strip()
+            ufs_detectadas.add(uf_sec)
+            mn = resumo.get("municipio_nome") or f"MUNICÍPIO {mc}"
+            if mc:
+                municipios_detectados[mc] = mn
 
-        catalogo[prefixo] = resumo
-        resumos_para_append.append(resumo)
+            # Persistência no Banco PostgreSQL (dados relacionais enxutos)
+            if db:
+                try:
+                    from .database import salvar_resumo_tse_no_banco
+                    salvar_resumo_tse_no_banco(db, resumo, relatorio)
+                except Exception as exc_db:
+                    print(f"[TSE-DB] Aviso ao persistir secao {prefixo} no PostgreSQL: {exc_db}")
 
-        if not TSE_ZERO_DISK_RAW:
-            sec_json_path = os.path.join(storage, "secoes", f"{prefixo}.json")
-            with open(sec_json_path, "w", encoding="utf-8") as fp:
-                json.dump(relatorio, fp, ensure_ascii=False)
+            catalogo[prefixo] = resumo
+            resumos_para_append.append(resumo)
 
-        secoes_processadas.append(prefixo)
-        ultimo_relatorio = relatorio
+            if not TSE_ZERO_DISK_RAW:
+                sec_json_path = os.path.join(storage, "secoes", f"{prefixo}.json")
+                with open(sec_json_path, "w", encoding="utf-8") as fp:
+                    json.dump(relatorio, fp, ensure_ascii=False)
+
+            secoes_processadas.append(prefixo)
+            ultimo_relatorio = relatorio
+        except Exception as exc_sec:
+            erros_lote.append(f"Seção {prefixo}: {exc_sec}")
+            print(f"[TSE-LOTE] Erro ao analisar seção {prefixo}: {exc_sec}")
 
     # Grava apenas o delta no arquivo .jsonl em < 1ms
     _append_catalogo_disco(resumos_para_append)
@@ -1822,6 +1835,9 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
         "prefixos_processados": secoes_processadas,
         "total_secoes_no_catalogo": len(catalogo),
         "ultimo_relatorio_individual": ultimo_relatorio,
+        "ufs": list(ufs_detectadas),
+        "municipios": [{"codigo": k, "nome": v} for k, v in municipios_detectados.items()],
+        "erros": erros_lote,
     }
 
 

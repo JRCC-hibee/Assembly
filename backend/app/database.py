@@ -237,6 +237,37 @@ class TseMetricasLog(Base):
     )
 
 
+class TseHistoricoUpload(Base):
+    """
+    Histórico e Auditoria de Ingestão de Arquivos e Pastas do TSE.
+    Permite rastrear cada upload realizado (Pasta Aberta ou .ZIP),
+    quantas urnas foram identificadas, novas gravadas no PostgreSQL,
+    duplicadas ignoradas, erros e tempo de processamento.
+    """
+    __tablename__ = "tse_historico_upload"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    job_id = Column(String(64), unique=True, index=True, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+    finalizado_em = Column(DateTime, nullable=True)
+    tipo_envio = Column(String(30), default="PASTA_ABERTA")  # PASTA_ABERTA, ARQUIVO_ZIP, LOTE_AVULSO
+    nome_origem = Column(String(255), default="Upload Avulso")
+    uf = Column(String(20), default="DESCONHECIDO")  # "PR", "SC", "PR, SC", etc.
+    total_arquivos_recebidos = Column(Integer, default=0)
+    total_urnas_detectadas = Column(Integer, default=0)
+    total_urnas_novas_gravadas = Column(Integer, default=0)
+    total_urnas_duplicadas_ignoradas = Column(Integer, default=0)
+    total_erros = Column(Integer, default=0)
+    status = Column(String(30), default="EM_ANDAMENTO")  # EM_ANDAMENTO, CONCLUIDO, CONCLUIDO_COM_AVISOS, ERRO
+    duracao_segundos = Column(Integer, default=0)
+    mensagem_resumo = Column(Text, nullable=True)
+    detalhes_json = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_tse_historico_data", "created_at"),
+    )
+
+
 # Mapeamento Oficial de Regiões do Brasil
 ESTADOS_E_REGIOES_BR = {
     "AC": {"nome": "Acre", "regiao": "NORTE"},
@@ -275,7 +306,7 @@ def obter_regiao_uf(uf: str) -> str:
     return ESTADOS_E_REGIOES_BR.get(sigla, {}).get("regiao", "EXTERIOR" if sigla == "ZZ" else "OUTRO")
 
 
-def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None) -> TseSecao:
+def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None, auto_commit: bool = True) -> TseSecao:
     """
     Persiste de forma normalizada e atômica um resumo de urna no banco PostgreSQL.
     Permite agregação transparente de 1º e 2º turno na mesma seção física.
@@ -435,8 +466,186 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
             if vazao_t1:
                 metricas_t1.vazao_horaria_json = vazao_t1
 
-    db.commit()
+    if auto_commit:
+        db.commit()
     return secao_db
+
+
+# ==============================================================================
+# AUDITORIA E HISTÓRICO DE UPLOADS E INGESTÃO DO TSE
+# ==============================================================================
+
+def criar_historico_upload(
+    db: Session,
+    job_id: str,
+    tipo_envio: str = "PASTA_ABERTA",
+    nome_origem: str = "Pasta Selecionada",
+    uf: str = "DESCONHECIDO",
+    total_arquivos: int = 0,
+    total_urnas: int = 0,
+    total_duplicadas_ignoradas: int = 0,
+) -> TseHistoricoUpload:
+    """Registra o início de uma sessão de upload de arquivos/pastas no histórico."""
+    registro = TseHistoricoUpload(
+        job_id=job_id,
+        tipo_envio=tipo_envio,
+        nome_origem=nome_origem,
+        uf=uf.upper().strip(),
+        total_arquivos_recebidos=total_arquivos,
+        total_urnas_detectadas=total_urnas,
+        total_urnas_novas_gravadas=0,
+        total_urnas_duplicadas_ignoradas=total_duplicadas_ignoradas,
+        total_erros=0,
+        status="EM_ANDAMENTO",
+        mensagem_resumo=f"Iniciado upload ({tipo_envio}): {total_urnas} urnas detectadas.",
+        detalhes_json=json.dumps({"municipios": {}, "erros": []}, ensure_ascii=False),
+    )
+    db.add(registro)
+    db.commit()
+    db.refresh(registro)
+    return registro
+
+
+def atualizar_historico_upload(
+    db: Session,
+    job_id: str,
+    arquivos_add: int = 0,
+    urnas_novas_add: int = 0,
+    urnas_duplicadas_add: int = 0,
+    erros_add: int = 0,
+    uf: str = None,
+    erro_detalhe: str = None,
+    municipio_detalhe: dict = None,
+):
+    """Atualiza atomicamente as métricas e o progresso da sessão de upload."""
+    registro = db.query(TseHistoricoUpload).filter(TseHistoricoUpload.job_id == job_id).first()
+    if not registro:
+        return None
+
+    registro.total_arquivos_recebidos = (registro.total_arquivos_recebidos or 0) + arquivos_add
+    registro.total_urnas_novas_gravadas = (registro.total_urnas_novas_gravadas or 0) + urnas_novas_add
+    registro.total_urnas_duplicadas_ignoradas = (registro.total_urnas_duplicadas_ignoradas or 0) + urnas_duplicadas_add
+    registro.total_erros = (registro.total_erros or 0) + erros_add
+
+    if uf and uf != "DESCONHECIDO":
+        ufs_atuais = set(x.strip() for x in (registro.uf or "").split(",") if x.strip() and x.strip() != "DESCONHECIDO")
+        ufs_atuais.add(uf.upper().strip())
+        registro.uf = ", ".join(sorted(ufs_atuais))
+
+    try:
+        detalhes = json.loads(registro.detalhes_json or "{}")
+    except Exception:
+        detalhes = {"municipios": {}, "erros": []}
+
+    if erro_detalhe:
+        detalhes.setdefault("erros", []).append(erro_detalhe)
+
+    if municipio_detalhe:
+        muns = detalhes.setdefault("municipios", {})
+        mc = str(municipio_detalhe.get("codigo", "00000"))
+        mn = str(municipio_detalhe.get("nome", f"MUNICÍPIO {mc}"))
+        if mc not in muns:
+            muns[mc] = {"nome": mn, "urnas": 0}
+        muns[mc]["urnas"] += 1
+
+    registro.detalhes_json = json.dumps(detalhes, ensure_ascii=False)
+    db.commit()
+    return registro
+
+
+def finalizar_historico_upload(
+    db: Session,
+    job_id: str,
+    status: str = "CONCLUIDO",
+    mensagem: str = None,
+    detalhes_adicionais: dict = None,
+) -> TseHistoricoUpload | None:
+    """Finaliza o registro de upload gravando o tempo de processamento e resumo."""
+    registro = db.query(TseHistoricoUpload).filter(TseHistoricoUpload.job_id == job_id).first()
+    if not registro:
+        return None
+
+    agora = datetime.now(timezone.utc)
+    registro.finalizado_em = agora
+    if registro.created_at:
+        try:
+            delta = (agora - registro.created_at.replace(tzinfo=timezone.utc)).total_seconds()
+            registro.duracao_segundos = max(1, int(round(delta)))
+        except Exception:
+            registro.duracao_segundos = 0
+
+    if registro.total_erros and registro.total_erros > 0:
+        status = "CONCLUIDO_COM_AVISOS" if status == "CONCLUIDO" else status
+
+    registro.status = status
+    if mensagem:
+        registro.mensagem_resumo = mensagem
+    else:
+        registro.mensagem_resumo = (
+            f"Concluído em {registro.duracao_segundos}s: "
+            f"{registro.total_urnas_novas_gravadas} urnas novas gravadas no PostgreSQL, "
+            f"{registro.total_urnas_duplicadas_ignoradas} ignoradas (já salvas), "
+            f"{registro.total_erros} erros."
+        )
+
+    if detalhes_adicionais:
+        try:
+            det = json.loads(registro.detalhes_json or "{}")
+            det.update(detalhes_adicionais)
+            registro.detalhes_json = json.dumps(det, ensure_ascii=False)
+        except Exception:
+            pass
+
+    db.commit()
+    db.refresh(registro)
+    return registro
+
+
+def listar_historico_uploads(db: Session, limit: int = 100) -> list[dict]:
+    """Retorna a lista cronológica decrescente dos uploads de auditoria."""
+    registros = (
+        db.query(TseHistoricoUpload)
+        .order_by(TseHistoricoUpload.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    resultado = []
+    for r in registros:
+        det = {}
+        if r.detalhes_json:
+            try:
+                det = json.loads(r.detalhes_json)
+            except Exception:
+                pass
+        resultado.append({
+            "id": r.id,
+            "job_id": r.job_id,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "finalizado_em": r.finalizado_em.isoformat() if r.finalizado_em else None,
+            "tipo_envio": r.tipo_envio,
+            "nome_origem": r.nome_origem,
+            "uf": r.uf,
+            "total_arquivos_recebidos": r.total_arquivos_recebidos or 0,
+            "total_urnas_detectadas": r.total_urnas_detectadas or 0,
+            "total_urnas_novas_gravadas": r.total_urnas_novas_gravadas or 0,
+            "total_urnas_duplicadas_ignoradas": r.total_urnas_duplicadas_ignoradas or 0,
+            "total_erros": r.total_erros or 0,
+            "status": r.status,
+            "duracao_segundos": r.duracao_segundos or 0,
+            "mensagem_resumo": r.mensagem_resumo,
+            "detalhes": det,
+        })
+    return resultado
+
+
+def excluir_historico_upload(db: Session, upload_id: int) -> bool:
+    """Exclui um registro individual do histórico."""
+    reg = db.query(TseHistoricoUpload).filter(TseHistoricoUpload.id == upload_id).first()
+    if reg:
+        db.delete(reg)
+        db.commit()
+        return True
+    return False
 
 
 # ==============================================================================
