@@ -912,36 +912,29 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
 
           <div class="flex flex-wrap items-center gap-2.5">
-            <!-- Botão Principal: Subir Arquivos .ZIP -->
-            <label class="px-4 py-2.5 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-black text-xs rounded-xl cursor-pointer shadow-lg shadow-cyan-950/50 transition inline-flex items-center gap-2" title="Selecione um ou vários arquivos .zip de estados ou seções">
+            <!-- Botão 1 (HERO RECOMENDADO): Subir Pasta Aberta Descompactada -->
+            <label class="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs rounded-xl cursor-pointer shadow-lg shadow-emerald-950/60 transition inline-flex items-center gap-2" title="Subir pasta descompactada (pasta aberta) com envio direto em micro-lotes de 50 urnas">
+              <span>📂</span>
+              <span>Subir Pasta Aberta (Recomendado)</span>
+              <span class="px-1.5 py-0.5 rounded bg-slate-950 text-emerald-300 text-[9px] font-extrabold uppercase">10x Mais Rápido</span>
+              <input id="tseFolderInput" type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
+            </label>
+
+            <!-- Botão 2: Subir Arquivos .ZIP -->
+            <label class="px-3.5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-xs rounded-xl cursor-pointer shadow transition inline-flex items-center gap-2" title="Selecione um ou vários arquivos .zip de estados ou seções">
               <span>📦</span>
               <span>Subir Arquivo(s) .ZIP</span>
               <input id="tseZipInput" type="file" multiple accept=".zip" onchange="iniciarImportacaoZipTse(event)" class="hidden" />
             </label>
 
-            <!-- Botão: Subir Pasta com .ZIPs -->
-            <label class="px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs rounded-xl cursor-pointer shadow-lg transition inline-flex items-center gap-2" title="Selecione uma pasta contendo múltiplos arquivos .zip">
+            <!-- Botão 3: Subir Pasta com .ZIPs -->
+            <label class="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs rounded-xl cursor-pointer shadow transition inline-flex items-center gap-2" title="Selecione uma pasta contendo múltiplos arquivos .zip">
               <span>🗂️</span>
-              <span>Subir Pasta de .ZIPs</span>
+              <span>Pasta de .ZIPs</span>
               <input id="tseZipFolderInput" type="file" webkitdirectory directory multiple onchange="iniciarImportacaoZipTse(event)" class="hidden" />
             </label>
 
-            <!-- Botão: Subir Pasta Descompactada (.jez, .dat, .vsc) -->
-            <label class="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold text-xs rounded-xl cursor-pointer transition inline-flex items-center gap-2" title="Subir pasta descompactada com arquivos .jez, .dat e .vsc">
-              <span>📂</span>
-              <span>Pasta Descompactada</span>
-              <input id="tseFolderInput" type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
-            </label>
-
-            <button
-              id="btnVincularPastaLocalTse"
-              onclick="vincularPastaLocalTseShowDirectoryPicker()"
-              title="Vincula sua pasta local do PR para leitura direta do log.jez sob demanda"
-              class="px-3 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
-            >
-              <span id="lblVincularPastaLocalTse">🔗 Vincular Pasta Local</span>
-            </button>
-
+            <!-- Botão 4: Sincronizar Base -->
             <button
               id="btnSincronizarBancoTse"
               onclick="forcarSincronizacaoBancoTse()"
@@ -950,6 +943,15 @@ o Boletim de Urna (apos encerramento da votacao).
             >
               <span id="iconBtnSync">🔄</span>
               <span id="textBtnSync">Sincronizar Base</span>
+            </button>
+
+            <button
+              id="btnVincularPastaLocalTse"
+              onclick="vincularPastaLocalTseShowDirectoryPicker()"
+              title="Vincula sua pasta local do PR para leitura direta do log.jez sob demanda"
+              class="px-3 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
+            >
+              <span id="lblVincularPastaLocalTse">🔗 Vincular Pasta Local</span>
             </button>
 
             <button
@@ -969,19 +971,25 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
 
+        <!-- Banner de Orientação Estratégica para o Usuário -->
+        <div class="mt-3 p-3 bg-slate-950/80 border border-emerald-500/30 rounded-xl flex items-start gap-2.5 text-xs text-slate-300">
+          <span class="text-base text-emerald-400">⚡</span>
+          <div>
+            <strong class="text-emerald-300">Dica de Envio Ultra-Rápido:</strong>
+            Para estados grandes como Santa Catarina (17.536 urnas), <strong>descompacte o arquivo .ZIP no seu computador e envie a pasta aberta</strong> pelo botão <strong><code class="text-emerald-400 font-bold">📂 Subir Pasta Aberta</code></strong>. O navegador lê a pasta instantaneamente, pula com velocidade máxima as <strong>6.133 urnas já salvas no banco</strong> e envia apenas as faltantes em micro-lotes leves de 50 urnas, sem sobrecarregar a memória da VPS e sem risco de travamento!
+          </div>
+        </div>
+
         <!-- Opção de Estratégia de Upload e Status da Base -->
         <div class="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/80 text-xs">
           <div class="flex flex-wrap items-center gap-2">
             <span class="text-slate-400 font-semibold mono">Modo de Ingestão:</span>
             <select id="tseUploadStrategy" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-cyan-300 font-bold mono">
-              <option value="AUTO">⚡ Inteligente (Stream direto p/ PostgreSQL e Zero-Disk)</option>
-              <option value="TURBO">🚀 Turbo Estadual (Prioriza BU + RDV e Log sob demanda)</option>
+              <option value="AUTO">⚡ Inteligente (Lotes de 25 urnas com BU + RDV + Logs Teclas Presidente)</option>
+              <option value="TURBO">🚀 Ultra-Rápido (Lotes de 50 urnas - BU + RDV e Log sob demanda)</option>
               <option value="COMPLETO">🔬 Completo (Processa 100% dos eventos de log linha a linha)</option>
             </select>
           </div>
-          <div id="tseCatalogCountBadge" class="mono text-[11px] text-emerald-400 font-bold"></div>
-        </div>
-
           <div id="tseCatalogCountBadge" class="mono text-[11px] text-emerald-400 font-bold"></div>
         </div>
 
@@ -2858,12 +2866,15 @@ o Boletim de Urna (apos encerramento da votacao).
       window.cancelarLoteTseFlag = true;
       atualizarProgressoUploadTse(
         99,
-        "⏹ Finalizando lote atual e abrindo consolidação das urnas já enviadas...",
+        "⏹ Cancelando e fechando modal de upload...",
         "Parando...",
         0,
         0,
         0
       );
+      setTimeout(() => {
+        fecharProgressoUploadTse();
+      }, 400);
     }
 
     async function iniciarImportacaoZipTse(eventOrFiles) {
@@ -2942,12 +2953,33 @@ o Boletim de Urna (apos encerramento da votacao).
         if (uploadResp && uploadResp.job_id) {
           const jobId = uploadResp.job_id;
           let jobAtivo = true;
+          let falhasNaoEncontrado = 0;
           while (jobAtivo) {
+            if (window.cancelarLoteTseFlag) {
+              jobAtivo = false;
+              fecharProgressoUploadTse();
+              break;
+            }
             await new Promise(r => setTimeout(r, 1200));
             try {
               const stRes = await fetch(`/api/tse-reverso/job-status/${jobId}`);
               if (stRes.ok) {
                 const job = await stRes.json();
+                if (job.status === "NAO_ENCONTRADO") {
+                  falhasNaoEncontrado++;
+                  if (falhasNaoEncontrado >= 4) {
+                    showSecurityAlert(
+                      `O processamento do arquivo .ZIP foi interrompido na VPS (arquivo muito pesado para descompactar no servidor). RECOMENDADO: Extraia o arquivo no seu computador e use o botão verde "📂 Subir Pasta Aberta" para envio direto em micro-lotes de 50 urnas!`,
+                      true
+                    );
+                    fecharProgressoUploadTse();
+                    jobAtivo = false;
+                    break;
+                  }
+                } else {
+                  falhasNaoEncontrado = 0;
+                }
+
                 const pct = Math.max(5, Math.min(99, Math.round(job.progresso_pct || 0)));
                 atualizarProgressoUploadTse(
                   pct,
@@ -2960,7 +2992,7 @@ o Boletim de Urna (apos encerramento da votacao).
                 if (job.status === "CONCLUIDO") {
                   jobAtivo = false;
                 } else if (job.status === "ERRO") {
-                  showSecurityAlert(`Erro durante extração do ZIP ${zipFile.name}: ${job.erro || job.mensagem}`, true);
+                  showSecurityAlert(`Erro durante extração do ZIP ${zipFile.name}: ${job.erro || job.mensagem}. Recomendado: Extraia o arquivo e envie como Pasta Aberta.`, true);
                   jobAtivo = false;
                 }
               }
@@ -3087,9 +3119,9 @@ o Boletim de Urna (apos encerramento da votacao).
         }
       } catch (e) {}
 
-      // Define estratégia: Turbo (BU+RDV no lote e .jez ao abrir urna) ou Completo
+      // Define estratégia: Turbo (apenas BU+RDV no lote) ou Auto/Completo (BU + RDV + Logs Teclas Presidente)
       const stratSelect = document.getElementById("tseUploadStrategy")?.value || "AUTO";
-      const usarModoTurbo = stratSelect === "TURBO" || (stratSelect === "AUTO" && totalUrnasSelecionadas > 15);
+      const usarModoTurbo = stratSelect === "TURBO";
 
       // 3. Filtra APENAS as urnas e os arquivos que AINDA NÃO foram carregados no servidor
       const gruposFaltantes = new Map();
@@ -3181,7 +3213,8 @@ o Boletim de Urna (apos encerramento da votacao).
 
       // Quantas seções enviamos por requisição HTTP POST:
       // No modo Turbo (~20 KB/urna), enviamos 50 urnas por POST (~1 MB/req) para velocidade máxima
-      const urnasPorRequisicao = usarModoTurbo ? 50 : 2;
+      // No modo Auto / Inteligente (~100 KB/urna com BU+RDV+.jez), enviamos 25 urnas por POST (~2.5 MB/req)
+      const urnasPorRequisicao = usarModoTurbo ? 50 : 25;
       window.cancelarLoteTseFlag = false;
       let urnasEnviadas = 0;
 

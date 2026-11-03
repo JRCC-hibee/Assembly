@@ -811,16 +811,56 @@ async def api_tse_reverso_upload_lote(request: Request):
         raise HTTPException(status_code=400, detail=f"Erro ao processar lote TSE: {exc}")
 
 
-# Gerenciador em memória de jobs em background para importação massiva de arquivos .ZIP
-# (Garante 100% de resiliência contra timeout de proxy reverso - 180s Traefik/Cloudflare)
+# Gerenciador persistente de jobs em background para importação massiva de arquivos .ZIP
+# (Garante resiliência com fallback em disco caso o worker recarregue ou existam múltiplos processos)
 _JOBS_IMPORTACAO_TSE: dict[str, dict] = {}
+
+
+def _get_jobs_dir() -> str:
+    p = "/app/data/jobs" if os.path.exists("/app/data") else os.path.join(tempfile.gettempdir(), "tse_jobs")
+    os.makedirs(p, exist_ok=True)
+    return p
+
+
+def _salvar_job_status(job_id: str, data: dict):
+    _JOBS_IMPORTACAO_TSE[job_id] = data
+    try:
+        fpath = os.path.join(_get_jobs_dir(), f"{job_id}.json")
+        with open(fpath, "w", encoding="utf-8") as fp:
+            json.dump(data, fp)
+    except Exception:
+        pass
+
+
+def _obter_job_status(job_id: str) -> dict | None:
+    if job_id in _JOBS_IMPORTACAO_TSE:
+        return _JOBS_IMPORTACAO_TSE[job_id]
+    try:
+        fpath = os.path.join(_get_jobs_dir(), f"{job_id}.json")
+        if os.path.exists(fpath):
+            with open(fpath, "r", encoding="utf-8") as fp:
+                data = json.load(fp)
+                _JOBS_IMPORTACAO_TSE[job_id] = data
+                return data
+    except Exception:
+        pass
+    return None
 
 
 def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
     t0 = time.time()
-    job = _JOBS_IMPORTACAO_TSE.get(job_id)
-    if not job:
-        return
+    job = _obter_job_status(job_id) or {
+        "job_id": job_id,
+        "status": "PROCESSANDO",
+        "concluido": False,
+        "total_secoes_estimadas": 0,
+        "secoes_gravadas": 0,
+        "progresso_pct": 2.0,
+        "mensagem": "Iniciando varredura das urnas...",
+        "erro": None,
+        "tempo_inicio": t0,
+        "tempo_segundos": 0.0,
+    }
 
     total_secoes_gravadas = 0
     try:
@@ -850,6 +890,7 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
 
         job["total_secoes_estimadas"] = total_secoes_estimadas
         job["mensagem"] = f"Total estimado: {total_secoes_estimadas} seções. Iniciando decodificação..."
+        _salvar_job_status(job_id, job)
 
         chunk_size = 50
         for zip_idx, (p, zf, grupos) in enumerate(zips_info):
@@ -881,6 +922,7 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
                 job["mensagem"] = (
                     f"Decodificando {nome_zip}: {total_secoes_gravadas}/{total_secoes_estimadas} seções gravadas no PostgreSQL ({job['progresso_pct']}%)"
                 )
+                _salvar_job_status(job_id, job)
 
             try:
                 zf.close()
@@ -895,6 +937,7 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
 
         # Conclusão e sincronização do catálogo em memória com selectinload em <0.2s
         job["mensagem"] = "Sincronizando catálogo e árvore de 5 níveis com PostgreSQL..."
+        _salvar_job_status(job_id, job)
         sincronizar_catalogo_com_banco()
 
         duracao = round(time.time() - t0, 2)
@@ -904,6 +947,7 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
         job["secoes_gravadas"] = total_secoes_gravadas
         job["tempo_segundos"] = duracao
         job["mensagem"] = f"Sucesso! {total_secoes_gravadas} seções processadas e gravadas no PostgreSQL em {duracao}s."
+        _salvar_job_status(job_id, job)
 
     except Exception as exc:
         print(f"[TSE-ZIP-JOB] Erro fatal no job {job_id}: {exc}")
@@ -911,6 +955,7 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
         job["concluido"] = True
         job["erro"] = str(exc)
         job["mensagem"] = f"Erro durante o processamento: {exc}"
+        _salvar_job_status(job_id, job)
         for p in temp_paths:
             try:
                 if os.path.exists(p):
@@ -957,7 +1002,7 @@ async def api_tse_reverso_upload_zip(
         for k in list(_JOBS_IMPORTACAO_TSE.keys())[:-20]:
             _JOBS_IMPORTACAO_TSE.pop(k, None)
 
-    _JOBS_IMPORTACAO_TSE[job_id] = {
+    _salvar_job_status(job_id, {
         "job_id": job_id,
         "status": "PROCESSANDO",
         "concluido": False,
@@ -969,7 +1014,7 @@ async def api_tse_reverso_upload_zip(
         "erro": None,
         "tempo_inicio": time.time(),
         "tempo_segundos": 0.0,
-    }
+    })
 
     background_tasks.add_task(_executar_job_importacao_zip, job_id, temp_paths)
 
@@ -984,7 +1029,7 @@ async def api_tse_reverso_upload_zip(
 @app.get("/api/tse-reverso/job-status/{job_id}")
 def api_tse_reverso_job_status(job_id: str):
     """Retorna o status e percentual de progresso de um job de importação em background."""
-    job = _JOBS_IMPORTACAO_TSE.get(job_id)
+    job = _obter_job_status(job_id)
     if not job:
         return {"ok": False, "status": "NAO_ENCONTRADO", "mensagem": "Job não encontrado ou expirado."}
     return job
