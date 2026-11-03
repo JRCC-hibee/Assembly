@@ -1148,6 +1148,9 @@ o Boletim de Urna (apos encerramento da votacao).
                 <input type="file" multiple accept=".jez,.dat,.vsc,.zip" onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
               </label>
             </div>
+            <div id="tseCompUploadProgressLine" class="hidden text-xs text-amber-300 font-bold mono animate-pulse py-0.5">
+              ⏳ Enviando arquivos do 1º Turno...
+            </div>
           </div>
 
           <!-- 6 Cards de KPIs Lado a Lado (1º Turno vs 2º Turno + Variação Δ) -->
@@ -1638,6 +1641,67 @@ o Boletim de Urna (apos encerramento da votacao).
       <div class="text-6xl mb-4 animate-bounce">📥</div>
       <h2 class="text-2xl font-extrabold text-white">Solte a pasta ou arquivos do TSE aqui</h2>
       <p class="text-sm text-cyan-300 mt-2 mono">A importação e o pareamento de 1º e 2º Turno iniciarão automaticamente!</p>
+    </div>
+
+    <!-- MODAL / HUD FLUTUANTE DE PROGRESSO DE UPLOAD EM LOTE (SEMPRE VISÍVEL) -->
+    <div id="tseFloatingProgressModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+      <div class="bg-slate-900 border-2 border-cyan-500/70 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl">
+        <div class="flex items-start justify-between border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xl font-bold animate-pulse">
+              🚀
+            </div>
+            <div>
+              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
+                TRANSMISSÃO EM MICRO-LOTES TSE
+              </span>
+              <h3 id="tseModalProgressTitle" class="text-base font-extrabold text-white mt-0.5">
+                Ingestão de Dados Eleitorais
+              </h3>
+            </div>
+          </div>
+          <span id="tseModalProgressPct" class="text-2xl font-black text-cyan-400 mono">0%</span>
+        </div>
+
+        <!-- Barra de Progresso com Glow -->
+        <div class="space-y-1.5">
+          <div class="w-full bg-slate-950 rounded-full h-4 overflow-hidden border border-slate-800 p-0.5">
+            <div id="tseModalProgressBar" style="width: 2%" class="bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-400 h-full rounded-full transition-all duration-300 shadow-[0_0_15px_rgba(6,182,212,0.6)]"></div>
+          </div>
+          <div class="flex items-center justify-between text-[11px] mono text-slate-400">
+            <span id="tseModalProgressSubText">Iniciando análise dos arquivos...</span>
+            <span id="tseModalProgressStats">0 / 0</span>
+          </div>
+        </div>
+
+        <!-- 3 Métricas em Tempo Real -->
+        <div class="grid grid-cols-3 gap-2.5 text-xs mono">
+          <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+            <div class="text-[10px] text-slate-500 font-bold">TOTAL URNAS</div>
+            <div id="tseModalTotalUrnas" class="font-extrabold text-white mt-0.5">0</div>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+            <div class="text-[10px] text-emerald-400 font-bold">ENVIADAS</div>
+            <div id="tseModalUrnasEnviadas" class="font-extrabold text-emerald-300 mt-0.5">0</div>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 p-2.5 rounded-xl">
+            <div class="text-[10px] text-amber-400 font-bold">JÁ SALVAS (PULADAS)</div>
+            <div id="tseModalUrnasPuladas" class="font-extrabold text-amber-300 mt-0.5">0</div>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-800/80">
+          <div class="text-[11px] text-slate-400">
+            Transmitindo em blocos de alta velocidade sem travar o navegador.
+          </div>
+          <button
+            onclick="pararImportacaoLoteTse()"
+            class="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-slate-950 font-extrabold text-xs transition"
+          >
+            ⏹ Parar e Consolidar
+          </button>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -2508,10 +2572,72 @@ o Boletim de Urna (apos encerramento da votacao).
       return base.replace(/-(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc|\.zip)$/i, "");
     }
 
+    function atualizarProgressoUploadTse(pct, text, stats = "", enviados = 0, pulados = 0, total = 0) {
+      // 1. Atualiza Modal Flutuante Central (sempre visível no meio da tela, independente de rolagem)
+      const fModal = document.getElementById("tseFloatingProgressModal");
+      if (fModal) fModal.classList.remove("hidden");
+
+      const mBar = document.getElementById("tseModalProgressBar");
+      if (mBar) mBar.style.width = `${Math.max(2, Math.min(100, pct))}%`;
+
+      const mPct = document.getElementById("tseModalProgressPct");
+      if (mPct) mPct.textContent = `${pct}%`;
+
+      const mSub = document.getElementById("tseModalProgressSubText");
+      if (mSub) mSub.textContent = text;
+
+      const mStats = document.getElementById("tseModalProgressStats");
+      if (mStats) mStats.textContent = stats || (total > 0 ? `${enviados} de ${total}` : "");
+
+      const mTot = document.getElementById("tseModalTotalUrnas");
+      if (mTot && total > 0) mTot.textContent = total.toLocaleString("pt-BR");
+
+      const mEnv = document.getElementById("tseModalUrnasEnviadas");
+      if (mEnv) mEnv.textContent = enviados.toLocaleString("pt-BR");
+
+      const mPul = document.getElementById("tseModalUrnasPuladas");
+      if (mPul) mPul.textContent = pulados.toLocaleString("pt-BR");
+
+      // 2. Atualiza Box Topo (se usuário rolar até o topo)
+      const progBox = document.getElementById("tseBatchProgressBox");
+      if (progBox) progBox.classList.remove("hidden");
+
+      const progBar = document.getElementById("tseBatchProgressBar");
+      if (progBar) progBar.style.width = `${Math.max(2, Math.min(100, pct))}%`;
+
+      const progPct = document.getElementById("tseBatchProgressPct");
+      if (progPct) progPct.textContent = `${pct}%`;
+
+      const progText = document.getElementById("tseBatchProgressText");
+      if (progText) progText.textContent = text;
+
+      // 3. Atualiza indicador no painel do Comparativo Forense
+      const compLine = document.getElementById("tseCompUploadProgressLine");
+      if (compLine) {
+        compLine.classList.remove("hidden");
+        compLine.textContent = `⏳ ${pct}% • ${text}`;
+      }
+    }
+
+    function fecharProgressoUploadTse() {
+      const fModal = document.getElementById("tseFloatingProgressModal");
+      if (fModal) fModal.classList.add("hidden");
+      const progBox = document.getElementById("tseBatchProgressBox");
+      if (progBox) progBox.classList.add("hidden");
+      const compLine = document.getElementById("tseCompUploadProgressLine");
+      if (compLine) compLine.classList.add("hidden");
+    }
+
     function pararImportacaoLoteTse() {
       window.cancelarLoteTseFlag = true;
-      document.getElementById("tseBatchProgressText").textContent =
-        "⏹ Finalizando lote atual e abrindo consolidação das urnas já carregadas...";
+      atualizarProgressoUploadTse(
+        99,
+        "⏹ Finalizando lote atual e abrindo consolidação das urnas já enviadas...",
+        "Parando...",
+        0,
+        0,
+        0
+      );
     }
 
     async function iniciarImportacaoLoteTse(eventOrFiles) {
@@ -2526,20 +2652,22 @@ o Boletim de Urna (apos encerramento da votacao).
       }
       if (!fileList || fileList.length === 0) return;
 
-      const progBox = document.getElementById("tseBatchProgressBox");
-      const progBar = document.getElementById("tseBatchProgressBar");
-      const progText = document.getElementById("tseBatchProgressText");
-      const progPct = document.getElementById("tseBatchProgressPct");
-
-      progBox.classList.remove("hidden");
-      progBar.style.width = "2%";
-      progPct.textContent = "0%";
-      progText.textContent = `🔍 Lendo ${fileList.length.toLocaleString("pt-BR")} arquivo(s) e consultando o catálogo do servidor para ignorar duplicados...`;
+      // Mostra o modal flutuante IMEDIATAMENTE (sem delay) no meio da tela
+      atualizarProgressoUploadTse(
+        2,
+        `🔍 Lendo ${fileList.length.toLocaleString("pt-BR")} arquivo(s) da pasta selecionada...`,
+        "Preparando...",
+        0,
+        0,
+        0
+      );
+      await new Promise(r => setTimeout(r, 60)); // Yield para forçar pintura imediata na tela do navegador
 
       // 1. Filtra arquivos oficiais TSE (.jez, .dat, .vsc, .zip) e agrupa por prefixo de seção
       const gruposPorPrefixo = new Map();
+      const totalArquivos = fileList.length;
 
-      for (let i = 0; i < fileList.length; i++) {
+      for (let i = 0; i < totalArquivos; i++) {
         const f = fileList[i];
         const base = f.name.toLowerCase();
         if (base.startsWith(".")) continue;
@@ -2557,16 +2685,40 @@ o Boletim de Urna (apos encerramento da votacao).
           window.localTseFilesByPrefix[prefixo] = {};
         }
         window.localTseFilesByPrefix[prefixo][base] = f;
+
+        // Se for uma pasta massiva (> 10.000 arquivos), atualiza a barra a cada 10.000 arquivos para a tela não congelar
+        if (i % 12000 === 0 && i > 0) {
+          const pctLeitura = Math.round((i / totalArquivos) * 10);
+          atualizarProgressoUploadTse(
+            pctLeitura,
+            `🔍 Lendo pasta local: ${i.toLocaleString("pt-BR")} de ${totalArquivos.toLocaleString("pt-BR")} arquivos...`,
+            `${gruposPorPrefixo.size.toLocaleString("pt-BR")} urnas`,
+            0,
+            0,
+            gruposPorPrefixo.size
+          );
+          await new Promise(r => setTimeout(r, 0));
+        }
       }
 
       const todosPrefixosSelecionados = Array.from(gruposPorPrefixo.keys()).sort();
       const totalUrnasSelecionadas = todosPrefixosSelecionados.length;
 
       if (totalUrnasSelecionadas === 0) {
-        progBox.classList.add("hidden");
-        showSecurityAlert("Nenhum arquivo oficial do TSE (.jez, .dat, .vsc) foi identificado na seleção.", true);
+        fecharProgressoUploadTse();
+        showSecurityAlert("Nenhum arquivo oficial do TSE (.jez, .dat, .vsc, .zip) foi identificado na seleção.", true);
         return;
       }
+
+      atualizarProgressoUploadTse(
+        12,
+        `⚡ Consultando índice do servidor para pular seções duplicadas... (${totalUrnasSelecionadas.toLocaleString("pt-BR")} urnas detectadas)`,
+        "Indexando...",
+        0,
+        0,
+        totalUrnasSelecionadas
+      );
+      await new Promise(r => setTimeout(r, 20));
 
       // 2. Consulta o índice de seções/arquivos já carregados no servidor para NÃO enviar duplicado
       let indiceMascaras = {};
@@ -2579,7 +2731,7 @@ o Boletim de Urna (apos encerramento da votacao).
       } catch (e) {}
 
       // Define estratégia: Turbo (BU+RDV no lote e .jez ao abrir urna) ou Completo
-      const stratSelect = document.getElementById("tseUploadStrategy").value;
+      const stratSelect = document.getElementById("tseUploadStrategy")?.value || "AUTO";
       const usarModoTurbo = stratSelect === "TURBO" || (stratSelect === "AUTO" && totalUrnasSelecionadas > 15);
 
       // 3. Filtra APENAS as urnas e os arquivos que AINDA NÃO foram carregados no servidor
@@ -2645,12 +2797,17 @@ o Boletim de Urna (apos encerramento da votacao).
 
       // Caso todas as urnas selecionadas já tenham sido carregadas anteriormente:
       if (totalFaltantes === 0) {
-        progBar.style.width = "100%";
-        progPct.textContent = "100%";
-        progText.textContent = `✅ Todas as ${totalUrnasSelecionadas.toLocaleString("pt-BR")} urnas selecionadas já constam no catálogo (${arquivosPuladosJaExistentes.toLocaleString("pt-BR")} arquivos duplicados ignorados)! Pasta indexada na memória para carregar Log.jez ao clicar nas urnas.`;
+        atualizarProgressoUploadTse(
+          100,
+          `✅ Todas as ${totalUrnasSelecionadas.toLocaleString("pt-BR")} urnas já constam no catálogo (${arquivosPuladosJaExistentes.toLocaleString("pt-BR")} duplicados ignorados)!`,
+          "Concluído 100%",
+          0,
+          urnasPuladasJaExistentes,
+          totalUrnasSelecionadas
+        );
         setTimeout(() => {
-          progBox.classList.add("hidden");
-        }, 4500);
+          fecharProgressoUploadTse();
+        }, 3500);
         if (inputEl) inputEl.value = "";
         playBeepBiometriaOk();
         const secaoAtiva = window.arvoreTseState?.secao;
@@ -2666,7 +2823,7 @@ o Boletim de Urna (apos encerramento da votacao).
       }
 
       // Quantas seções enviamos por requisição HTTP POST:
-      // No modo Turbo (~9 KB/urna), enviamos 50 urnas por POST (~450 KB/req) para velocidade máxima
+      // No modo Turbo (~20 KB/urna), enviamos 50 urnas por POST (~1 MB/req) para velocidade máxima
       const urnasPorRequisicao = usarModoTurbo ? 50 : 2;
       window.cancelarLoteTseFlag = false;
       let urnasEnviadas = 0;
@@ -2687,13 +2844,19 @@ o Boletim de Urna (apos encerramento da votacao).
         }
 
         if (arquivosNaFatia > 0) {
-          const pctAtual = Math.round((urnasEnviadas / totalFaltantes) * 100);
-          progBar.style.width = `${Math.max(3, pctAtual)}%`;
-          progPct.textContent = `${pctAtual}%`;
-          const msgPuladas = urnasPuladasJaExistentes > 0
-            ? `⏭️ ${urnasPuladasJaExistentes.toLocaleString("pt-BR")} já existentes ignoradas • `
-            : "";
-          progText.textContent = `${msgPuladas}Enviando apenas faltantes: ${urnasEnviadas + 1} a ${Math.min(urnasEnviadas + fatiaPrefixos.length, totalFaltantes)} de ${totalFaltantes.toLocaleString("pt-BR")} (${fatiaPrefixos[0]})...`;
+          const pctAtual = Math.round(15 + ((urnasEnviadas / totalFaltantes) * 84));
+          const msgStatus = urnasPuladasJaExistentes > 0
+            ? `Enviando urnas ${urnasEnviadas + 1} a ${Math.min(urnasEnviadas + fatiaPrefixos.length, totalFaltantes)} de ${totalFaltantes.toLocaleString("pt-BR")} (${urnasPuladasJaExistentes.toLocaleString("pt-BR")} já salvas ignoradas)...`
+            : `Enviando urnas ${urnasEnviadas + 1} a ${Math.min(urnasEnviadas + fatiaPrefixos.length, totalFaltantes)} de ${totalFaltantes.toLocaleString("pt-BR")}...`;
+
+          atualizarProgressoUploadTse(
+            pctAtual,
+            msgStatus,
+            `${urnasEnviadas + fatiaPrefixos.length} de ${totalFaltantes}`,
+            urnasEnviadas + fatiaPrefixos.length,
+            urnasPuladasJaExistentes,
+            totalFaltantes
+          );
 
           try {
             const res = await fetch("/api/tse-reverso/upload-lote", {
@@ -2714,12 +2877,18 @@ o Boletim de Urna (apos encerramento da votacao).
         urnasEnviadas += fatiaPrefixos.length;
       }
 
-      progBar.style.width = "100%";
-      progPct.textContent = "100%";
-      progText.textContent = `✅ Upload incremental concluído! ${urnasEnviadas.toLocaleString("pt-BR")} novas urnas adicionadas (${urnasPuladasJaExistentes.toLocaleString("pt-BR")} duplicadas ignoradas).`;
+      atualizarProgressoUploadTse(
+        100,
+        `✅ Ingestão concluída com sucesso! ${urnasEnviadas.toLocaleString("pt-BR")} urnas adicionadas. Atualizando comparativo...`,
+        "Concluído 100%",
+        urnasEnviadas,
+        urnasPuladasJaExistentes,
+        totalFaltantes
+      );
+
       setTimeout(() => {
-        progBox.classList.add("hidden");
-      }, 3500);
+        fecharProgressoUploadTse();
+      }, 2500);
 
       if (inputEl) inputEl.value = "";
       hideSecurityAlert();
