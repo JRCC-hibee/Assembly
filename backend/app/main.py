@@ -864,4 +864,35 @@ def api_tse_reverso_amostra_pr():
     return lote_res["ultimo_relatorio_individual"]
 
 
+@app.get("/api/tse-reverso/status-banco")
+def api_tse_reverso_status_banco():
+    """
+    Retorna o status físico de armazenamento e volumetria das tabelas do PostgreSQL:
+    total de seções, estados, municípios, apurações e métricas de log cadastradas.
+    """
+    from .database import TseSecao, TseApuracaoBU, TseMetricasLog, TseVotoCandidato, DATABASE_URL
+    from .tse_reverse_analyzer import TSE_ZERO_DISK_RAW
+    db = SessionLocal()
+    try:
+        total_secoes = db.query(TseSecao).count()
+        total_ufs = db.query(TseSecao.uf).distinct().count()
+        total_municipios = db.query(TseSecao.municipio_codigo).distinct().count()
+        total_bu = db.query(TseApuracaoBU).count()
+        total_metricas = db.query(TseMetricasLog).count()
+        total_votos = db.query(TseVotoCandidato).count()
+        return {
+            "banco": "PostgreSQL" if "postgres" in DATABASE_URL.lower() else "SQLite",
+            "zero_disk_raw_ativo": TSE_ZERO_DISK_RAW,
+            "total_secoes": total_secoes,
+            "total_ufs": total_ufs,
+            "total_municipios": total_municipios,
+            "total_apuracoes_bu": total_bu,
+            "total_metricas_log": total_metricas,
+            "total_registros_votos": total_votos,
+        }
+    finally:
+        db.close()
+
+
+
 

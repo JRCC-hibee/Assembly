@@ -1460,6 +1460,67 @@ def _carregar_catalogo_disco() -> dict[str, dict]:
         except Exception:
             pass
 
+    # Sincronização resiliente com PostgreSQL (Estratégia Zero-Disk Raw):
+    # Se a memória estiver vazia ou após restart do container, restaura o catálogo direto do banco!
+    if not _CATALOGO_MEMORIA:
+        db = _obter_db_session()
+        if db:
+            try:
+                from .database import TseSecao
+                secoes = db.query(TseSecao).all()
+                for s in secoes:
+                    pref = f"o03221{s.uf.lower()}{s.municipio_codigo}{s.zona:04d}{s.secao:04d}"
+                    bu2 = next((b for b in s.apuracoes if b.turno == 2), None) or next((b for b in s.apuracoes if b.turno == 1), None)
+                    bu1 = next((b for b in s.apuracoes if b.turno == 1), None)
+                    met2 = next((m for m in s.metricas_log if m.turno == 2), None) or next((m for m in s.metricas_log if m.turno == 1), None)
+                    met1 = next((m for m in s.metricas_log if m.turno == 1), None)
+
+                    cands = [
+                        {
+                            "numero": str(v.numero_candidato),
+                            "nome": v.nome_candidato or f"Candidato {v.numero_candidato}",
+                            "votos": v.quantidade_votos,
+                            "votos_bu": v.quantidade_votos,
+                            "votos_rdv": v.quantidade_votos,
+                        }
+                        for v in s.votos_candidatos if (v.turno == 2 or not any(x.turno == 2 for x in s.votos_candidatos))
+                    ]
+
+                    _CATALOGO_MEMORIA[pref] = {
+                        "prefixo": pref,
+                        "chave_secao_geo": f"{s.uf}-{s.municipio_codigo}-{s.zona:04d}-{s.secao:04d}",
+                        "turno_pacote": 2 if bu2 and bu2.turno == 2 else 1,
+                        "uf": s.uf,
+                        "municipio_codigo": s.municipio_codigo,
+                        "municipio_nome": s.municipio_nome,
+                        "zona": f"{s.zona:04d}",
+                        "secao": f"{s.secao:04d}",
+                        "local_votacao": s.local_votacao or "-",
+                        "modelo_ue": s.modelo_urna or "UE2020",
+                        "nivel_risco": "CRITICO" if (bu2 and bu2.divergencia_detectada) else "BAIXO",
+                        "veredito_geral": bu2.divergencia_descricao if bu2 else "SEÇÃO OFICIAL ÍNTEGRA",
+                        "eleitores_aptos": bu2.eleitores_aptos if bu2 else 0,
+                        "faltosos": bu2.faltosos if bu2 else 0,
+                        "comparecimento_efetivo": bu2.comparecimento if bu2 else 0,
+                        "comparecimento_bu": bu2.comparecimento if bu2 else 0,
+                        "comparecimento_log": met2.total_votos_computados if met2 else (bu2.comparecimento if bu2 else 0),
+                        "brancos_bu": bu2.votos_brancos if bu2 else 0,
+                        "nulos_bu": bu2.votos_nulos if bu2 else 0,
+                        "candidatos": cands,
+                        "total_teclas_indevidas_presidente_t2": met2.teclas_indevidas_pres if met2 else 0,
+                        "total_teclas_indevidas_t2": met2.teclas_indevidas_total if met2 else 0,
+                        "total_teclas_indevidas_presidente_t1": met1.teclas_indevidas_pres if met1 else 0,
+                        "total_teclas_indevidas_t1": met1.teclas_indevidas_total if met1 else 0,
+                        "tem_comparativo_1t_log": met1 is not None,
+                        "tempo_medio_cabine_s": float(met2.tempo_medio_voto_segundos) if met2 else 0.0,
+                        "tempo_medio_cabine_t1_s": float(met1.tempo_medio_voto_segundos) if met1 else 0.0,
+                    }
+            except Exception as exc_db:
+                print(f"[TSE-DB] Erro ao sincronizar catalogo do PostgreSQL: {exc_db}")
+            finally:
+                db.close()
+
+
     for item in _CATALOGO_MEMORIA.values():
         mc = item.get("municipio_codigo")
         mn = item.get("municipio_nome")
@@ -1515,15 +1576,30 @@ def obter_indice_secoes_carregadas() -> dict:
     }
 
 
+# Estratégia Zero-Disk Raw: não armazena arquivos brutos no disco da VPS,
+# persistindo tudo diretamente nas tabelas normalizadas do PostgreSQL.
+TSE_ZERO_DISK_RAW = os.getenv("TSE_ZERO_DISK_RAW", "true").lower() in ("true", "1", "yes")
+
+
+def _obter_db_session():
+    try:
+        from .database import SessionLocal
+        return SessionLocal()
+    except Exception:
+        return None
+
+
 def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
     """
     Recebe um lote contendo 1 ou N arquivos de 1 ou várias seções eleitorais do TSE,
-    agrupa pelo prefixo da seção (`o03221pr7407101710017`), ignora arquivos que já
-    foram carregados anteriormente para aquela seção, mescla apenas os arquivos novos
-    e salva incrementalmente em disco.
+    agrupa pelo prefixo da seção (`o03221pr7407101710017`), decodifica em memória,
+    persiste as métricas e dados de apuração diretamente no banco relacional PostgreSQL,
+    e (sob a estratégia Zero-Disk Raw) descarta imediatamente os arquivos brutos,
+    garantindo o menor consumo possível de armazenamento na VPS.
     """
     catalogo = _carregar_catalogo_disco()
     storage = _get_tse_storage_dir()
+    db = _obter_db_session()
 
     grupos: dict[str, dict[str, bytes]] = {}
     arquivos_expandidos = dict(arquivos_dict)
@@ -1533,7 +1609,6 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
         base_name = raw_name.split("/")[-1].split("\\")[-1]
         if base_name.lower().endswith(".zip"):
             try:
-                import io, zipfile
                 with zipfile.ZipFile(io.BytesIO(content)) as zf:
                     for zinfo in zf.infolist():
                         if zinfo.is_dir():
@@ -1573,21 +1648,24 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
                 continue
             novos_arquivos = arquivos_realmente_novos
 
-        raw_sec_dir = os.path.join(storage, "raw", prefixo)
-        os.makedirs(raw_sec_dir, exist_ok=True)
-
-        # Salva apenas os arquivos novos da seção
-        for fname, fbytes in novos_arquivos.items():
-            with open(os.path.join(raw_sec_dir, fname), "wb") as fp:
-                fp.write(fbytes)
-
-        # Carrega todos os arquivos disponíveis daquela seção (permitindo upload incremental de -log.jez)
         pacote_completo: dict[str, bytes] = {}
-        for fname in os.listdir(raw_sec_dir):
-            fpath = os.path.join(raw_sec_dir, fname)
-            if os.path.isfile(fpath):
-                with open(fpath, "rb") as fp:
-                    pacote_completo[fname] = fp.read()
+
+        if not TSE_ZERO_DISK_RAW:
+            # Modo Clássico: Salva no disco local da VPS
+            raw_sec_dir = os.path.join(storage, "raw", prefixo)
+            os.makedirs(raw_sec_dir, exist_ok=True)
+            for fname, fbytes in novos_arquivos.items():
+                with open(os.path.join(raw_sec_dir, fname), "wb") as fp:
+                    fp.write(fbytes)
+
+            for fname in os.listdir(raw_sec_dir):
+                fpath = os.path.join(raw_sec_dir, fname)
+                if os.path.isfile(fpath):
+                    with open(fpath, "rb") as fp:
+                        pacote_completo[fname] = fp.read()
+        else:
+            # Modo Zero-Disk Raw: Decodificação direta na memória sem tocar o disco com arquivos brutos!
+            pacote_completo = dict(novos_arquivos)
 
         relatorio = analisar_pacote_seccao_tse(pacote_completo)
         resumo = relatorio["resumo_consolidacao"]
@@ -1595,18 +1673,33 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
         if mc in MUNICIPIOS_PR_TSE:
             resumo["municipio_nome"] = MUNICIPIOS_PR_TSE[mc]
 
+        # Persistência no Banco PostgreSQL (dados relacionais enxutos)
+        if db:
+            try:
+                from .database import salvar_resumo_tse_no_banco
+                salvar_resumo_tse_no_banco(db, resumo, relatorio)
+            except Exception as exc_db:
+                print(f"[TSE-DB] Aviso ao persistir secao {prefixo} no PostgreSQL: {exc_db}")
+
         catalogo[prefixo] = resumo
         resumos_para_append.append(resumo)
 
-        sec_json_path = os.path.join(storage, "secoes", f"{prefixo}.json")
-        with open(sec_json_path, "w", encoding="utf-8") as fp:
-            json.dump(relatorio, fp, ensure_ascii=False)
+        if not TSE_ZERO_DISK_RAW:
+            sec_json_path = os.path.join(storage, "secoes", f"{prefixo}.json")
+            with open(sec_json_path, "w", encoding="utf-8") as fp:
+                json.dump(relatorio, fp, ensure_ascii=False)
 
         secoes_processadas.append(prefixo)
         ultimo_relatorio = relatorio
 
-    # Grava apenas o delta no arquivo .jsonl em < 1ms (sem reescrever os 25MB do catálogo inteiro a cada lote)
+    # Grava apenas o delta no arquivo .jsonl em < 1ms
     _append_catalogo_disco(resumos_para_append)
+
+    if db:
+        try:
+            db.close()
+        except Exception:
+            pass
 
     return {
         "ok": True,
@@ -1616,6 +1709,7 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
         "total_secoes_no_catalogo": len(catalogo),
         "ultimo_relatorio_individual": ultimo_relatorio,
     }
+
 
 
 def obter_secao_individual_tse(prefixo: str) -> dict | None:
@@ -1649,6 +1743,21 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
             return relatorio
 
     if not os.path.exists(sec_json_path):
+        catalogo = _carregar_catalogo_disco()
+        if pref_low in catalogo:
+            item = catalogo[pref_low]
+            return {
+                "prefixo_seccao": pref_low,
+                "veredito_geral": item.get("veredito_geral", "SEÇÃO OFICIAL ÍNTEGRA"),
+                "nivel_risco": item.get("nivel_risco", "BAIXO"),
+                "arquivos_recebidos": item.get("arquivos_recebidos", []),
+                "resumo_consolidacao": item,
+                "batimentos_cruzados": [],
+                "anomalias_forenses": [],
+                "log_jez": None,
+                "imgbu": None,
+                "rdv": None,
+            }
         return None
     with open(sec_json_path, "r", encoding="utf-8") as fp:
         return json.load(fp)
