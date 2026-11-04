@@ -1375,6 +1375,7 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
         "nulos_rdv": rdv_report["resumo_tipos"].get("NULO", 0) if rdv_report else 0,
         "votos_nulos_numeros_rdv": rdv_report.get("votos_nulos_numeros_digitados", {}) if rdv_report else {},
         "candidatos": candidatos_consolidados,
+        "cargos_bu": imgbu_report.get("cargos_bu", []) if tem_bu else [],
         "votos_por_hora": res_log.get("votos_por_hora", {}),
         "tempo_medio_ciclo_s": res_log.get("tempo_medio_ciclo_s", 0.0),
         "tempo_medio_cabine_s": res_log.get("tempo_medio_cabine_s", 0.0),
@@ -2833,7 +2834,11 @@ def _construir_comparativo_turnos(
             })
 
     # Placar comparativo de candidatos (1ºT vs 2ºT)
-    todos_nums_cand = sorted(set(cands_t1_map.keys()) | set(cands_t2_map.keys()), key=lambda n: max(cands_t2_map[n], cands_t1_map[n]), reverse=True)
+    # No comparativo forense, listar ESTRITAMENTE quem disputou o 2º Turno
+    finalistas_2t = [n for n, v2 in cands_t2_map.items() if v2 > 0]
+    if not finalistas_2t and cands_t2_map:
+        finalistas_2t = list(cands_t2_map.keys())
+    todos_nums_cand = sorted(finalistas_2t, key=lambda n: cands_t2_map.get(n, 0), reverse=True)
     tot_nom_t1 = sum(cands_t1_map.values())
     tot_nom_t2 = sum(cands_t2_map.values())
     lista_cands_comp = []
@@ -3609,6 +3614,8 @@ def _consolidar_secoes_tse_sql(
     zona_filtro: str = "TODAS",
     secao_filtro: str = "CONSOLIDADO",
     filtro_forense: str = "TODAS",
+    cargo_filtro: str = "PRESIDENTE",
+    turno_filtro: str = "TODOS",
 ) -> dict:
     from sqlalchemy.orm import aliased
     from sqlalchemy import func, case, text, or_
@@ -3631,6 +3638,17 @@ def _consolidar_secoes_tse_sql(
     zona_filtro = (zona_filtro or "TODAS").strip()
     secao_filtro = (secao_filtro or "CONSOLIDADO").strip()
     filtro_forense = (filtro_forense or "TODAS").strip()
+    cargo_filtro = (cargo_filtro or "PRESIDENTE").strip().upper()
+    turno_filtro = (turno_filtro or "TODOS").strip().upper()
+
+    # Identifica dinamicamente os cargos disponíveis gravados no banco
+    try:
+        cargos_rows = db.query(TseVotoCandidato.cargo).distinct().all()
+        cargos_disponiveis = [r[0] for r in cargos_rows if r[0]]
+    except Exception:
+        cargos_disponiveis = []
+    if "PRESIDENTE" not in cargos_disponiveis:
+        cargos_disponiveis.insert(0, "PRESIDENTE")
 
     # Aliases relacionais para apuração de 2º Turno (prioritário) e 1º Turno (fallback transparente)
     bu_t2_alias = aliased(TseApuracaoBU)
@@ -3975,14 +3993,13 @@ def _consolidar_secoes_tse_sql(
     tempo_medio_cabine = round(float(met_principal.tempo_medio or 0), 1) if met_principal else 0.0
     urnas_com_log = int(met_principal.urnas_log) if met_principal else 0
 
-    # Candidatos a Presidente
-    # Identifica o turno prioritário de cada seção (Turno 2 se houver votos de 2ºT para presidente, senão 1ºT)
+    # Candidatos do Cargo Selecionado (Turno 2 prioritário, fallback para Turno 1)
     turno_ativo_cand_subq = (
         db.query(
             TseVotoCandidato.secao_id,
             func.max(TseVotoCandidato.turno).label("turno_ativo")
         )
-        .filter(TseVotoCandidato.cargo == "PRESIDENTE")
+        .filter(TseVotoCandidato.cargo == cargo_filtro)
         .group_by(TseVotoCandidato.secao_id)
         .subquery()
     )
@@ -4013,7 +4030,7 @@ def _consolidar_secoes_tse_sql(
         .select_from(TseVotoCandidato)
         .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
         .join(turno_ativo_cand_subq, (turno_ativo_cand_subq.c.secao_id == TseVotoCandidato.secao_id) & (turno_ativo_cand_subq.c.turno_ativo == TseVotoCandidato.turno))
-        .filter(*filtro_secao, TseVotoCandidato.cargo == "PRESIDENTE")
+        .filter(*filtro_secao, TseVotoCandidato.cargo == cargo_filtro)
         .group_by(TseVotoCandidato.numero_candidato)
         .order_by(soma_votos.desc())
         .all()
@@ -4022,11 +4039,12 @@ def _consolidar_secoes_tse_sql(
     placar_candidatos = []
     for r in votos_cands:
         num_str = str(r.numero_candidato)
-        nome = r.nome_candidato or PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_str}")
-        if num_str == "22" and ("FLAVIO" in nome.upper() or not nome):
-            nome = "JAIR BOLSONARO"
-        elif num_str == "13":
-            nome = "LULA"
+        nome = r.nome_candidato or (PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_str}") if cargo_filtro == "PRESIDENTE" else f"CANDIDATO {num_str}")
+        if cargo_filtro == "PRESIDENTE":
+            if num_str == "22" and ("FLAVIO" in nome.upper() or not nome):
+                nome = "JAIR BOLSONARO"
+            elif num_str == "13":
+                nome = "LULA"
         v = int(r.votos)
         v_bu = int(r.votos_bu)
         v_rdv = int(r.votos_rdv)
@@ -4133,7 +4151,7 @@ def _consolidar_secoes_tse_sql(
         db.query(TseVotoCandidato.numero_candidato, func.max(TseVotoCandidato.nome_candidato), func.sum(TseVotoCandidato.quantidade_votos))
         .select_from(TseVotoCandidato)
         .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
-        .filter(*filtro_secao, TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.turno == 1)
+        .filter(*filtro_secao, TseVotoCandidato.cargo == cargo_filtro, TseVotoCandidato.turno == 1)
         .group_by(TseVotoCandidato.numero_candidato)
         .all()
     )
@@ -4141,7 +4159,7 @@ def _consolidar_secoes_tse_sql(
         db.query(TseVotoCandidato.numero_candidato, func.max(TseVotoCandidato.nome_candidato), func.sum(TseVotoCandidato.quantidade_votos))
         .select_from(TseVotoCandidato)
         .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
-        .filter(*filtro_secao, TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.turno == 2)
+        .filter(*filtro_secao, TseVotoCandidato.cargo == cargo_filtro, TseVotoCandidato.turno == 2)
         .group_by(TseVotoCandidato.numero_candidato)
         .all()
     )
@@ -4150,20 +4168,69 @@ def _consolidar_secoes_tse_sql(
     cands_nomes = {}
     for r in list(votos_t1_rows) + list(votos_t2_rows):
         n_str = str(r[0])
-        n_nm = r[1] or PADRAO_NOMES_PRESIDENTE.get(n_str, f"CANDIDATO {n_str}")
-        if n_str == "22" and ("FLAVIO" in n_nm.upper() or not n_nm):
-            n_nm = "JAIR BOLSONARO"
-        elif n_str == "13":
-            n_nm = "LULA"
+        n_nm = r[1] or (PADRAO_NOMES_PRESIDENTE.get(n_str, f"CANDIDATO {n_str}") if cargo_filtro == "PRESIDENTE" else f"CANDIDATO {n_str}")
+        if cargo_filtro == "PRESIDENTE":
+            if n_str == "22" and ("FLAVIO" in (n_nm or "").upper() or not n_nm):
+                n_nm = "JAIR BOLSONARO"
+            elif n_str == "13":
+                n_nm = "LULA"
         cands_nomes[n_str] = n_nm
-    cands_nomes.setdefault("13", "LULA")
-    cands_nomes.setdefault("22", "JAIR BOLSONARO")
+    if cargo_filtro == "PRESIDENTE":
+        cands_nomes.setdefault("13", "LULA")
+        cands_nomes.setdefault("22", "JAIR BOLSONARO")
 
     tot_t1_c = sum(cands_t1_map.values())
     tot_t2_c = sum(cands_t2_map.values())
 
+    # Placar isolado de Candidatos do 1º Turno (para a visão exclusiva '1T')
+    candidatos_t1 = []
+    for r in sorted(votos_t1_rows, key=lambda x: int(x[2] or 0), reverse=True):
+        num_str = str(r[0])
+        nome_c = cands_nomes.get(num_str, f"CANDIDATO {num_str}")
+        v = int(r[2] or 0)
+        pct = round((v / max(tot_t1_c, 1)) * 100.0, 2) if tot_t1_c else 0.0
+        candidatos_t1.append({
+            "numero": num_str,
+            "nome": nome_c,
+            "votos": v,
+            "votos_bu": v,
+            "votos_rdv": v,
+            "diferenca_rdv_bu": 0,
+            "urnas_com_voto": 0,
+            "urnas_divergentes": 0,
+            "cidades_divergentes": [],
+            "pct_validos": pct,
+            "status": "CONFERE_100%",
+        })
+
+    # Placar isolado de Candidatos do 2º Turno (para a visão exclusiva '2T')
+    candidatos_t2 = []
+    for r in sorted(votos_t2_rows, key=lambda x: int(x[2] or 0), reverse=True):
+        num_str = str(r[0])
+        nome_c = cands_nomes.get(num_str, f"CANDIDATO {num_str}")
+        v = int(r[2] or 0)
+        pct = round((v / max(tot_t2_c, 1)) * 100.0, 2) if tot_t2_c else 0.0
+        candidatos_t2.append({
+            "numero": num_str,
+            "nome": nome_c,
+            "votos": v,
+            "votos_bu": v,
+            "votos_rdv": v,
+            "diferenca_rdv_bu": 0,
+            "urnas_com_voto": 0,
+            "urnas_divergentes": 0,
+            "cidades_divergentes": [],
+            "pct_validos": pct,
+            "status": "CONFERE_100%",
+        })
+
+    # No comparativo forense, listar ESTRITAMENTE quem disputou o 2º Turno
+    finalistas_2t = [num for num, v2 in cands_t2_map.items() if v2 > 0]
+    if not finalistas_2t and cands_t2_map:
+        finalistas_2t = list(cands_t2_map.keys())
+
     lista_cands_comp = []
-    for num in sorted(set(cands_t1_map.keys()) | set(cands_t2_map.keys()), key=lambda n: max(cands_t2_map.get(n, 0), cands_t1_map.get(n, 0)), reverse=True):
+    for num in sorted(finalistas_2t, key=lambda n: cands_t2_map.get(n, 0), reverse=True):
         v1 = cands_t1_map.get(num, 0)
         v2 = cands_t2_map.get(num, 0)
         p1 = round((v1 / max(tot_t1_c, 1)) * 100.0, 2) if tot_t1_c else 0.0
@@ -4311,6 +4378,71 @@ def _consolidar_secoes_tse_sql(
             "status": "CONFERE_100%",
         })
 
+    totais_t1 = {
+        "eleitores_aptos_total": int(bu_t1.aptos) if bu_t1 else 0,
+        "comparecimento_total": comp_1,
+        "pct_comparecimento": round((comp_1 / max(int(bu_t1.aptos), 1)) * 100.0, 2) if (bu_t1 and bu_t1.aptos) else 0.0,
+        "faltosos_total": falt_1,
+        "brancos_total": brancos_1,
+        "nulos_total": nulos_1,
+        "total_urnas": int(bu_t1.urnas_bu) if bu_t1 else 0,
+        "urnas_integras": max(0, int(bu_t1.urnas_bu) - int(bu_t1.divergentes)) if bu_t1 else 0,
+        "urnas_com_alerta": int(bu_t1.divergentes) if bu_t1 else 0,
+        "total_teclas_indevidas": teclas_1,
+        "total_teclas_indevidas_presidente": teclas_p1,
+        "tempo_medio_cabine_s": tempo_c1,
+        "tempo_medio_ciclo_s": tempo_c1,
+    }
+
+    totais_t2 = {
+        "eleitores_aptos_total": int(bu_t2.aptos) if bu_t2 else 0,
+        "comparecimento_total": comp_2,
+        "pct_comparecimento": round((comp_2 / max(int(bu_t2.aptos), 1)) * 100.0, 2) if (bu_t2 and bu_t2.aptos) else 0.0,
+        "faltosos_total": falt_2,
+        "brancos_total": brancos_2,
+        "nulos_total": nulos_2,
+        "total_urnas": int(bu_t2.urnas_bu) if bu_t2 else 0,
+        "urnas_integras": max(0, int(bu_t2.urnas_bu) - int(bu_t2.divergentes)) if bu_t2 else 0,
+        "urnas_com_alerta": int(bu_t2.divergentes) if bu_t2 else 0,
+        "total_teclas_indevidas": teclas_2,
+        "total_teclas_indevidas_presidente": teclas_p2,
+        "tempo_medio_cabine_s": tempo_c2,
+        "tempo_medio_ciclo_s": tempo_c2,
+    }
+
+    # Se o usuário escolheu isolar 1T ou 2T, ajusta os totalizadores principais da consolidação
+    if turno_filtro == "1":
+        comp_efetivo_total = comp_1
+        aptos_total = totais_t1["eleitores_aptos_total"]
+        faltosos_total = falt_1
+        brancos_bu_total = brancos_1
+        nulos_bu_total = nulos_1
+        urnas_com_bu = totais_t1["total_urnas"]
+        urnas_com_alerta = totais_t1["urnas_com_alerta"]
+        urnas_integras = totais_t1["urnas_integras"]
+        pct_comp = totais_t1["pct_comparecimento"]
+        teclas_pres = teclas_p1
+        teclas_total = teclas_1
+        tempo_medio_cabine = tempo_c1
+        placar_candidatos = candidatos_t1
+    elif turno_filtro == "2":
+        comp_efetivo_total = comp_2
+        aptos_total = totais_t2["eleitores_aptos_total"]
+        faltosos_total = falt_2
+        brancos_bu_total = brancos_2
+        nulos_bu_total = nulos_2
+        urnas_com_bu = totais_t2["total_urnas"]
+        urnas_com_alerta = totais_t2["urnas_com_alerta"]
+        urnas_integras = totais_t2["urnas_integras"]
+        pct_comp = totais_t2["pct_comparecimento"]
+        teclas_pres = teclas_p2
+        teclas_total = teclas_2
+        tempo_medio_cabine = tempo_c2
+        placar_candidatos = candidatos_t2
+    else:
+        if not placar_candidatos and candidatos_t2:
+            placar_candidatos = candidatos_t2
+
     nivel_risco_global = "CRITICO" if urnas_com_alerta > 0 else "BAIXO"
     veredito_consolidado = (
         f"CONSOLIDAÇÃO GLOBAL ÍNTEGRA — {total_secoes_no_filtro} URNA(S) AUDITADA(S) EM {cidades_no_filtro} CIDADE(S) / {zonas_no_filtro} ZONA(S)"
@@ -4321,9 +4453,19 @@ def _consolidar_secoes_tse_sql(
     return {
         "modo_visao": "CONSOLIDADO_GLOBAL",
         "hierarquia": hierarquia,
+        "cargos_disponiveis": cargos_disponiveis,
+        "cargo_ativo": cargo_filtro,
+        "turno_ativo": turno_filtro,
         "consolidado": {
             "nivel_risco": nivel_risco_global,
             "veredito_geral": veredito_consolidado,
+            "modo_visao_atual": turno_filtro,
+            "cargo_filtro": cargo_filtro,
+            "cargos_disponiveis": cargos_disponiveis,
+            "totais_t1": totais_t1,
+            "totais_t2": totais_t2,
+            "candidatos_t1": candidatos_t1,
+            "candidatos_t2": candidatos_t2,
             "total_urnas": total_secoes_no_filtro,
             "urnas_integras": urnas_integras,
             "urnas_com_alerta": urnas_com_alerta,
@@ -4363,6 +4505,8 @@ def consolidar_secoes_tse(
     zona_filtro: str = "TODAS",
     secao_filtro: str = "CONSOLIDADO",
     filtro_forense: str = "TODAS",
+    cargo_filtro: str = "PRESIDENTE",
+    turno_filtro: str = "TODOS",
 ) -> dict:
     """
     Constrói a árvore de 5 níveis (Região do País -> Estado -> Cidade -> Zona -> Seção/Urna) e retorna:
@@ -4387,6 +4531,8 @@ def consolidar_secoes_tse(
                     zona_filtro=zona_filtro,
                     secao_filtro=secao_filtro,
                     filtro_forense=filtro_forense,
+                    cargo_filtro=cargo_filtro,
+                    turno_filtro=turno_filtro,
                 )
         except Exception as exc_sql:
             import traceback

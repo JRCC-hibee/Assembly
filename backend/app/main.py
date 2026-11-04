@@ -62,8 +62,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-04-rev7"
-SYSTEM_COMMIT = "0310e60"
+SYSTEM_BUILD = "2026-11-04-rev8"
+SYSTEM_COMMIT = "rev8-3visoes-cargos"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1275,12 +1275,14 @@ def api_tse_reverso_consolidar(
     zona: str = "TODAS",
     secao: str = "CONSOLIDADO",
     filtro_forense: str = "TODAS",
+    cargo: str = "PRESIDENTE",
+    turno: str = "TODOS",
 ):
     """
     Retorna a hierarquia completa de 5 níveis (Região -> Estado -> Cidade -> Zona -> Seção/Urna) e:
     - A consolidação global de todas as urnas do nível/filtro (`secao=CONSOLIDADO`), OU
     - O dossiê forense individual da urna escolhida (`secao=<prefixo>`).
-    Suporta `filtro_forense` (`TODAS`, `APENAS_DIVERGENTES`, `CAND:<num>`, `DIV_CAND:<num>`).
+    Suporta `filtro_forense`, seleção de `cargo` (PRESIDENTE, GOVERNADOR, etc.) e `turno` (1T, 2T, COMPARATIVO).
     """
     return consolidar_secoes_tse(
         regiao_filtro=regiao,
@@ -1289,6 +1291,8 @@ def api_tse_reverso_consolidar(
         zona_filtro=zona,
         secao_filtro=secao,
         filtro_forense=filtro_forense,
+        cargo_filtro=cargo,
+        turno_filtro=turno,
     )
 
 

@@ -434,7 +434,71 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
         bu_db.votos_brancos = int(resumo.get("brancos_bu") or resumo.get("brancos_rdv") or bu_db.votos_brancos)
         bu_db.votos_nulos = int(resumo.get("nulos_bu") or resumo.get("nulos_rdv") or bu_db.votos_nulos)
 
-    # 3. Upsert Votos dos Candidatos a Presidente
+    # 3. Upsert Votos dos Candidatos (Suporte a múltiplos cargos: Presidente, Governador, Senador, etc.)
+    cargos_bu_list = resumo.get("cargos_bu") or (relatorio_completo.get("imgbu", {}).get("cargos_bu") if relatorio_completo else None)
+
+    if cargos_bu_list and isinstance(cargos_bu_list, list) and len(cargos_bu_list) > 0:
+        for bloco in cargos_bu_list:
+            raw_cargo = str(bloco.get("cargo") or "PRESIDENTE").strip().upper()
+            if "PRESIDENT" in raw_cargo:
+                cargo_nome = "PRESIDENTE"
+            elif "GOVERNAD" in raw_cargo:
+                cargo_nome = "GOVERNADOR"
+            elif "SENAD" in raw_cargo:
+                cargo_nome = "SENADOR"
+            elif "DEPUTADO FED" in raw_cargo:
+                cargo_nome = "DEPUTADO FEDERAL"
+            elif "DEPUTADO EST" in raw_cargo or "DEPUTADO DIST" in raw_cargo:
+                cargo_nome = "DEPUTADO ESTADUAL"
+            else:
+                cargo_nome = raw_cargo[:30]
+
+            for cand in bloco.get("candidatos", []):
+                try:
+                    num_cand = int(cand.get("numero") or 0)
+                except Exception:
+                    continue
+                if not num_cand:
+                    continue
+
+                votos_val = int(cand.get("votos") or 0)
+                nome_cand = cand.get("nome")
+                num_str = str(num_cand)
+                if cargo_nome == "PRESIDENTE":
+                    if not nome_cand or nome_cand.startswith("CANDIDATO"):
+                        nome_cand = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_cand}")
+                    if num_cand == 22 and ("FLAVIO" in (nome_cand or "").upper() or not nome_cand):
+                        nome_cand = "JAIR BOLSONARO"
+                    elif num_cand == 13:
+                        nome_cand = "LULA"
+
+                voto_db = db.query(TseVotoCandidato).filter(
+                    TseVotoCandidato.secao_id == secao_db.id,
+                    TseVotoCandidato.turno == turno_pacote,
+                    TseVotoCandidato.cargo == cargo_nome,
+                    TseVotoCandidato.numero_candidato == num_cand
+                ).first()
+                if not voto_db:
+                    voto_db = TseVotoCandidato(
+                        secao_id=secao_db.id,
+                        turno=turno_pacote,
+                        cargo=cargo_nome,
+                        numero_candidato=num_cand,
+                        nome_candidato=nome_cand,
+                        quantidade_votos=votos_val,
+                        votos_bu=votos_val,
+                        votos_rdv=votos_val,
+                    )
+                    db.add(voto_db)
+                else:
+                    if votos_val > 0 or voto_db.quantidade_votos == 0:
+                        voto_db.quantidade_votos = votos_val if votos_val > 0 else voto_db.quantidade_votos
+                    voto_db.votos_bu = votos_val or voto_db.votos_bu
+                    voto_db.votos_rdv = votos_val or voto_db.votos_rdv
+                    if nome_cand:
+                        voto_db.nome_candidato = nome_cand
+
+    # Fallback ou garantia para Presidente a partir de candidatos_list
     candidatos_list = resumo.get("candidatos", [])
     if candidatos_list:
         for cand in candidatos_list:

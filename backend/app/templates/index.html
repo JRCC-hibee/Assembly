@@ -1227,6 +1227,57 @@ o Boletim de Urna (apos encerramento da votacao).
 
       <!-- Painel de Resultados da Engenharia Reversa (Consolidado ou Urna Individual) -->
       <div id="tseReversoResultContainer" class="hidden space-y-6">
+        <!-- MASTER NAVIGATION BAR: 3 VISÕES (1º Turno / 2º Turno / Comparativo) & FILTRO DE CARGO -->
+        <div class="bg-slate-900 border-2 border-indigo-500/60 rounded-xl p-3 shadow-xl flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-2.5">
+            <span class="text-xs font-black text-slate-400 uppercase tracking-wider hidden sm:inline">👁️ Visão Eleitoral:</span>
+            <div class="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800" role="group">
+              <button
+                id="btnVisao1T"
+                type="button"
+                onclick="alternarModoVisaoTse('1T')"
+                class="px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 text-slate-300 hover:text-white"
+                title="Isolar estritamente dados, placar e totalizadores do 1º Turno (04/10/2026)"
+              >
+                <span>🟣 1º Turno (1T)</span>
+              </button>
+              <button
+                id="btnVisao2T"
+                type="button"
+                onclick="alternarModoVisaoTse('2T')"
+                class="px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 text-slate-300 hover:text-white"
+                title="Isolar estritamente dados, placar e totalizadores do 2º Turno (25/10/2026)"
+              >
+                <span>🔵 2º Turno (2T)</span>
+              </button>
+              <button
+                id="btnVisaoComp"
+                type="button"
+                onclick="alternarModoVisaoTse('COMPARATIVO')"
+                class="px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 bg-indigo-600 text-white shadow"
+                title="Comparativo Forense 1ºT × 2ºT: exibe estritamente os candidatos que disputaram o 2º Turno, saldo de votos e taxas de crescimento"
+              >
+                <span>⚖️ Comparativo (1T × 2T)</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-black text-slate-400 uppercase tracking-wider">🏛️ Cargo:</span>
+            <select
+              id="selectCargoTse"
+              onchange="alterarFiltroCargoTse(this.value)"
+              class="bg-slate-950 border border-slate-700 text-cyan-300 font-extrabold text-xs rounded-lg px-3 py-1.5 outline-none focus:border-cyan-400 transition cursor-pointer"
+            >
+              <option value="PRESIDENTE" selected>Presidente da República</option>
+              <option value="GOVERNADOR">Governador</option>
+              <option value="SENADOR">Senador</option>
+              <option value="DEPUTADO FEDERAL">Deputado Federal</option>
+              <option value="DEPUTADO ESTADUAL">Deputado Estadual</option>
+            </select>
+          </div>
+        </div>
+
         <!-- Veredito Geral (Consolidado ou Individual) -->
         <div id="tseVereditoBox" class="p-4 rounded-xl border-2 text-xs"></div>
 
@@ -4160,7 +4211,7 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
-    // Estado atual dos 5 níveis da Árvore (Região > Estado > Cidade > Zona > Seção) + Filtro Forense de Divergências
+    // Estado atual dos 5 níveis da Árvore + 3 Visões Eleitorais (1T / 2T / Comparativo) + Filtro por Cargo
     window.arvoreTseState = {
       regiao: "TODAS",
       uf: "TODAS",
@@ -4168,8 +4219,45 @@ o Boletim de Urna (apos encerramento da votacao).
       zona: "TODAS",
       secao: "CONSOLIDADO",
       filtro_forense: "TODAS",
+      modo_visao: "COMPARATIVO", // "1T", "2T", "COMPARATIVO"
+      cargo: "PRESIDENTE",
       hierarquia: null
     };
+
+    function alternarModoVisaoTse(modo) {
+      window.arvoreTseState.modo_visao = modo || "COMPARATIVO";
+
+      const btn1 = document.getElementById("btnVisao1T");
+      const btn2 = document.getElementById("btnVisao2T");
+      const btnComp = document.getElementById("btnVisaoComp");
+
+      if (btn1) {
+        btn1.className = modo === "1T"
+          ? "px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 bg-purple-600 text-white shadow"
+          : "px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 text-slate-300 hover:text-white";
+      }
+      if (btn2) {
+        btn2.className = modo === "2T"
+          ? "px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 bg-blue-600 text-white shadow"
+          : "px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 text-slate-300 hover:text-white";
+      }
+      if (btnComp) {
+        btnComp.className = modo === "COMPARATIVO"
+          ? "px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 bg-indigo-600 text-white shadow"
+          : "px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 text-slate-300 hover:text-white";
+      }
+
+      if (window.lastConsolidadoPayload?.consolidado) {
+        renderizarVisaoConsolidadaTse(window.lastConsolidadoPayload.consolidado, window.arvoreTseState.hierarquia);
+      } else {
+        atualizarConsolidacaoTse(false);
+      }
+    }
+
+    function alterarFiltroCargoTse(cargo) {
+      window.arvoreTseState.cargo = cargo || "PRESIDENTE";
+      atualizarConsolidacaoTse(true);
+    }
 
     async function aplicarFiltroForenseTse(novoFiltroForense) {
       window.arvoreTseState.filtro_forense = novoFiltroForense || "TODAS";
@@ -4426,12 +4514,28 @@ o Boletim de Urna (apos encerramento da votacao).
         municipio: st.municipio || "TODAS",
         zona: st.zona || "TODAS",
         secao: st.secao || "CONSOLIDADO",
-        filtro_forense: st.filtro_forense || "TODAS"
+        filtro_forense: st.filtro_forense || "TODAS",
+        cargo: st.cargo || "PRESIDENTE",
+        turno: st.modo_visao || "COMPARATIVO"
       });
 
       const res = await fetch(`/api/tse-reverso/consolidar?${qs.toString()}`);
       if (!res.ok) return;
       const payload = await res.json();
+      window.lastConsolidadoPayload = payload;
+
+      // Popula dinamicamente os cargos disponíveis retornados pelo banco
+      if (Array.isArray(payload.cargos_disponiveis) && payload.cargos_disponiveis.length > 0) {
+        const selCargo = document.getElementById("selectCargoTse");
+        if (selCargo) {
+          const cargoAtual = st.cargo || "PRESIDENTE";
+          const opts = payload.cargos_disponiveis.map(cg => {
+            const rotulo = cg === "PRESIDENTE" ? "Presidente da República" : (cg.charAt(0) + cg.slice(1).toLowerCase());
+            return `<option value="${cg}" ${cg === cargoAtual ? "selected" : ""}>${rotulo}</option>`;
+          }).join("");
+          selCargo.innerHTML = opts;
+        }
+      }
 
       const hier = payload.hierarquia || {};
       window.arvoreTseState.hierarquia = hier;
@@ -4710,12 +4814,43 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     function renderizarVisaoConsolidadaTse(cons, hier) {
-      // Restaura rótulos dos 6 cartões superiores para modo Consolidado Global
-      document.getElementById("tseCard1Label").textContent = "ESCOPO DO FILTRO";
+      const modo = window.arvoreTseState.modo_visao || "COMPARATIVO";
+      const cargoAtual = window.arvoreTseState.cargo || "PRESIDENTE";
+
+      // Determina dados de candidatos e totalizadores de acordo com a visão selecionada (1T / 2T / COMPARATIVO)
+      let dadosTotais = cons;
+      let candsVisao = cons.placar_candidatos || [];
+      let labelTurno = "Consolidado";
+
+      if (modo === "1T") {
+        dadosTotais = cons.totais_t1 || cons;
+        candsVisao = (cons.candidatos_t1 && cons.candidatos_t1.length > 0) ? cons.candidatos_t1 : (cons.placar_candidatos || []);
+        labelTurno = "1º Turno (04/10/2026)";
+      } else if (modo === "2T") {
+        dadosTotais = cons.totais_t2 || cons;
+        candsVisao = (cons.candidatos_t2 && cons.candidatos_t2.length > 0) ? cons.candidatos_t2 : (cons.placar_candidatos || []);
+        labelTurno = "2º Turno (25/10/2026)";
+      } else {
+        labelTurno = "Comparativo (1ºT × 2ºT)";
+        candsVisao = (cons.candidatos_t2 && cons.candidatos_t2.length > 0) ? cons.candidatos_t2 : (cons.placar_candidatos || []);
+      }
+
+      // Controle de visibilidade do Painel Comparativo 1T × 2T
+      const compBox = document.getElementById("tseComparativoTurnosBox");
+      if (compBox) {
+        if (modo === "COMPARATIVO") {
+          compBox.classList.remove("hidden");
+        } else {
+          compBox.classList.add("hidden");
+        }
+      }
+
+      // Restaura rótulos dos 6 cartões superiores adaptados para o modo
+      document.getElementById("tseCard1Label").textContent = `ESCOPO (${labelTurno})`;
       document.getElementById("tseCard2Label").textContent = "URNAS AUDITADAS";
       document.getElementById("tseCard3Label").textContent = "STATUS DE INTEGRIDADE";
       document.getElementById("tseCard4Label").textContent = "ARQUIVOS POR URNA";
-      document.getElementById("tseCard5Label").textContent = "COMPARECIMENTO GLOBAL";
+      document.getElementById("tseCard5Label").textContent = `COMPARECIMENTO (${modo})`;
       document.getElementById("tseCard6Label").textContent = "CADÊNCIA PONDERADA";
 
       const ufNomeAtivo = hier.estados?.find(e => e.uf === hier.uf_selecionada)?.nome || hier.uf_selecionada;
@@ -4726,36 +4861,49 @@ o Boletim de Urna (apos encerramento da votacao).
         ? `${cons.zonas_no_filtro} Zona(s)`
         : `Zona ${hier.zona_selecionada}`;
 
+      const totalUrnasVisao = dadosTotais.total_urnas || cons.total_urnas || 0;
+      const urnasIntegrasVisao = dadosTotais.urnas_integras ?? cons.urnas_integras ?? totalUrnasVisao;
+      const urnasAlertaVisao = dadosTotais.urnas_com_alerta ?? cons.urnas_com_alerta ?? 0;
+      const compVisao = dadosTotais.comparecimento_total || 0;
+      const aptosVisao = dadosTotais.eleitores_aptos_total || 0;
+      const pctCompVisao = dadosTotais.pct_comparecimento || (aptosVisao ? ((compVisao / aptosVisao) * 100).toFixed(2) : "0.00");
+      const tempoCabineVisao = dadosTotais.tempo_medio_cabine_s || cons.tempo_medio_cabine_s || 0;
+
       document.getElementById("tseMunVal").textContent = cidSel;
-      document.getElementById("tseZonaSecaoVal").textContent = `${zonaSel} / ${cons.total_urnas} Seção(ões)`;
+      document.getElementById("tseZonaSecaoVal").textContent = `${zonaSel} / ${totalUrnasVisao} Seção(ões)`;
       document.getElementById("tseModeloSerialVal").textContent =
-        `${cons.urnas_integras} Íntegras / ${cons.urnas_com_alerta} Alertas`;
+        `${urnasIntegrasVisao} Íntegras / ${urnasAlertaVisao} Alertas`;
       document.getElementById("tseVersaoSwVal").textContent =
         `BU:${cons.urnas_com_bu} | RDV:${cons.urnas_com_rdv} | Log:${cons.urnas_com_log}`;
       document.getElementById("tseCompAptosVal").textContent =
-        `${cons.comparecimento_total.toLocaleString("pt-BR")} / ${cons.eleitores_aptos_total.toLocaleString("pt-BR")} (${cons.pct_comparecimento}%)`;
-      document.getElementById("tseCadenciaMediaVal").textContent = cons.tempo_medio_ciclo_s > 0
-        ? `${cons.tempo_medio_ciclo_s}s (Cabine: ${cons.tempo_medio_cabine_s}s)`
+        `${compVisao.toLocaleString("pt-BR")} / ${aptosVisao.toLocaleString("pt-BR")} (${pctCompVisao}%)`;
+      document.getElementById("tseCadenciaMediaVal").textContent = tempoCabineVisao > 0
+        ? `Cabine: ${tempoCabineVisao}s`
         : "Suba .jez ou abra urna";
 
       const verBox = document.getElementById("tseVereditoBox");
       if (cons.nivel_risco === "BAIXO") {
         verBox.className = "p-4 rounded-xl border-2 bg-emerald-950/90 border-emerald-500 text-emerald-100 text-xs";
         verBox.innerHTML = `<div class="font-extrabold text-sm text-emerald-300 uppercase">✅ ${cons.veredito_geral}</div>
-          <div class="mt-1 mono">Filtro Ativo: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong> • <strong>${cons.total_urnas} urna(s) consolidada(s)</strong> | Selecione qualquer urna na tabela abaixo ou no 3º seletor para inspecionar os eleitores hora a hora.</div>`;
+          <div class="mt-1 mono">Visão Ativa: <strong>${labelTurno}</strong> • Cargo: <strong>${cargoAtual}</strong> • Filtro: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong> • <strong>${totalUrnasVisao} urna(s) consolidada(s)</strong> | Selecione qualquer urna na tabela abaixo para inspecionar os eleitores hora a hora.</div>`;
       } else {
         verBox.className = "p-4 rounded-xl border-2 bg-rose-950/90 border-rose-500 text-rose-100 text-xs";
         verBox.innerHTML = `<div class="font-extrabold text-sm text-rose-300 uppercase">🚨 ${cons.veredito_geral}</div>
-          <div class="mt-1 mono">Filtro Ativo: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong> • Verifique as urnas sinalizadas na tabela abaixo.</div>`;
+          <div class="mt-1 mono">Visão Ativa: <strong>${labelTurno}</strong> • Cargo: <strong>${cargoAtual}</strong> • Filtro: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong> • Verifique as urnas sinalizadas na tabela abaixo.</div>`;
       }
 
       // Placar Consolidado de Candidatos + Barra Forense de Rastreamento de Divergências
       const titleEl = document.getElementById("tsePlacarTitle");
       if (titleEl) {
-        titleEl.textContent = "🏆 Totalização Consolidada de Votos por Candidato no Filtro (`Soma BU` × `Soma RDV Binário ASN.1`)";
+        titleEl.textContent = `🏆 Totalização de Votos — ${labelTurno} — Cargo: ${cargoAtual} (\`Soma BU\` × \`Soma RDV Binário ASN.1\`)`;
       }
+
+      const brancosVisao = dadosTotais.brancos_total ?? cons.brancos_total ?? 0;
+      const nulosVisao = dadosTotais.nulos_total ?? cons.nulos_total ?? 0;
+      const faltososVisao = dadosTotais.faltosos_total ?? cons.faltosos_total ?? 0;
+
       document.getElementById("tsePlacarSubLabel").textContent =
-        `Aptos: ${cons.eleitores_aptos_total.toLocaleString("pt-BR")} • Comparecimento: ${cons.comparecimento_total.toLocaleString("pt-BR")} • Brancos: ${cons.brancos_total.toLocaleString("pt-BR")} • Nulos: ${cons.nulos_total.toLocaleString("pt-BR")} • Faltosos: ${cons.faltosos_total.toLocaleString("pt-BR")}`;
+        `Aptos: ${aptosVisao.toLocaleString("pt-BR")} • Comparecimento: ${compVisao.toLocaleString("pt-BR")} • Brancos: ${brancosVisao.toLocaleString("pt-BR")} • Nulos: ${nulosVisao.toLocaleString("pt-BR")} • Faltosos: ${faltososVisao.toLocaleString("pt-BR")}`;
 
       const ffAtivo = window.arvoreTseState.filtro_forense || "TODAS";
       const ffBarEl = document.getElementById("tseFiltroForenseButtons");
@@ -4768,7 +4916,7 @@ o Boletim de Urna (apos encerramento da votacao).
             ffAtivo === "APENAS_DIVERGENTES" ? "bg-rose-500 text-white" : "bg-slate-800 text-rose-300 hover:bg-slate-700"
           }">🚨 Apenas Urnas c/ Divergência (${cons.urnas_com_alerta || 0})</button>`
         ];
-        (cons.placar_candidatos || []).forEach(c => {
+        (candsVisao || []).forEach(c => {
           if (c.urnas_divergentes > 0 || (c.numero !== "13" && c.numero !== "22")) {
             const keyDiv = `DIV_CAND:${c.numero}`;
             pills.push(
@@ -4781,9 +4929,9 @@ o Boletim de Urna (apos encerramento da votacao).
         ffBarEl.innerHTML = pills.join("");
       }
 
-      const todosZerados = (cons.placar_candidatos || []).length > 0 &&
-        cons.comparecimento_total > 0 &&
-        (cons.placar_candidatos || []).every(c => (c.votos_bu || 0) === 0 && (c.votos_rdv || 0) === 0);
+      const todosZerados = candsVisao.length > 0 &&
+        compVisao > 0 &&
+        candsVisao.every(c => (c.votos_bu || 0) === 0 && (c.votos_rdv || 0) === 0 && (c.votos || 0) === 0);
 
       const bannerAvisoZerado = todosZerados
         ? `<div class="col-span-full bg-amber-950/80 border border-amber-600/80 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-200 mb-2">
@@ -4798,8 +4946,10 @@ o Boletim de Urna (apos encerramento da votacao).
         : "";
 
       const gridCands = document.getElementById("tsePlacarCandidatosGrid");
-      gridCands.innerHTML = bannerAvisoZerado + (cons.placar_candidatos || []).map(c => {
-        const diff = (c.votos_rdv || 0) - (c.votos_bu || 0);
+      gridCands.innerHTML = bannerAvisoZerado + candsVisao.map(c => {
+        const vBu = c.votos_bu || c.votos || 0;
+        const vRdv = c.votos_rdv || c.votos || 0;
+        const diff = vRdv - vBu;
         const diffStr = diff === 0 ? "0" : (diff > 0 ? `+${diff.toLocaleString("pt-BR")} no RDV` : `${diff.toLocaleString("pt-BR")} no RDV`);
         const cidadesDiv = c.cidades_divergentes || [];
         const cidadesHtml = cidadesDiv.length > 0
@@ -4834,8 +4984,8 @@ o Boletim de Urna (apos encerramento da votacao).
               <div style="width: ${Math.min(100, Math.round(c.pct_validos))}%" class="bg-emerald-500 h-full"></div>
             </div>
             <div class="flex flex-wrap justify-between gap-1 text-[11px] mono text-slate-400 pt-1">
-              <span>Soma BU: <strong class="text-amber-300">${c.votos_bu.toLocaleString("pt-BR")}</strong></span>
-              <span>Soma RDV ASN.1: <strong class="text-emerald-300">${c.votos_rdv.toLocaleString("pt-BR")}</strong></span>
+              <span>Soma BU: <strong class="text-amber-300">${vBu.toLocaleString("pt-BR")}</strong></span>
+              <span>Soma RDV ASN.1: <strong class="text-emerald-300">${vRdv.toLocaleString("pt-BR")}</strong></span>
               <span class="${c.status === 'CONFERE_100%' ? 'text-emerald-400' : 'text-rose-400'} font-bold">${c.status === 'CONFERE_100%' ? '100% OK' : `DIVERGENTE (${diffStr})`}</span>
             </div>
             ${cidadesHtml}
@@ -5416,7 +5566,10 @@ o Boletim de Urna (apos encerramento da votacao).
           : `<span class="text-indigo-300">💡 Digite abaixo os votos do 1ºT (ou suba o BU do 1ºT) para simular a transferência 1ºT → 2ºT</span>`;
       }
 
-      const cands = cc.candidatos || [];
+      // No comparativo forense, exibe ESTRITAMENTE quem disputou o 2º Turno (votos_t2 > 0)
+      const todosCands = cc.candidatos || [];
+      const finalistas2T = todosCands.filter(c => Number(c.votos_t2 || 0) > 0);
+      const cands = finalistas2T.length > 0 ? finalistas2T : todosCands;
       let somaCand1T = 0;
       let somaCand2T = 0;
 
