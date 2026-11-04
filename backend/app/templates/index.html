@@ -3308,17 +3308,54 @@ o Boletim de Urna (apos encerramento da votacao).
       let arquivosPuladosJaExistentes = 0;
 
       for (const pref of todosPrefixosSelecionados) {
-        const mask = indiceMascaras[pref] || 0;
+        const geoKey = pref.length >= 15 ? pref.slice(-15) : pref;
+        const eh1T = pref.includes("00406") || pref.includes("03220") || pref.includes("1t") || pref.includes("_1_");
+        const eh2T = pref.includes("00407") || pref.includes("03221") || pref.includes("2t") || pref.includes("_2_");
+
+        let mask = indiceMascaras[pref] || 0;
+        if (!mask) {
+          if (eh1T) {
+            mask = indiceMascaras["o00406" + geoKey] || indiceMascaras["o03220" + geoKey] || indiceMascaras["1t_" + geoKey] || 0;
+          } else if (eh2T) {
+            mask = indiceMascaras["o00407" + geoKey] || indiceMascaras["o03221" + geoKey] || indiceMascaras["2t_" + geoKey] || 0;
+          }
+          if (!mask) {
+            mask = indiceMascaras[geoKey] || 0;
+          }
+        }
+
         const arqsDaSecao = gruposPorPrefixo.get(pref) || [];
+
+        // Se a seção já está gravada no banco de dados (BU/RDV/Votos já persistidos no PostgreSQL):
+        // Pula IMEDIATAMENTE 100% da urna sem retransmitir arquivos redundantes!
+        if (mask === 31 || (mask & 8) !== 0 || (mask & 3) === 3) {
+          urnasPuladasJaExistentes++;
+          arquivosPuladosJaExistentes += arqsDaSecao.length;
+          continue;
+        }
+
         const temBuOuRdvLocal = arqsDaSecao.some(a => {
           const n = a.name.toLowerCase();
           return n.endsWith("imgbu.dat") || n.endsWith("rdv.dat") || n.endsWith("-bu.dat");
         });
         const jaTemBuOuRdvServidor = (mask & 1) !== 0 || (mask & 2) !== 0 || (mask & 8) !== 0;
 
+        // No Modo Turbo, se o servidor já tem BU ou RDV gravado, pula a seção
+        if (usarModoTurbo && jaTemBuOuRdvServidor) {
+          urnasPuladasJaExistentes++;
+          arquivosPuladosJaExistentes += arqsDaSecao.length;
+          continue;
+        }
+
         const arqsNovos = [];
         for (const arq of arqsDaSecao) {
           const low = arq.name.toLowerCase();
+
+          // Ignora arquivos auxiliares que não afetam a apuração
+          if (low.endsWith("-ass.dat") || low.endsWith("-aux.dat") || low.endsWith(".ini") || low.endsWith(".ds_store")) {
+            arquivosPuladosJaExistentes++;
+            continue;
+          }
 
           // 1 = imgbu.dat, 2 = rdv.dat, 4 = .jez, 8 = -bu.dat, 16 = .vsc
           if (low.endsWith("imgbu.dat") && (mask & 1)) {
@@ -3428,6 +3465,17 @@ o Boletim de Urna (apos encerramento da votacao).
       const MAX_BYTES_POR_LOTE = 12 * 1024 * 1024; // 12 MB máximo por envio para garantir estabilidade e evitar timeouts de proxy
       const MAX_URNAS_POR_LOTE = usarModoTurbo ? 50 : 10;
 
+      atualizarProgressoUploadTse(
+        15,
+        urnasPuladasJaExistentes > 0
+          ? `⚡ ${urnasPuladasJaExistentes.toLocaleString("pt-BR")} urnas já detectadas no banco. Transmitindo apenas ${totalFaltantes.toLocaleString("pt-BR")} urnas pendentes...`
+          : `⚡ Iniciando transmissão de ${totalFaltantes.toLocaleString("pt-BR")} urnas pendentes...`,
+        `${urnasPuladasJaExistentes.toLocaleString("pt-BR")} puladas / ${totalFaltantes.toLocaleString("pt-BR")} pendentes`,
+        0,
+        urnasPuladasJaExistentes,
+        totalUrnasSelecionadas
+      );
+
       try {
         let iPref = 0;
         while (iPref < totalFaltantes && !window.cancelarLoteTseFlag) {
@@ -3471,7 +3519,7 @@ o Boletim de Urna (apos encerramento da votacao).
               `${urnasEnviadas + fatiaPrefixos.length} de ${totalFaltantes}`,
               urnasEnviadas + fatiaPrefixos.length,
               urnasPuladasJaExistentes,
-              totalFaltantes
+              totalUrnasSelecionadas
             );
 
             // Retry resiliente com até 3 tentativas e backoff exponencial
@@ -3546,7 +3594,7 @@ o Boletim de Urna (apos encerramento da votacao).
           statusFinal === "CONCLUIDO" ? "Concluído 100%" : "Finalizado com avisos",
           urnasEnviadas,
           urnasPuladasJaExistentes,
-          totalFaltantes
+          totalUrnasSelecionadas
         );
 
         if (inputEl) inputEl.value = "";
@@ -4454,7 +4502,7 @@ o Boletim de Urna (apos encerramento da votacao).
                <div class="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
                  ${cidadesDiv.map(cd => {
                    const dCid = (cd.votos_rdv || 0) - (cd.votos_bu || 0);
-                   return `<button onclick="selecionarNoArvoreTse('SUL','PR','${cd.codigo}','TODAS','CONSOLIDADO')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-rose-500/40 text-slate-200 transition" title="Clique para filtrar ${cd.nome}">
+                   return `<button onclick="selecionarNoArvoreTse('${cd.regiao || hier.regiao_selecionada || 'SUL'}','${cd.uf || hier.uf_selecionada || 'PR'}','${cd.codigo}','TODAS','CONSOLIDADO')" class="px-2 py-0.5 rounded bg-slate-900 hover:bg-slate-800 border border-rose-500/40 text-slate-200 transition" title="Clique para filtrar ${cd.nome}">
                      <strong>${cd.nome}</strong>: ${cd.urnas_divergentes}u (${dCid >= 0 ? '+' + dCid : dCid}v)
                    </button>`;
                  }).join("")}
