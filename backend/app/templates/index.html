@@ -3836,8 +3836,13 @@ o Boletim de Urna (apos encerramento da votacao).
 
       try {
         const res = await fetch("/api/tse-reverso/servidor/iniciar-ingestao-local", { method: "POST" });
+        if (!res.ok) {
+          const errText = await res.text();
+          if (pMsg) pMsg.textContent = `Aviso do Servidor (${res.status}): ${errText}`;
+          return;
+        }
         const data = await res.json();
-        if (!res.ok || !data.ok) {
+        if (!data.ok) {
           if (pMsg) pMsg.textContent = `Aviso: ${data.mensagem || 'Falha ao iniciar'}`;
           if (!data.status?.ativo) return;
         }
@@ -3888,8 +3893,13 @@ o Boletim de Urna (apos encerramento da votacao).
 
       try {
         const res = await fetch("/api/tse-reverso/servidor/iniciar-complementacao", { method: "POST" });
+        if (!res.ok) {
+          const errText = await res.text();
+          if (pMsg) pMsg.textContent = `Aviso do Servidor (${res.status}): ${errText}`;
+          return;
+        }
         const data = await res.json();
-        if (!res.ok || !data.ok) {
+        if (!data.ok) {
           if (pMsg) pMsg.textContent = `Aviso: ${data.mensagem || 'Falha ao iniciar complementação'}`;
           if (!data.status?.ativo) return;
         }

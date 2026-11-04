@@ -3350,14 +3350,14 @@ def _executar_ingestao_servidor_worker():
 
 def iniciar_complementacao_servidor_background() -> dict:
     global _STATUS_INGESTAO_LOCAL, _THREAD_INGESTAO_LOCAL
-    if _STATUS_INGESTAO_LOCAL.get("ativo"):
-        return {
-            "ok": False,
-            "mensagem": "Já existe um processo em andamento no servidor.",
-            "status": _STATUS_INGESTAO_LOCAL,
-        }
+    with _LOCK_INGESTAO_LOCAL:
+        if _STATUS_INGESTAO_LOCAL.get("ativo") and _THREAD_INGESTAO_LOCAL and _THREAD_INGESTAO_LOCAL.is_alive():
+            return {
+                "ok": False,
+                "mensagem": "Já existe um processo em andamento no servidor.",
+                "status": _STATUS_INGESTAO_LOCAL,
+            }
 
-    with _INGESTAO_LOCK:
         _STATUS_INGESTAO_LOCAL.update({
             "ativo": True,
             "finalizado": False,
