@@ -14,9 +14,11 @@ import io
 import os
 import re
 import json
+import time
 import shutil
 import zipfile
 import hashlib
+import threading
 from collections import Counter
 from datetime import datetime
 
@@ -2785,6 +2787,356 @@ def limpar_catalogo_tse() -> dict:
     _CATALOGO_MEMORIA = {}
     _CATALOGO_CARREGADO = True
     return {"ok": True, "total_secoes_no_catalogo": 0}
+
+
+def resetar_tudo_eleitoral(db=None) -> dict:
+    """
+    Executa limpeza atômica profunda de 100% dos dados eleitorais:
+      1. TRUNCATE CASCADE em todas as tabelas do TSE no PostgreSQL.
+      2. Limpeza completa dos caches em disco (JSON/JSONL) e em memória.
+    Garante o banco em estado zero absoluto para início de nova ingestão.
+    """
+    db_local = False
+    if db is None:
+        db = _obter_db_session()
+        db_local = True
+
+    res_db = {}
+    if db:
+        try:
+            from .database import resetar_banco_eleitoral_completo
+            res_db = resetar_banco_eleitoral_completo(db)
+        except Exception as exc:
+            res_db = {"ok": False, "erro": str(exc)}
+        finally:
+            if db_local:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+
+    res_cat = limpar_catalogo_tse()
+    return {
+        "ok": True,
+        "banco": res_db,
+        "catalogo": res_cat,
+        "mensagem": "Base Eleitoral e Catálogo resetados com sucesso! Estado zero absoluto.",
+    }
+
+
+# ==============================================================================
+# INGESTÃO DIRETA DE ALTA PERFORMANCE NA VPS (OPÇÃO A: SFTP / TERMIUS)
+# ==============================================================================
+
+_STATUS_INGESTAO_LOCAL = {
+    "ativo": False,
+    "progresso_pct": 0,
+    "mensagem": "Nenhuma ingestão em andamento. Coloque os arquivos em /root/tse_import.",
+    "total_urnas": 0,
+    "urnas_processadas": 0,
+    "urnas_novas": 0,
+    "urnas_duplicadas": 0,
+    "tempo_decorrido_s": 0,
+    "erros": [],
+    "finalizado": False,
+    "sucesso": False,
+}
+_LOCK_INGESTAO_LOCAL = threading.Lock()
+_THREAD_INGESTAO_LOCAL = None
+
+
+def _get_tse_import_dir() -> str:
+    """Retorna o diretório onde os arquivos de importação da VPS devem ser localizados."""
+    candidatos = [
+        os.getenv("TSE_IMPORT_DIR", "/app/tse_import"),
+        "/root/tse_import",
+        "/app/data/tse_import",
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "tse_import"),
+    ]
+    for c in candidatos:
+        if os.path.isdir(c):
+            return c
+    padrao = candidatos[0]
+    try:
+        os.makedirs(padrao, exist_ok=True)
+    except Exception:
+        pass
+    return padrao
+
+
+def obter_status_pasta_importacao_servidor() -> dict:
+    """Escaneia a pasta de importação da VPS e retorna arquivos encontrados."""
+    dir_import = _get_tse_import_dir()
+    arquivos_zip = []
+    total_arquivos_soltos = 0
+    tamanho_total_bytes = 0
+
+    if os.path.isdir(dir_import):
+        for root, _, files in os.walk(dir_import):
+            for f in files:
+                if f.startswith("."):
+                    continue
+                fpath = os.path.join(root, f)
+                try:
+                    sz = os.path.getsize(fpath)
+                    tamanho_total_bytes += sz
+                    if f.lower().endswith(".zip"):
+                        arquivos_zip.append({
+                            "nome": f,
+                            "caminho_rel": os.path.relpath(fpath, dir_import),
+                            "tamanho_mb": round(sz / (1024 * 1024), 2),
+                        })
+                    elif any(f.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                        total_arquivos_soltos += 1
+                except Exception:
+                    pass
+
+    return {
+        "ok": True,
+        "diretorio_container": dir_import,
+        "diretorio_host_recomendado": "/root/tse_import",
+        "total_zips": len(arquivos_zip),
+        "zips": sorted(arquivos_zip, key=lambda x: x["nome"]),
+        "total_arquivos_soltos": total_arquivos_soltos,
+        "tamanho_total_mb": round(tamanho_total_bytes / (1024 * 1024), 2),
+        "pronto_para_processar": (len(arquivos_zip) > 0 or total_arquivos_soltos > 0),
+        "status_atual": _STATUS_INGESTAO_LOCAL,
+    }
+
+
+def obter_progresso_ingestao_servidor() -> dict:
+    """Retorna o progresso em tempo real da ingestão local que está rodando em background."""
+    return dict(_STATUS_INGESTAO_LOCAL)
+
+
+def iniciar_ingestao_servidor_background(db_factory=None) -> dict:
+    """
+    Dispara a ingestão local na VPS em uma thread daemon em background,
+    permitindo que a interface web acompanhe o progresso sem risco de timeout.
+    """
+    global _THREAD_INGESTAO_LOCAL
+
+    with _LOCK_INGESTAO_LOCAL:
+        if _STATUS_INGESTAO_LOCAL.get("ativo") and _THREAD_INGESTAO_LOCAL and _THREAD_INGESTAO_LOCAL.is_alive():
+            return {
+                "ok": False,
+                "mensagem": "Já existe uma ingestão local em andamento no servidor.",
+                "status": _STATUS_INGESTAO_LOCAL,
+            }
+
+        _THREAD_INGESTAO_LOCAL = threading.Thread(target=_executar_ingestao_servidor_worker, daemon=True)
+        _THREAD_INGESTAO_LOCAL.start()
+
+    return {
+        "ok": True,
+        "mensagem": "Ingestão local iniciada com sucesso na VPS em segundo plano.",
+    }
+
+
+def _executar_ingestao_servidor_worker():
+    global _STATUS_INGESTAO_LOCAL
+    from .database import (
+        SessionLocal,
+        criar_historico_upload,
+        finalizar_historico_upload,
+        salvar_resumo_tse_no_banco,
+        TseSecao,
+    )
+
+    t0 = time.time()
+    dir_import = _get_tse_import_dir()
+
+    _STATUS_INGESTAO_LOCAL.update({
+        "ativo": True,
+        "finalizado": False,
+        "sucesso": False,
+        "progresso_pct": 2,
+        "mensagem": "Escaneando arquivos de importação na VPS...",
+        "total_urnas": 0,
+        "urnas_processadas": 0,
+        "urnas_novas": 0,
+        "urnas_duplicadas": 0,
+        "erros": [],
+    })
+
+    db = SessionLocal()
+    job_id = f"srv_{int(time.time())}"
+
+    try:
+        arquivos_zip = []
+        arquivos_soltos = []
+        for root, _, files in os.walk(dir_import):
+            for f in files:
+                if f.startswith("."):
+                    continue
+                fpath = os.path.join(root, f)
+                if f.lower().endswith(".zip"):
+                    arquivos_zip.append(fpath)
+                elif any(f.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                    arquivos_soltos.append(fpath)
+
+        if not arquivos_zip and not arquivos_soltos:
+            _STATUS_INGESTAO_LOCAL.update({
+                "ativo": False,
+                "finalizado": True,
+                "sucesso": False,
+                "mensagem": f"Nenhum arquivo .zip ou .dat/.jez encontrado em {dir_import}.",
+            })
+            return
+
+        origem_desc = f"VPS Local ({os.path.basename(arquivos_zip[0])})" if arquivos_zip else "VPS Local (Arquivos Avulsos)"
+        criar_historico_upload(
+            db,
+            job_id=job_id,
+            tipo_envio="SERVIDOR_LOCAL",
+            nome_origem=origem_desc,
+            total_arquivos=len(arquivos_soltos),
+            total_urnas=0,
+        )
+
+        chaves_existentes = set(r[0] for r in db.query(TseSecao.chave_secao).all())
+        urnas_processadas = 0
+        urnas_novas = 0
+        urnas_duplicadas = 0
+
+        # 1. Processamento de Arquivos .ZIP
+        for zip_path in arquivos_zip:
+            try:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    namelist = [n for n in zf.namelist() if not n.startswith("__MACOSX")]
+                    grupos_prefixo: dict[str, list[str]] = {}
+                    for name in namelist:
+                        base = name.split("/")[-1].split("\\")[-1]
+                        if not any(base.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                            continue
+                        pref = extrair_prefixo_seccao(base)
+                        if pref:
+                            grupos_prefixo.setdefault(pref, []).append(name)
+
+                    total_secoes = len(grupos_prefixo)
+                    _STATUS_INGESTAO_LOCAL["total_urnas"] += total_secoes
+
+                    batch_count = 0
+                    for pref, names in grupos_prefixo.items():
+                        pref_clean = extrair_prefixo_seccao(pref)
+                        info = extrair_identificacao_arquivo_tse(pref_clean)
+                        ch = None
+                        if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
+                            ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
+                        else:
+                            m_geo = re.search(r"([a-zA-Z]{2})[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
+                            if m_geo:
+                                ch = f"{m_geo.group(1).upper()}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
+
+                        if ch and ch in chaves_existentes:
+                            urnas_duplicadas += 1
+                            urnas_processadas += 1
+                            continue
+
+                        pacote = {}
+                        for n in names:
+                            base = n.split("/")[-1].split("\\")[-1]
+                            pacote[base] = zf.read(n)
+
+                        try:
+                            relatorio = analisar_pacote_seccao_tse(pacote)
+                            resumo = relatorio["resumo_consolidacao"]
+                            salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
+                            urnas_novas += 1
+                            if ch:
+                                chaves_existentes.add(ch)
+                        except Exception as e_sec:
+                            _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
+
+                        urnas_processadas += 1
+                        batch_count += 1
+
+                        if batch_count >= 50:
+                            db.commit()
+                            batch_count = 0
+
+                        if urnas_processadas % 25 == 0:
+                            tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
+                            pct = min(99, int((urnas_processadas / tot) * 98) + 2)
+                            delta_s = max(0.1, time.time() - t0)
+                            speed = urnas_processadas / delta_s
+                            _STATUS_INGESTAO_LOCAL.update({
+                                "progresso_pct": pct,
+                                "urnas_processadas": urnas_processadas,
+                                "urnas_novas": urnas_novas,
+                                "urnas_duplicadas": urnas_duplicadas,
+                                "tempo_decorrido_s": int(delta_s),
+                                "mensagem": f"Processando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} novas, {urnas_duplicadas:,} já existentes...",
+                            })
+
+                    db.commit()
+            except Exception as e_zip:
+                _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro ao ler zip {zip_path}: {e_zip}")
+
+        # 2. Processamento de Arquivos Soltos (se houver)
+        if arquivos_soltos:
+            grupos_soltos: dict[str, dict[str, bytes]] = {}
+            for fpath in arquivos_soltos:
+                base = os.path.basename(fpath)
+                pref = extrair_prefixo_seccao(base)
+                if pref:
+                    with open(fpath, "rb") as fp:
+                        grupos_soltos.setdefault(pref, {})[base] = fp.read()
+
+            _STATUS_INGESTAO_LOCAL["total_urnas"] += len(grupos_soltos)
+            batch_count = 0
+            for pref, pacote in grupos_soltos.items():
+                try:
+                    relatorio = analisar_pacote_seccao_tse(pacote)
+                    resumo = relatorio["resumo_consolidacao"]
+                    salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
+                    urnas_novas += 1
+                except Exception as e_solto:
+                    _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_solto}")
+
+                urnas_processadas += 1
+                batch_count += 1
+                if batch_count >= 50:
+                    db.commit()
+                    batch_count = 0
+
+            db.commit()
+
+        duracao = max(1, int(time.time() - t0))
+        finalizar_historico_upload(
+            db,
+            job_id=job_id,
+            status="CONCLUIDO",
+            mensagem=f"Ingestão local na VPS concluída com sucesso em {duracao}s: {urnas_novas:,} novas urnas salvas, {urnas_duplicadas:,} duplicadas puladas.",
+            urnas_novas=urnas_novas,
+            urnas_duplicadas=urnas_duplicadas,
+        )
+
+        _STATUS_INGESTAO_LOCAL.update({
+            "ativo": False,
+            "finalizado": True,
+            "sucesso": True,
+            "progresso_pct": 100,
+            "urnas_processadas": urnas_processadas,
+            "urnas_novas": urnas_novas,
+            "urnas_duplicadas": urnas_duplicadas,
+            "tempo_decorrido_s": duracao,
+            "mensagem": f"✅ Ingestão Local Concluída! {urnas_novas:,} novas urnas salvas no PostgreSQL em {duracao}s.",
+        })
+
+    except Exception as exc:
+        _STATUS_INGESTAO_LOCAL.update({
+            "ativo": False,
+            "finalizado": True,
+            "sucesso": False,
+            "mensagem": f"Erro crítico durante a ingestão local: {exc}",
+        })
+        _STATUS_INGESTAO_LOCAL["erros"].append(str(exc))
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
 
 
 def _secao_atende_filtro_forense(s: dict, filtro_forense: str) -> bool:

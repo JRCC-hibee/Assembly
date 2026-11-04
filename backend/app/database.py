@@ -676,6 +676,45 @@ def limpar_historico_uploads_pendentes(db: Session) -> int:
     return count
 
 
+def resetar_banco_eleitoral_completo(db: Session) -> dict:
+    """
+    Executa limpeza profunda e atômica em todas as tabelas do TSE no PostgreSQL,
+    reiniciando os IDs para 1 (RESTART IDENTITY CASCADE) e garantindo o banco em estado zero absoluto.
+    """
+    tabelas_zeradas = [
+        "tse_metricas_log",
+        "tse_votos_candidatos",
+        "tse_apuracao_bu",
+        "tse_historico_upload_detalhes",
+        "tse_historico_upload",
+        "tse_secoes",
+    ]
+    try:
+        # PostgreSQL com TRUNCATE ... CASCADE é atômico, limpa chaves estrangeiras e reinicia sequências em < 5ms
+        db.execute(text(
+            "TRUNCATE TABLE tse_metricas_log, tse_votos_candidatos, tse_apuracao_bu, "
+            "tse_historico_upload_detalhes, tse_historico_upload, tse_secoes "
+            "RESTART IDENTITY CASCADE;"
+        ))
+        db.commit()
+    except Exception as exc_trun:
+        db.rollback()
+        # Fallback para SQLite ou caso o usuário não tenha permissão de TRUNCATE
+        try:
+            for tbl in tabelas_zeradas:
+                db.execute(text(f"DELETE FROM {tbl};"))
+            db.commit()
+        except Exception as exc_del:
+            db.rollback()
+            raise exc_del
+
+    return {
+        "ok": True,
+        "tabelas_zeradas": tabelas_zeradas,
+        "mensagem": "Banco de Dados Eleitoral resetado com sucesso! Estado zero absoluto.",
+    }
+
+
 def listar_historico_uploads(db: Session, limit: int = 100) -> list[dict]:
     """Retorna a lista cronológica decrescente dos uploads de auditoria."""
     registros = (

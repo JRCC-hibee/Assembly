@@ -51,14 +51,18 @@ from .tse_reverse_analyzer import (
     verificar_urnas_existentes_no_banco,
     reauditar_urnas_divergentes_catalogo,
     limpar_catalogo_tse,
+    resetar_tudo_eleitoral,
+    obter_status_pasta_importacao_servidor,
+    iniciar_ingestao_servidor_background,
+    obter_progresso_ingestao_servidor,
     extrair_prefixo_seccao,
     sincronizar_catalogo_com_banco,
     _CATALOGO_MEMORIA,
 )
 
-SYSTEM_VERSION = "2.5.0"
-SYSTEM_BUILD = "2026-11-04-rev2"
-SYSTEM_COMMIT = "692f0e3"
+SYSTEM_VERSION = "2.6.0"
+SYSTEM_BUILD = "2026-11-04-rev3"
+SYSTEM_COMMIT = "5cca41c"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1307,9 +1311,37 @@ def api_tse_reverso_reparar_votos_zerados():
 
 
 @app.delete("/api/tse-reverso/catalogo")
-def api_tse_reverso_limpar_catalogo():
-    """Limpa todas as seções/urnas carregadas no catálogo de Engenharia Reversa TSE."""
-    return limpar_catalogo_tse()
+@app.post("/api/tse-reverso/reset-banco")
+def api_tse_reverso_reset_banco(db: Session = Depends(get_db)):
+    """
+    RESET TOTAL: Limpa 100% dos dados eleitorais salvos no PostgreSQL (TRUNCATE CASCADE)
+    e apaga o catálogo em disco/memória. Retorna a base ao estado zero absoluto.
+    """
+    return resetar_tudo_eleitoral(db=db)
+
+
+@app.get("/api/tse-reverso/servidor/status-importacao")
+def api_tse_reverso_servidor_status_importacao():
+    """
+    Verifica a pasta de importação da VPS (/root/tse_import ou /app/tse_import)
+    e informa se existem arquivos .zip ou dados prontos para ingestão direta.
+    """
+    return obter_status_pasta_importacao_servidor()
+
+
+@app.post("/api/tse-reverso/servidor/iniciar-ingestao-local")
+def api_tse_reverso_servidor_iniciar_ingestao_local():
+    """
+    Dispara a ingestão direta de alta velocidade dos arquivos presentes na VPS
+    em segundo plano (sem travamento de proxy/navegador).
+    """
+    return iniciar_ingestao_servidor_background()
+
+
+@app.get("/api/tse-reverso/servidor/progresso-ingestao")
+def api_tse_reverso_servidor_progresso_ingestao():
+    """Retorna o progresso em tempo real da ingestão local que está rodando na VPS."""
+    return obter_progresso_ingestao_servidor()
 
 
 @app.post("/api/tse-reverso/amostra-pr")

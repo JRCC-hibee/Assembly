@@ -134,7 +134,7 @@
           <div class="flex items-center gap-2">
             <h1 id="moduloMainTitle" class="font-bold text-lg leading-tight text-white">Sistema Eleitoral — Urna Eletrônica Brasileira</h1>
             <span id="moduloIndicatorBadge" class="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase mono bg-emerald-950 text-emerald-300 border border-emerald-700">Módulo Simulador</span>
-            <span id="systemVersionBadge" class="text-[10px] font-extrabold px-2 py-0.5 rounded-full mono bg-indigo-950 text-indigo-300 border border-indigo-700 shadow-sm" title="Versão do Sistema em Produção">{{ versao_sistema|default('v2.5.0') }}</span>
+            <span id="systemVersionBadge" class="text-[10px] font-extrabold px-2 py-0.5 rounded-full mono bg-indigo-950 text-indigo-300 border border-indigo-700 shadow-sm" title="Versão do Sistema em Produção">{{ versao_sistema|default('v2.6.0') }}</span>
           </div>
           <p id="moduloSubtitle" class="text-xs text-slate-400 mono">ESP32-C3/C6 RISC-V Assembly (ILI9341 SPI) + Terminal do Mesário Biométrico</p>
         </div>
@@ -180,7 +180,7 @@
         <span>•</span>
         <span>BASE: <strong id="headerAuditoriaCount" class="text-emerald-400">0 URNAS</strong></span>
         <span>•</span>
-        <span id="headerAuditoriaVersionBadge" class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700 font-bold">{{ versao_sistema|default('v2.5.0') }}</span>
+        <span id="headerAuditoriaVersionBadge" class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700 font-bold">{{ versao_sistema|default('v2.6.0') }}</span>
       </div>
     </div>
   </header>
@@ -977,12 +977,77 @@ o Boletim de Urna (apos encerramento da votacao).
             </button>
 
             <button
-              onclick="limparBaseTseReverso()"
-              title="Limpar todas as urnas carregadas no banco de dados e catálogo"
-              class="px-3 py-2.5 bg-slate-950 hover:bg-rose-950 border border-slate-800 hover:border-rose-700 text-slate-400 hover:text-rose-300 font-bold text-xs rounded-xl transition"
+              onclick="confirmarResetTotalBanco()"
+              title="Zerar 100% do banco de dados PostgreSQL e apagar todas as seções e votos"
+              class="px-3.5 py-2.5 bg-rose-950/80 hover:bg-rose-900 border border-rose-600/60 text-rose-300 font-extrabold text-xs rounded-xl transition inline-flex items-center gap-1.5 shadow shadow-rose-950/50"
             >
-              🗑️ Limpar
+              <span>🗑️</span>
+              <span>Reset Total do Banco</span>
             </button>
+          </div>
+        </div>
+
+        <!-- PAINEL OPÇÃO A: INGESTÃO DIRETA DE ALTA PERFORMANCE NA VPS (SFTP / TERMIUS) -->
+        <div class="mt-4 p-4 bg-gradient-to-r from-slate-900 via-indigo-950/50 to-slate-900 border border-indigo-500/40 rounded-2xl shadow-xl space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <span class="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-300 text-xl font-bold">🚀</span>
+              <div>
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-black text-indigo-200">Ingestão Direta na VPS (Opção A — Recomendado)</span>
+                  <span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-extrabold uppercase">Alta Velocidade • Zero Quedas</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-0.5">
+                  Suba seu arquivo compactado <span class="text-cyan-300 font-bold mono">.zip</span> (ex: <code class="text-emerald-400">sc.zip</code>) diretamente para <span class="text-amber-300 font-bold mono bg-slate-950 px-1.5 py-0.5 rounded border border-amber-500/30">/root/tse_import</span> via Termius SFTP.
+                </p>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                onclick="verificarArquivosServidorTse()"
+                class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-indigo-500/40 text-indigo-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
+              >
+                <span>🔍</span>
+                <span>Detectar Arquivos em /root/tse_import</span>
+              </button>
+              <button
+                id="btnIniciarIngestaoVps"
+                type="button"
+                onclick="iniciarIngestaoDiretaVps()"
+                class="px-4 py-2 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-slate-950 font-black text-xs rounded-xl shadow transition inline-flex items-center gap-1.5"
+              >
+                <span>⚡</span>
+                <span>Iniciar Ingestão no Servidor</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Status dos Arquivos Detectados na Pasta /root/tse_import -->
+          <div id="vpsImportStatusBox" class="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2 text-slate-300">
+              <span class="w-2 h-2 rounded-full bg-slate-500" id="vpsImportStatusDot"></span>
+              <span id="vpsImportStatusMsg">Clique em "Detectar Arquivos em /root/tse_import" após subir o arquivo no Termius SFTP.</span>
+            </div>
+            <div id="vpsImportStatsPills" class="flex items-center gap-2 hidden">
+              <span class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/50 font-mono text-[11px]" id="vpsZipsFound">0 zips</span>
+              <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/50 font-mono text-[11px]" id="vpsTotalMbFound">0 MB</span>
+            </div>
+          </div>
+
+          <!-- Barra de Progresso da Ingestão na VPS -->
+          <div id="vpsIngestaoProgressBox" class="hidden p-3 bg-slate-950 border border-indigo-500/50 rounded-xl space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <span class="text-indigo-300 font-bold" id="vpsIngestaoMsg">Processando seções eleitorais...</span>
+              <span class="font-mono text-cyan-400 font-black text-sm" id="vpsIngestaoPct">0%</span>
+            </div>
+            <div class="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
+              <div id="vpsIngestaoBar" class="h-full bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400 transition-all duration-300" style="width: 2%"></div>
+            </div>
+            <div class="flex items-center justify-between text-[11px] text-slate-400 font-mono">
+              <span id="vpsIngestaoUrnas">0 de 0 urnas</span>
+              <span class="text-emerald-400 font-bold" id="vpsIngestaoSpeed">⚡ Processamento direto na VPS</span>
+            </div>
           </div>
         </div>
 
@@ -1752,7 +1817,7 @@ o Boletim de Urna (apos encerramento da votacao).
                   TRANSMISSÃO EM MICRO-LOTES TSE
                 </span>
                 <span class="px-1.5 py-0.5 text-[10px] font-extrabold rounded bg-indigo-950 text-indigo-300 border border-indigo-700 mono" id="modalSystemVersionBadge">
-                  {{ versao_sistema|default('v2.5.0') }}
+                  {{ versao_sistema|default('v2.6.0') }}
                 </span>
               </div>
               <h3 id="tseModalProgressTitle" class="text-base font-extrabold text-white mt-0.5">
@@ -3496,8 +3561,8 @@ o Boletim de Urna (apos encerramento da votacao).
       let urnasEnviadas = 0;
       let errosNesteUpload = 0;
       let errosDetalhes = [];
-      const MAX_BYTES_POR_LOTE = 12 * 1024 * 1024; // 12 MB máximo por envio para garantir estabilidade e evitar timeouts de proxy
-      const MAX_URNAS_POR_LOTE = usarModoTurbo ? 50 : 10;
+      const MAX_BYTES_POR_LOTE = 8 * 1024 * 1024; // 8 MB máximo por envio para garantir estabilidade e evitar timeouts de proxy
+      const MAX_URNAS_POR_LOTE = 10; // Lotes enxutos de 10 urnas (instantâneo em 1-2s sem travar)
 
       atualizarProgressoUploadTse(
         15,
@@ -3564,11 +3629,15 @@ o Boletim de Urna (apos encerramento da votacao).
 
             while (!loteSucesso && tentativas < 3 && !window.cancelarLoteTseFlag) {
               tentativas++;
+              const ctrlLote = new AbortController();
+              const timerLote = setTimeout(() => ctrlLote.abort(), 20000); // 20s timeout estrito por lote
               try {
                 const res = await fetch("/api/tse-reverso/upload-lote", {
                   method: "POST",
-                  body: formData
+                  body: formData,
+                  signal: ctrlLote.signal
                 });
+                clearTimeout(timerLote);
                 if (res.ok) {
                   loteSucesso = true;
                 } else {
@@ -3579,7 +3648,8 @@ o Boletim de Urna (apos encerramento da votacao).
                   }
                 }
               } catch (err) {
-                ultimoErro = err.message || "Falha de conexão";
+                clearTimeout(timerLote);
+                ultimoErro = err.name === "AbortError" ? "Timeout de 20s na conexão" : (err.message || "Falha de conexão");
                 if (tentativas < 3 && !window.cancelarLoteTseFlag) {
                   await new Promise(r => setTimeout(r, tentativas * 1000));
                 }
@@ -3659,15 +3729,139 @@ o Boletim de Urna (apos encerramento da votacao).
       await selecionarNoArvoreTse("SUL", "PR", "74071", "0171", data.prefixo_seccao || "o03221pr7407101710017");
     }
 
-    async function limparBaseTseReverso() {
-      const res = await fetch("/api/tse-reverso/catalogo", { method: "DELETE" });
-      if (res.ok) {
-        window.localTseFilesByPrefix = {};
-        document.getElementById("tseFilterBarContainer").classList.add("hidden");
-        document.getElementById("tseReversoResultContainer").classList.add("hidden");
-        document.getElementById("tseCatalogCountBadge").textContent = "Base limpa (0 urnas)";
-        showSecurityAlert("Catálogo de urnas TSE limpo com sucesso.", false);
+    async function confirmarResetTotalBanco() {
+      const confirmou = confirm(
+        "⚠️ ATENÇÃO: RESET TOTAL DA BASE ELEITORAL NO POSTGRESQL\n\n" +
+        "Esta ação irá executar TRUNCATE CASCADE e APAGAR 100% de todas as seções, votos nominais, " +
+        "boletins de urna (BU), dados de comparecimento e métricas de log já salvas no banco de dados " +
+        "(incluindo Paraná, Santa Catarina e qualquer teste anterior).\n\n" +
+        "O banco voltará imediatamente ao estado zero absoluto (0 urnas, 0 votos).\n\n" +
+        "Tem certeza que deseja ZERAR o banco de dados agora?"
+      );
+      if (!confirmou) return;
+
+      showSecurityAlert("Executando TRUNCATE CASCADE e resetando banco de dados eleitoral...", false);
+      try {
+        const res = await fetch("/api/tse-reverso/reset-banco", { method: "POST" });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          window.localTseFilesByPrefix = {};
+          const fCont = document.getElementById("tseFilterBarContainer");
+          if (fCont) fCont.classList.add("hidden");
+          const rCont = document.getElementById("tseReversoResultContainer");
+          if (rCont) rCont.classList.add("hidden");
+          const cBadge = document.getElementById("tseCatalogCountBadge");
+          if (cBadge) cBadge.textContent = "Base zerada (0 urnas)";
+
+          await atualizarStatusBancoAuditoria();
+          await atualizarBadgeHistoricoUploads();
+          await selecionarNoArvoreTse("TODAS", "TODAS", "TODAS", "TODAS", "CONSOLIDADO");
+
+          playBeepBiometriaOk();
+          showSecurityAlert("✅ Banco de Dados Eleitoral e Catálogo 100% ZERADOS com sucesso! Estado zero absoluto.", false);
+        } else {
+          showSecurityAlert(`Erro ao resetar banco: ${data.detail || data.mensagem || 'Falha na requisição'}`, true);
+        }
+      } catch (err) {
+        showSecurityAlert(`Erro de conexão ao resetar banco: ${err.message}`, true);
       }
+    }
+
+    async function verificarArquivosServidorTse() {
+      const msgEl = document.getElementById("vpsImportStatusMsg");
+      const dotEl = document.getElementById("vpsImportStatusDot");
+      const pillsEl = document.getElementById("vpsImportStatsPills");
+      const zipsEl = document.getElementById("vpsZipsFound");
+      const mbEl = document.getElementById("vpsTotalMbFound");
+
+      if (msgEl) msgEl.textContent = "🔍 Escaneando pasta /root/tse_import no servidor...";
+      if (dotEl) {
+        dotEl.className = "w-2 h-2 rounded-full bg-amber-400 animate-ping";
+      }
+
+      try {
+        const res = await fetch("/api/tse-reverso/servidor/status-importacao");
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          if (data.pronto_para_processar) {
+            if (dotEl) dotEl.className = "w-2 h-2 rounded-full bg-emerald-400";
+            let nomesZips = (data.zips || []).map(z => `${z.nome} (${z.tamanho_mb} MB)`).join(", ");
+            if (msgEl) {
+              msgEl.innerHTML = `✅ <strong class="text-emerald-300">${data.total_zips} arquivo(s) .zip</strong> detectados em <code class="text-cyan-300 font-bold">${data.diretorio_host_recomendado}</code>: ${nomesZips || (data.total_arquivos_soltos + ' arquivos avulsos')}. Pronto para processamento!`;
+            }
+            if (pillsEl) pillsEl.classList.remove("hidden");
+            if (zipsEl) zipsEl.textContent = `${data.total_zips} zips (${data.total_arquivos_soltos} avulsos)`;
+            if (mbEl) mbEl.textContent = `${data.tamanho_total_mb} MB`;
+          } else {
+            if (dotEl) dotEl.className = "w-2 h-2 rounded-full bg-amber-400";
+            if (msgEl) {
+              msgEl.innerHTML = `⚠️ Nenhum arquivo encontrado em <code class="text-amber-300">${data.diretorio_host_recomendado}</code>. Suba seu arquivo <strong class="text-cyan-300">sc.zip</strong> via SFTP no Termius para essa pasta e clique em Detectar novamente.`;
+            }
+            if (pillsEl) pillsEl.classList.add("hidden");
+          }
+        }
+      } catch (err) {
+        if (dotEl) dotEl.className = "w-2 h-2 rounded-full bg-rose-500";
+        if (msgEl) msgEl.textContent = `Erro ao verificar pasta na VPS: ${err.message}`;
+      }
+    }
+
+    let _pollIngestaoVpsTimer = null;
+
+    async function iniciarIngestaoDiretaVps() {
+      const pBox = document.getElementById("vpsIngestaoProgressBox");
+      const pBar = document.getElementById("vpsIngestaoBar");
+      const pPct = document.getElementById("vpsIngestaoPct");
+      const pMsg = document.getElementById("vpsIngestaoMsg");
+      const pUrnas = document.getElementById("vpsIngestaoUrnas");
+      const pSpeed = document.getElementById("vpsIngestaoSpeed");
+
+      if (pBox) pBox.classList.remove("hidden");
+      if (pMsg) pMsg.textContent = "Iniciando motor de ingestão na VPS...";
+
+      try {
+        const res = await fetch("/api/tse-reverso/servidor/iniciar-ingestao-local", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          if (pMsg) pMsg.textContent = `Aviso: ${data.mensagem || 'Falha ao iniciar'}`;
+          if (!data.status?.ativo) return;
+        }
+
+        if (_pollIngestaoVpsTimer) clearInterval(_pollIngestaoVpsTimer);
+        _pollIngestaoVpsTimer = setInterval(async () => {
+          try {
+            const rProg = await fetch("/api/tse-reverso/servidor/progresso-ingestao");
+            if (rProg.ok) {
+              const prog = await rProg.json();
+              const pct = Math.max(2, Math.min(100, prog.progresso_pct || 0));
+              if (pBar) pBar.style.width = `${pct}%`;
+              if (pPct) pPct.textContent = `${pct}%`;
+              if (pMsg) pMsg.textContent = prog.mensagem || "Processando...";
+              if (pUrnas) pUrnas.textContent = `${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} de ${(prog.total_urnas || 0).toLocaleString('pt-BR')} urnas (${(prog.urnas_novas || 0).toLocaleString('pt-BR')} novas salvas)`;
+              if (pSpeed && prog.tempo_decorrido_s > 0) {
+                const sp = (prog.urnas_processadas / prog.tempo_decorrido_s).toFixed(1);
+                pSpeed.textContent = `⚡ ${sp} urnas/segundo (${prog.tempo_decorrido_s}s decorridos)`;
+              }
+
+              if (prog.finalizado) {
+                clearInterval(_pollIngestaoVpsTimer);
+                _pollIngestaoVpsTimer = null;
+                playBeepBiometriaOk();
+                await atualizarStatusBancoAuditoria();
+                await atualizarBadgeHistoricoUploads();
+                await selecionarNoArvoreTse("TODAS", "TODAS", "TODAS", "TODAS", "CONSOLIDADO");
+                showSecurityAlert(prog.mensagem || "Ingestão local concluída com sucesso!", !prog.sucesso);
+              }
+            }
+          } catch (ePoll) {}
+        }, 800);
+      } catch (err) {
+        if (pMsg) pMsg.textContent = `Erro ao disparar ingestão na VPS: ${err.message}`;
+      }
+    }
+
+    async function limparBaseTseReverso() {
+      return confirmarResetTotalBanco();
     }
 
     let _timerAutoFecharSync = null;
@@ -6550,9 +6744,9 @@ o Boletim de Urna (apos encerramento da votacao).
         <span class="text-slate-400">PostgreSQL (Zero-Disk Raw)</span>
       </div>
       <div class="flex items-center gap-3">
-        <span class="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-cyan-300 font-extrabold" id="footerVersionBadge">Versão: {{ versao_sistema|default('v2.5.0') }}</span>
+        <span class="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-cyan-300 font-extrabold" id="footerVersionBadge">Versão: {{ versao_sistema|default('v2.6.0') }}</span>
         <span class="text-slate-600">•</span>
-        <span class="text-slate-400" id="footerBuildBadge">Build: {{ build_info|default('2026-11-04-rev2') }} ({{ commit_hash|default('692f0e3') }})</span>
+        <span class="text-slate-400" id="footerBuildBadge">Build: {{ build_info|default('2026-11-04-rev3') }} ({{ commit_hash|default('5cca41c') }})</span>
       </div>
     </div>
   </footer>

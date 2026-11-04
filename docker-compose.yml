@@ -59,6 +59,7 @@ services:
     volumes:
       - urna_cartuchos:/app/cartuchos
       - urna_data:/app/data
+      - ${TSE_IMPORT_DIR:-/root/tse_import}:/app/tse_import
     networks:
       - urna_internal
       - urnassembly
