@@ -54,6 +54,7 @@ from .tse_reverse_analyzer import (
     resetar_tudo_eleitoral,
     obter_status_pasta_importacao_servidor,
     iniciar_ingestao_servidor_background,
+    iniciar_complementacao_servidor_background,
     obter_progresso_ingestao_servidor,
     extrair_prefixo_seccao,
     sincronizar_catalogo_com_banco,
@@ -61,8 +62,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-04-rev4"
-SYSTEM_COMMIT = "22c8563"
+SYSTEM_BUILD = "2026-11-04-rev5"
+SYSTEM_COMMIT = "e87f12a"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1338,6 +1339,16 @@ def api_tse_reverso_servidor_iniciar_ingestao_local():
     return iniciar_ingestao_servidor_background()
 
 
+@app.post("/api/tse-reverso/servidor/iniciar-complementacao")
+def api_tse_reverso_servidor_iniciar_complementacao():
+    """
+    Dispara a complementação da base eleitoral em background na VPS:
+    varre os arquivos .zip em /app/tse_import (ou /root/tse_import) e aloca no PostgreSQL
+    os dados faltantes (1º Turno, votos de candidatos, dossiês de eleitores e espelho da bobina).
+    """
+    return iniciar_complementacao_servidor_background()
+
+
 @app.get("/api/tse-reverso/servidor/progresso-ingestao")
 def api_tse_reverso_servidor_progresso_ingestao():
     """Retorna o progresso em tempo real da ingestão local que está rodando na VPS."""
@@ -1368,10 +1379,10 @@ def api_tse_reverso_amostra_pr():
 def api_tse_reverso_status_banco():
     """
     Retorna o status físico de armazenamento e volumetria das tabelas do PostgreSQL:
-    total de seções, estados, municípios, apurações e métricas de log cadastradas.
+    total de seções, estados, municípios, apurações, dossiês e métricas de log cadastradas.
     Instantâneo (< 5ms) e com consumo zero de memória através de agregação SQL nativa.
     """
-    from .database import TseSecao, TseApuracaoBU, TseMetricasLog, TseVotoCandidato, DATABASE_URL, SessionLocal
+    from .database import TseSecao, TseApuracaoBU, TseMetricasLog, TseVotoCandidato, TseDossieSecao, DATABASE_URL, SessionLocal
     from sqlalchemy import func
     db = SessionLocal()
     try:
@@ -1382,6 +1393,7 @@ def api_tse_reverso_status_banco():
         total_bu = db.query(func.count(TseApuracaoBU.id)).scalar() or 0
         total_metricas = db.query(func.count(TseMetricasLog.id)).scalar() or 0
         total_votos = db.query(func.count(TseVotoCandidato.id)).scalar() or 0
+        total_dossies = db.query(func.count(TseDossieSecao.id)).scalar() or 0
 
         return {
             "banco": "PostgreSQL" if "postgres" in DATABASE_URL.lower() else "SQLite",
@@ -1397,6 +1409,7 @@ def api_tse_reverso_status_banco():
             "total_apuracoes_bu": total_bu,
             "total_metricas_log": total_metricas,
             "total_registros_votos": total_votos,
+            "total_dossies": total_dossies,
         }
     except Exception as exc:
         print(f"[TSE-DB] Erro ao obter status do banco: {exc}")

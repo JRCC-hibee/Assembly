@@ -1016,9 +1016,20 @@ o Boletim de Urna (apos encerramento da votacao).
                 type="button"
                 onclick="iniciarIngestaoDiretaVps()"
                 class="px-4 py-2 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-slate-950 font-black text-xs rounded-xl shadow transition inline-flex items-center gap-1.5"
+                title="Inicia ingestão completa do zero dos arquivos da VPS"
               >
                 <span>⚡</span>
                 <span>Iniciar Ingestão no Servidor</span>
+              </button>
+              <button
+                id="btnComplementarBaseVps"
+                type="button"
+                onclick="iniciarComplementacaoDiretaVps()"
+                class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs rounded-xl shadow transition inline-flex items-center gap-1.5"
+                title="Complementa a base existente com o 1º Turno faltante, dossiês de eleitores do log e espelho oficial das bobinas"
+              >
+                <span>📦</span>
+                <span>Complementar Base (1ºT + Logs/Boletins)</span>
               </button>
             </div>
           </div>
@@ -3861,6 +3872,58 @@ o Boletim de Urna (apos encerramento da votacao).
         }, 800);
       } catch (err) {
         if (pMsg) pMsg.textContent = `Erro ao disparar ingestão na VPS: ${err.message}`;
+      }
+    }
+
+    async function iniciarComplementacaoDiretaVps() {
+      const pBox = document.getElementById("vpsIngestaoProgressBox");
+      const pBar = document.getElementById("vpsIngestaoBar");
+      const pPct = document.getElementById("vpsIngestaoPct");
+      const pMsg = document.getElementById("vpsIngestaoMsg");
+      const pUrnas = document.getElementById("vpsIngestaoUrnas");
+      const pSpeed = document.getElementById("vpsIngestaoSpeed");
+
+      if (pBox) pBox.classList.remove("hidden");
+      if (pMsg) pMsg.textContent = "Iniciando complementação da base na VPS (1º Turno + Dossiês)...";
+
+      try {
+        const res = await fetch("/api/tse-reverso/servidor/iniciar-complementacao", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          if (pMsg) pMsg.textContent = `Aviso: ${data.mensagem || 'Falha ao iniciar complementação'}`;
+          if (!data.status?.ativo) return;
+        }
+
+        if (_pollIngestaoVpsTimer) clearInterval(_pollIngestaoVpsTimer);
+        _pollIngestaoVpsTimer = setInterval(async () => {
+          try {
+            const rProg = await fetch("/api/tse-reverso/servidor/progresso-ingestao");
+            if (rProg.ok) {
+              const prog = await rProg.json();
+              const pct = Math.max(2, Math.min(100, prog.progresso_pct || 0));
+              if (pBar) pBar.style.width = `${pct}%`;
+              if (pPct) pPct.textContent = `${pct}%`;
+              if (pMsg) pMsg.textContent = prog.mensagem || "Complementando base...";
+              if (pUrnas) pUrnas.textContent = `${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} de ${(prog.total_urnas || 0).toLocaleString('pt-BR')} urnas (${(prog.urnas_novas || 0).toLocaleString('pt-BR')} complementadas)`;
+              if (pSpeed && prog.tempo_decorrido_s > 0) {
+                const sp = (prog.urnas_processadas / prog.tempo_decorrido_s).toFixed(1);
+                pSpeed.textContent = `⚡ ${sp} urnas/segundo (${prog.tempo_decorrido_s}s decorridos)`;
+              }
+
+              if (prog.finalizado) {
+                clearInterval(_pollIngestaoVpsTimer);
+                _pollIngestaoVpsTimer = null;
+                playBeepBiometriaOk();
+                await atualizarStatusBancoAuditoria();
+                await atualizarBadgeHistoricoUploads();
+                await selecionarNoArvoreTse("TODAS", "TODAS", "TODAS", "TODAS", "CONSOLIDADO");
+                showSecurityAlert(prog.mensagem || "Complementação concluída com sucesso!", !prog.sucesso);
+              }
+            }
+          } catch (ePoll) {}
+        }, 800);
+      } catch (err) {
+        if (pMsg) pMsg.textContent = `Erro ao disparar complementação na VPS: ${err.message}`;
       }
     }
 
