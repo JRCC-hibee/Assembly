@@ -2816,11 +2816,13 @@ def resetar_tudo_eleitoral(db=None) -> dict:
                     pass
 
     res_cat = limpar_catalogo_tse()
+    sucesso = res_db.get("ok", False) and (res_db.get("total_secoes_restantes", 0) == 0)
     return {
-        "ok": True,
+        "ok": sucesso,
+        "total_secoes": res_db.get("total_secoes_restantes", 0),
         "banco": res_db,
         "catalogo": res_cat,
-        "mensagem": "Base Eleitoral e Catálogo resetados com sucesso! Estado zero absoluto.",
+        "mensagem": res_db.get("mensagem") or ("Base Eleitoral e Catálogo resetados com sucesso! Estado zero absoluto." if sucesso else "Falha ao zerar banco."),
     }
 
 

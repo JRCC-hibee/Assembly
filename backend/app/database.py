@@ -685,33 +685,51 @@ def resetar_banco_eleitoral_completo(db: Session) -> dict:
         "tse_metricas_log",
         "tse_votos_candidatos",
         "tse_apuracao_bu",
-        "tse_historico_upload_detalhes",
         "tse_historico_upload",
         "tse_secoes",
     ]
+    tabelas_limpas = []
+    erros = []
+
+    # 1. Tenta TRUNCATE CASCADE nas tabelas eleitorais do TSE
     try:
-        # PostgreSQL com TRUNCATE ... CASCADE é atômico, limpa chaves estrangeiras e reinicia sequências em < 5ms
         db.execute(text(
             "TRUNCATE TABLE tse_metricas_log, tse_votos_candidatos, tse_apuracao_bu, "
-            "tse_historico_upload_detalhes, tse_historico_upload, tse_secoes "
+            "tse_historico_upload, tse_secoes "
             "RESTART IDENTITY CASCADE;"
         ))
         db.commit()
+        tabelas_limpas = list(tabelas_zeradas)
     except Exception as exc_trun:
         db.rollback()
-        # Fallback para SQLite ou caso o usuário não tenha permissão de TRUNCATE
-        try:
-            for tbl in tabelas_zeradas:
+        # 2. Fallback resiliente: limpa tabela por tabela individualmente
+        for tbl in tabelas_zeradas:
+            try:
                 db.execute(text(f"DELETE FROM {tbl};"))
-            db.commit()
-        except Exception as exc_del:
-            db.rollback()
-            raise exc_del
+                db.commit()
+                tabelas_limpas.append(tbl)
+            except Exception as exc_tbl:
+                db.rollback()
+                erros.append(f"{tbl}: {exc_tbl}")
+
+    # 3. Confere a contagem final de seções no banco
+    from sqlalchemy import func
+    total_restante = 0
+    try:
+        total_restante = db.query(func.count(TseSecao.id)).scalar() or 0
+    except Exception:
+        pass
 
     return {
-        "ok": True,
-        "tabelas_zeradas": tabelas_zeradas,
-        "mensagem": "Banco de Dados Eleitoral resetado com sucesso! Estado zero absoluto.",
+        "ok": (total_restante == 0),
+        "tabelas_zeradas": tabelas_limpas,
+        "total_secoes_restantes": total_restante,
+        "erros": erros,
+        "mensagem": (
+            "Banco de Dados Eleitoral 100% ZERADO com sucesso! (0 urnas restantes)"
+            if total_restante == 0
+            else f"Aviso: ainda restam {total_restante} seções no banco. Erros: {'; '.join(erros)}"
+        ),
     }
 
 

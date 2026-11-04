@@ -3753,6 +3753,9 @@ o Boletim de Urna (apos encerramento da votacao).
           const cBadge = document.getElementById("tseCatalogCountBadge");
           if (cBadge) cBadge.textContent = "Base zerada (0 urnas)";
 
+          const badge = document.getElementById("headerAuditoriaCount");
+          if (badge) badge.textContent = "0 URNAS (0 UF)";
+
           await atualizarStatusBancoAuditoria();
           await atualizarBadgeHistoricoUploads();
           await selecionarNoArvoreTse("TODAS", "TODAS", "TODAS", "TODAS", "CONSOLIDADO");
@@ -3760,7 +3763,8 @@ o Boletim de Urna (apos encerramento da votacao).
           playBeepBiometriaOk();
           showSecurityAlert("✅ Banco de Dados Eleitoral e Catálogo 100% ZERADOS com sucesso! Estado zero absoluto.", false);
         } else {
-          showSecurityAlert(`Erro ao resetar banco: ${data.detail || data.mensagem || 'Falha na requisição'}`, true);
+          const errMsg = data.mensagem || (data.banco && data.banco.erros && data.banco.erros.length ? data.banco.erros.join("; ") : "Falha na requisição");
+          showSecurityAlert(`Erro ao resetar banco: ${errMsg}`, true);
         }
       } catch (err) {
         showSecurityAlert(`Erro de conexão ao resetar banco: ${err.message}`, true);
@@ -6746,7 +6750,7 @@ o Boletim de Urna (apos encerramento da votacao).
       <div class="flex items-center gap-3">
         <span class="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-cyan-300 font-extrabold" id="footerVersionBadge">Versão: {{ versao_sistema|default('v2.6.0') }}</span>
         <span class="text-slate-600">•</span>
-        <span class="text-slate-400" id="footerBuildBadge">Build: {{ build_info|default('2026-11-04-rev3') }} ({{ commit_hash|default('5cca41c') }})</span>
+        <span class="text-slate-400" id="footerBuildBadge">Build: {{ build_info|default('2026-11-04-rev4') }} ({{ commit_hash|default('22c8563') }})</span>
       </div>
     </div>
   </footer>
