@@ -26,6 +26,7 @@ from .database import (
     criar_historico_upload,
     atualizar_historico_upload,
     finalizar_historico_upload,
+    limpar_historico_uploads_pendentes,
     listar_historico_uploads,
     excluir_historico_upload,
 )
@@ -884,6 +885,8 @@ class HistoricoFinalizarSchema(BaseModel):
     job_id: str
     status: str = "CONCLUIDO"
     mensagem: Optional[str] = None
+    urnas_duplicadas: Optional[int] = None
+    urnas_novas: Optional[int] = None
 
 
 @app.post("/api/tse-reverso/historico/finalizar")
@@ -893,6 +896,8 @@ def api_tse_reverso_historico_finalizar(body: HistoricoFinalizarSchema, db: Sess
         job_id=body.job_id,
         status=body.status,
         mensagem=body.mensagem,
+        urnas_duplicadas=body.urnas_duplicadas,
+        urnas_novas=body.urnas_novas,
     )
     sincronizar_catalogo_com_banco()
     if not reg:
@@ -907,6 +912,12 @@ def api_tse_reverso_historico_finalizar(body: HistoricoFinalizarSchema, db: Sess
         "total_erros": reg.total_erros,
         "mensagem": reg.mensagem_resumo,
     }
+
+
+@app.post("/api/tse-reverso/historico/limpar-pendentes")
+def api_tse_reverso_historico_limpar_pendentes(db: Session = Depends(get_db)):
+    finalizados = limpar_historico_uploads_pendentes(db)
+    return {"ok": True, "finalizados": finalizados}
 
 
 @app.get("/api/tse-reverso/historico")

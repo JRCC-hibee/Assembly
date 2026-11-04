@@ -601,6 +601,8 @@ def finalizar_historico_upload(
     status: str = "CONCLUIDO",
     mensagem: str = None,
     detalhes_adicionais: dict = None,
+    urnas_duplicadas: int = None,
+    urnas_novas: int = None,
 ) -> TseHistoricoUpload | None:
     """Finaliza o registro de upload gravando o tempo de processamento e resumo."""
     registro = db.query(TseHistoricoUpload).filter(TseHistoricoUpload.job_id == job_id).first()
@@ -615,6 +617,11 @@ def finalizar_historico_upload(
             registro.duracao_segundos = max(1, int(round(delta)))
         except Exception:
             registro.duracao_segundos = 0
+
+    if urnas_duplicadas is not None:
+        registro.total_urnas_duplicadas_ignoradas = int(urnas_duplicadas)
+    if urnas_novas is not None and (registro.total_urnas_novas_gravadas or 0) == 0:
+        registro.total_urnas_novas_gravadas = int(urnas_novas)
 
     if registro.total_erros and registro.total_erros > 0:
         status = "CONCLUIDO_COM_AVISOS" if status == "CONCLUIDO" else status
@@ -641,6 +648,32 @@ def finalizar_historico_upload(
     db.commit()
     db.refresh(registro)
     return registro
+
+
+def limpar_historico_uploads_pendentes(db: Session) -> int:
+    """
+    Finaliza todos os registros em status EM_ANDAMENTO que ficaram pendentes
+    por interrupção de upload, fechamento de aba ou timeout.
+    """
+    agora = datetime.now(timezone.utc)
+    pendentes = db.query(TseHistoricoUpload).filter(TseHistoricoUpload.status == "EM_ANDAMENTO").all()
+    count = 0
+    for r in pendentes:
+        r.status = "INTERROMPIDO"
+        r.finalizado_em = agora
+        if r.created_at:
+            try:
+                delta = (agora - r.created_at.replace(tzinfo=timezone.utc)).total_seconds()
+                r.duracao_segundos = max(1, int(round(delta)))
+            except Exception:
+                r.duracao_segundos = 0
+        r.mensagem_resumo = (
+            f"Sessão finalizada: {r.total_urnas_novas_gravadas or 0} urnas novas salvas, "
+            f"{r.total_urnas_duplicadas_ignoradas or 0} já salvas."
+        )
+        count += 1
+    db.commit()
+    return count
 
 
 def listar_historico_uploads(db: Session, limit: int = 100) -> list[dict]:
