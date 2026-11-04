@@ -1640,7 +1640,7 @@ def _append_catalogo_disco(resumos_novos: list[dict]) -> None:
             f.write(json.dumps(r, ensure_ascii=False) + "\n")
 
 
-def obter_indice_secoes_carregadas() -> dict:
+def obter_indice_secoes_carregadas(db=None) -> dict:
     """
     Retorna um índice ultracompacto de todas as seções já carregadas no servidor
     usando máscara de bits por prefixo de seção:
@@ -1671,7 +1671,11 @@ def obter_indice_secoes_carregadas() -> dict:
         indice[pref] = mask
 
     # Adiciona seções persistidas no PostgreSQL (1º Turno o03220 e 2º Turno o03221)
-    db = _obter_db_session()
+    db_local = False
+    if db is None:
+        db = _obter_db_session()
+        db_local = True
+
     if db:
         try:
             from .database import TseSecao, TseApuracaoBU
@@ -1688,24 +1692,47 @@ def obter_indice_secoes_carregadas() -> dict:
                 .all()
             )
             for uf, mun, zona, sec, turno, pleito in rows_bu:
-                uf_low = (uf or "").lower()
-                p_code = pleito if pleito else ("03220" if turno == 1 else "03221")
-                if not p_code.startswith("o"):
-                    p_code = f"o{p_code}"
-                pref = f"{p_code}{uf_low}{mun}{zona:04d}{sec:04d}"
-                indice[pref] = 31
+                try:
+                    uf_low = (uf or "").lower().strip()
+                    mun_str = str(mun or "").strip().zfill(5)
+                    z_int = int(zona or 0)
+                    s_int = int(sec or 0)
+                    t_int = int(turno or 2)
+
+                    # 1. Prefixo exato do pleito registrado (ex: o03220, o03221, o00406, o00407)
+                    p_digits = re.sub(r"[^\d]", "", str(pleito or ""))
+                    if not p_digits:
+                        p_digits = "03220" if t_int == 1 else "03221"
+                    pref_exact = f"o{p_digits.zfill(5)}{uf_low}{mun_str}{z_int:04d}{s_int:04d}"
+                    indice[pref_exact] = 31
+
+                    # 2. Prefixo canônico para o turno correspondente (03220 para 1ºT, 03221 para 2ºT)
+                    pref_canon = f"{'o03220' if t_int == 1 else 'o03221'}{uf_low}{mun_str}{z_int:04d}{s_int:04d}"
+                    indice[pref_canon] = 31
+                except Exception:
+                    pass
 
             # Garante que as chaves físicas também estejam indexadas por segurança
             rows_sec = db.query(TseSecao.uf, TseSecao.municipio_codigo, TseSecao.zona, TseSecao.secao).all()
             for uf, mun, zona, sec in rows_sec:
-                uf_low = (uf or "").lower()
-                pref2 = f"o03221{uf_low}{mun}{zona:04d}{sec:04d}"
-                if pref2 not in indice:
-                    indice[pref2] = 31
+                try:
+                    uf_low = (uf or "").lower().strip()
+                    mun_str = str(mun or "").strip().zfill(5)
+                    z_int = int(zona or 0)
+                    s_int = int(sec or 0)
+                    pref2 = f"o03221{uf_low}{mun_str}{z_int:04d}{s_int:04d}"
+                    if pref2 not in indice:
+                        indice[pref2] = 31
+                except Exception:
+                    pass
         except Exception as e_idx:
             print(f"[TSE-INDICE] Erro ao carregar indice do banco: {e_idx}")
         finally:
-            db.close()
+            if db and db_local:
+                try:
+                    db.close()
+                except Exception:
+                    pass
 
     return {
         "total_secoes_no_catalogo": len(indice),
@@ -1726,7 +1753,7 @@ def _obter_db_session():
         return None
 
 
-def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
+def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes], db=None) -> dict:
     """
     Recebe um lote contendo 1 ou N arquivos de 1 ou várias seções eleitorais do TSE,
     agrupa pelo prefixo da seção (`o03221pr7407101710017`), decodifica em memória,
@@ -1736,7 +1763,10 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
     """
     catalogo = _carregar_catalogo_disco()
     storage = _get_tse_storage_dir()
-    db = _obter_db_session()
+    db_criado_local = False
+    if db is None:
+        db = _obter_db_session()
+        db_criado_local = True
 
     grupos: dict[str, dict[str, bytes]] = {}
     arquivos_expandidos = dict(arquivos_dict)
@@ -1845,7 +1875,7 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes]) -> dict:
     # Grava apenas o delta no arquivo .jsonl em < 1ms
     _append_catalogo_disco(resumos_para_append)
 
-    if db:
+    if db and db_criado_local:
         try:
             db.close()
         except Exception:
@@ -2522,6 +2552,7 @@ def _consolidar_secoes_tse_sql(
             func.coalesce(func.sum(votos_col), 0).label("tot_votos"),
             func.coalesce(func.sum(aptos_col), 0).label("tot_aptos"),
         )
+        .select_from(TseSecao)
         .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
         .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
         .group_by(TseSecao.regiao)
@@ -2660,15 +2691,18 @@ def _consolidar_secoes_tse_sql(
         p_prefix = r.pleito or ("03221" if r.turno_ativo == 2 else ("03220" if r.turno_ativo == 1 else "03221"))
         if not p_prefix.startswith("o"):
             p_prefix = f"o{p_prefix}"
-        pref = f"{p_prefix}{r.uf.lower()}{r.municipio_codigo}{r.zona:04d}{r.secao:04d}"
+        m_cod = str(r.municipio_codigo or "").strip().zfill(5)
+        z_val = int(r.zona or 0)
+        s_val = int(r.secao or 0)
+        pref = f"{p_prefix}{r.uf.lower()}{m_cod}{z_val:04d}{s_val:04d}"
         lista_secoes_seletor.append({
             "prefixo": pref,
-            "secao": f"{r.secao:04d}",
-            "zona": f"{r.zona:04d}",
+            "secao": f"{s_val:04d}",
+            "zona": f"{z_val:04d}",
             "uf": r.uf,
             "regiao": r.regiao,
-            "municipio_codigo": r.municipio_codigo,
-            "municipio_nome": MUNICIPIOS_PR_TSE.get(r.municipio_codigo, r.municipio_nome),
+            "municipio_codigo": m_cod,
+            "municipio_nome": MUNICIPIOS_PR_TSE.get(m_cod, r.municipio_nome),
             "serial_ue": "-",
             "votos": int(r.votos or 0),
             "aptos": int(r.aptos or 0),
@@ -2745,8 +2779,9 @@ def _consolidar_secoes_tse_sql(
             func.coalesce(func.sum(func.coalesce(bu_t2_alias.votos_brancos, bu_t1_alias.votos_brancos, 0)), 0).label("brancos"),
             func.coalesce(func.sum(func.coalesce(bu_t2_alias.votos_nulos, bu_t1_alias.votos_nulos, 0)), 0).label("nulos"),
             func.count(case((or_(bu_t2_alias.id != None, bu_t1_alias.id != None), 1), else_=None)).label("urnas_bu"),
-            func.count(case((diverg_col == True, 1), else_=None)).label("divergentes"),
+            func.count(case((or_(bu_t2_alias.divergencia_detectada == True, bu_t1_alias.divergencia_detectada == True), 1), else_=None)).label("divergentes"),
         )
+        .select_from(TseSecao)
         .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
         .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
         .filter(*filtro_secao)
@@ -2857,14 +2892,17 @@ def _consolidar_secoes_tse_sql(
         p_prefix = r.pleito or ("03221" if r.turno_ativo == 2 else ("03220" if r.turno_ativo == 1 else "03221"))
         if not p_prefix.startswith("o"):
             p_prefix = f"o{p_prefix}"
-        pref = f"{p_prefix}{r.uf.lower()}{r.municipio_codigo}{r.zona:04d}{r.secao:04d}"
+        m_cod = str(r.municipio_codigo or "").strip().zfill(5)
+        z_val = int(r.zona or 0)
+        s_val = int(r.secao or 0)
+        pref = f"{p_prefix}{r.uf.lower()}{m_cod}{z_val:04d}{s_val:04d}"
         lista_urnas.append({
             "prefixo": pref,
-            "secao": f"{r.secao:04d}",
-            "zona": f"{r.zona:04d}",
+            "secao": f"{s_val:04d}",
+            "zona": f"{z_val:04d}",
             "uf": r.uf,
-            "municipio_codigo": r.municipio_codigo,
-            "municipio_nome": MUNICIPIOS_PR_TSE.get(r.municipio_codigo, r.municipio_nome),
+            "municipio_codigo": m_cod,
+            "municipio_nome": MUNICIPIOS_PR_TSE.get(m_cod, r.municipio_nome),
             "modelo_ue": r.modelo_urna or "UE2020",
             "serial_ue": "-",
             "local_votacao": r.local_votacao or "-",

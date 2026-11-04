@@ -13,7 +13,13 @@ if DATABASE_URL.startswith("sqlite"):
     os.makedirs("./data", exist_ok=True)
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
-    engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+    engine = create_engine(
+        DATABASE_URL,
+        pool_pre_ping=True,
+        pool_size=20,
+        max_overflow=40,
+        pool_timeout=15,
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

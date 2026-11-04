@@ -3295,12 +3295,18 @@ o Boletim de Urna (apos encerramento da votacao).
       // 2. Consulta o índice de seções/arquivos já carregados no servidor para NÃO enviar duplicado
       let indiceMascaras = {};
       try {
-        const resIdx = await fetch("/api/tse-reverso/indice-ja-carregados");
+        const ctrlIdx = new AbortController();
+        const tId = setTimeout(() => ctrlIdx.abort(), 12000);
+        const resIdx = await fetch("/api/tse-reverso/indice-ja-carregados", { signal: ctrlIdx.signal });
+        clearTimeout(tId);
         if (resIdx.ok) {
           const dataIdx = await resIdx.json();
           indiceMascaras = dataIdx.indice_mascaras || {};
+          console.log(`[TSE] Índice carregado com ${Object.keys(indiceMascaras).length} seções cadastradas.`);
         }
-      } catch (e) {}
+      } catch (e) {
+        console.warn("[TSE] Falha ao consultar índice de urnas salvas:", e);
+      }
 
       // Define estratégia: Turbo (apenas BU+RDV no lote) ou Auto/Completo (BU + RDV + Logs Teclas Presidente)
       const stratSelect = document.getElementById("tseUploadStrategy")?.value || "AUTO";
@@ -6057,150 +6063,171 @@ o Boletim de Urna (apos encerramento da votacao).
       if (modal) modal.classList.add("hidden");
     }
 
+    function renderizarTabelaHistorico(lista) {
+      const container = document.getElementById("tseHistoricoListaContainer");
+      if (!container) return;
+
+      const totalEnvios = (lista || []).length;
+      let totalNovas = 0;
+      let totalDuplicadas = 0;
+      let totalErros = 0;
+
+      for (const item of (lista || [])) {
+        totalNovas += item.total_urnas_novas_gravadas || 0;
+        totalDuplicadas += item.total_urnas_duplicadas_ignoradas || 0;
+        totalErros += item.total_erros || 0;
+      }
+
+      const elTotEnvios = document.getElementById("histTotalEnvios");
+      if (elTotEnvios) elTotEnvios.textContent = totalEnvios.toLocaleString("pt-BR");
+      const elTotNovas = document.getElementById("histTotalNovas");
+      if (elTotNovas) elTotNovas.textContent = totalNovas.toLocaleString("pt-BR");
+      const elTotDup = document.getElementById("histTotalDuplicadas");
+      if (elTotDup) elTotDup.textContent = totalDuplicadas.toLocaleString("pt-BR");
+      const elTotErr = document.getElementById("histTotalErros");
+      if (elTotErr) elTotErr.textContent = totalErros.toLocaleString("pt-BR");
+
+      const badge = document.getElementById("badgeHistoricoCount");
+      if (badge) {
+        badge.textContent = totalEnvios;
+        if (totalEnvios > 0) badge.classList.remove("hidden");
+        else badge.classList.add("hidden");
+      }
+
+      if (!lista || lista.length === 0) {
+        container.innerHTML = `
+          <div class="text-center py-12 space-y-2">
+            <div class="text-3xl text-slate-600">📂</div>
+            <div class="text-slate-400 font-bold text-xs">Nenhum upload registrado ainda.</div>
+            <p class="text-slate-500 text-[11px] max-w-sm mx-auto">
+              Quando você enviar arquivos ou pastas abertas pelo botão "Subir Pasta Aberta" ou ".ZIP", cada sessão será auditada e salva aqui automaticamente.
+            </p>
+          </div>
+        `;
+        return;
+      }
+
+      let html = `
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr class="border-b border-slate-800 text-[10px] font-extrabold uppercase text-slate-400 mono bg-slate-950/60">
+                <th class="py-2.5 px-3">Data / Hora</th>
+                <th class="py-2.5 px-3">Tipo & Origem</th>
+                <th class="py-2.5 px-2 text-center">UF</th>
+                <th class="py-2.5 px-3 text-right">Novas Gravadas</th>
+                <th class="py-2.5 px-3 text-right">Já Salvas</th>
+                <th class="py-2.5 px-2 text-center">Erros</th>
+                <th class="py-2.5 px-3 text-center">Status</th>
+                <th class="py-2.5 px-2 text-right">Duração</th>
+                <th class="py-2.5 px-3 text-center">Ações</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/60 mono">
+      `;
+
+      for (const item of lista) {
+        const dataFmt = item.created_at ? new Date(item.created_at).toLocaleString("pt-BR") : "-";
+        const tipoIcon = item.tipo_envio === "ARQUIVO_ZIP" ? "📦" : "📂";
+        const tipoLabel = item.tipo_envio === "ARQUIVO_ZIP" ? "Arquivo .ZIP" : "Pasta Aberta";
+        
+        let statusBadge = "";
+        const stUpper = String(item.status || "").toUpperCase();
+        if (stUpper === "CONCLUIDO") {
+          statusBadge = '<span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700/60 text-[10px] font-black">CONCLUÍDO</span>';
+        } else if (stUpper === "CONCLUIDO_COM_AVISOS") {
+          statusBadge = '<span class="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700/60 text-[10px] font-black">COM AVISOS</span>';
+        } else if (stUpper === "EM_ANDAMENTO" || stUpper === "EM ANDAMENTO") {
+          statusBadge = '<span class="px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-700/60 text-[10px] font-black animate-pulse">EM ANDAMENTO</span>';
+        } else {
+          statusBadge = '<span class="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-700/60 text-[10px] font-black">ERRO</span>';
+        }
+
+        const errosBadge = (item.total_erros > 0)
+          ? `<span class="px-1.5 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800 font-bold text-[10px]">${item.total_erros}</span>`
+          : '<span class="text-slate-600">0</span>';
+
+        html += `
+          <tr class="hover:bg-slate-800/40 transition">
+            <td class="py-2.5 px-3 text-[11px] text-slate-300 whitespace-nowrap">${dataFmt}</td>
+            <td class="py-2.5 px-3">
+              <div class="flex items-center gap-1.5">
+                <span>${tipoIcon}</span>
+                <span class="font-bold text-white text-[11px] truncate max-w-[200px]" title="${item.nome_origem || ''}">${item.nome_origem || tipoLabel}</span>
+              </div>
+              <div class="text-[9px] text-slate-500">${item.total_arquivos_recebidos?.toLocaleString("pt-BR") || 0} arquivos</div>
+            </td>
+            <td class="py-2.5 px-2 text-center">
+              <span class="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-bold text-[10px] border border-cyan-800/50">${item.uf || "-"}</span>
+            </td>
+            <td class="py-2.5 px-3 text-right font-extrabold text-emerald-400">
+              +${(item.total_urnas_novas_gravadas || 0).toLocaleString("pt-BR")}
+            </td>
+            <td class="py-2.5 px-3 text-right text-amber-300/90">
+              ${(item.total_urnas_duplicadas_ignoradas || 0).toLocaleString("pt-BR")}
+            </td>
+            <td class="py-2.5 px-2 text-center">${errosBadge}</td>
+            <td class="py-2.5 px-3 text-center whitespace-nowrap">${statusBadge}</td>
+            <td class="py-2.5 px-2 text-right text-slate-400 text-[10px]">${item.duracao_segundos || 0}s</td>
+            <td class="py-2.5 px-3 text-center whitespace-nowrap">
+              <button
+                onclick="inspecionarHistoricoUpload('${item.job_id}')"
+                title="Ver detalhes completos deste upload"
+                class="px-2 py-1 rounded bg-sky-950 hover:bg-sky-900 text-sky-300 border border-sky-800 text-[10px] font-bold transition mr-1"
+              >
+                🔍 Detalhes
+              </button>
+              <button
+                onclick="excluirItemHistoricoUpload(${item.id})"
+                title="Remover este registro do histórico"
+                class="px-1.5 py-1 rounded bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 text-[10px] transition"
+              >
+                🗑️
+              </button>
+            </td>
+          </tr>
+        `;
+      }
+
+      html += `
+            </tbody>
+          </table>
+        </div>
+      `;
+      container.innerHTML = html;
+    }
+
     async function carregarHistoricoUploads() {
       const container = document.getElementById("tseHistoricoListaContainer");
       if (!container) return;
-      container.innerHTML = '<div class="text-center py-10 text-slate-500 text-xs">Carregando histórico do PostgreSQL...</div>';
+
+      if (window.historicoUploadsCache && window.historicoUploadsCache.length > 0) {
+        renderizarTabelaHistorico(window.historicoUploadsCache);
+      } else {
+        container.innerHTML = '<div class="text-center py-10 text-slate-500 text-xs">Carregando histórico do PostgreSQL...</div>';
+      }
 
       try {
-        const res = await fetch("/api/tse-reverso/historico");
+        const ctrl = new AbortController();
+        const timeoutId = setTimeout(() => ctrl.abort(), 12000);
+        const res = await fetch("/api/tse-reverso/historico", { signal: ctrl.signal });
+        clearTimeout(timeoutId);
+
         if (!res.ok) {
-          container.innerHTML = '<div class="text-center py-10 text-rose-400 text-xs">Falha ao consultar histórico no banco de dados.</div>';
+          if (!window.historicoUploadsCache || window.historicoUploadsCache.length === 0) {
+            container.innerHTML = '<div class="text-center py-10 text-rose-400 text-xs">Falha ao consultar histórico no banco de dados.</div>';
+          }
           return;
         }
         const data = await res.json();
         const lista = data.historico || [];
         window.historicoUploadsCache = lista;
-
-        // Atualiza cards do topo do modal
-        const totalEnvios = lista.length;
-        let totalNovas = 0;
-        let totalDuplicadas = 0;
-        let totalErros = 0;
-
-        for (const item of lista) {
-          totalNovas += item.total_urnas_novas_gravadas || 0;
-          totalDuplicadas += item.total_urnas_duplicadas_ignoradas || 0;
-          totalErros += item.total_erros || 0;
-        }
-
-        const elTotEnvios = document.getElementById("histTotalEnvios");
-        if (elTotEnvios) elTotEnvios.textContent = totalEnvios.toLocaleString("pt-BR");
-        const elTotNovas = document.getElementById("histTotalNovas");
-        if (elTotNovas) elTotNovas.textContent = totalNovas.toLocaleString("pt-BR");
-        const elTotDup = document.getElementById("histTotalDuplicadas");
-        if (elTotDup) elTotDup.textContent = totalDuplicadas.toLocaleString("pt-BR");
-        const elTotErr = document.getElementById("histTotalErros");
-        if (elTotErr) elTotErr.textContent = totalErros.toLocaleString("pt-BR");
-
-        const badge = document.getElementById("badgeHistoricoCount");
-        if (badge) {
-          badge.textContent = totalEnvios;
-          if (totalEnvios > 0) badge.classList.remove("hidden");
-        }
-
-        if (lista.length === 0) {
-          container.innerHTML = `
-            <div class="text-center py-12 space-y-2">
-              <div class="text-3xl text-slate-600">📂</div>
-              <div class="text-slate-400 font-bold text-xs">Nenhum upload registrado ainda.</div>
-              <p class="text-slate-500 text-[11px] max-w-sm mx-auto">
-                Quando você enviar arquivos ou pastas abertas pelo botão "Subir Pasta Aberta" ou ".ZIP", cada sessão será auditada e salva aqui automaticamente.
-              </p>
-            </div>
-          `;
-          return;
-        }
-
-        let html = `
-          <div class="overflow-x-auto">
-            <table class="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr class="border-b border-slate-800 text-[10px] font-extrabold uppercase text-slate-400 mono bg-slate-950/60">
-                  <th class="py-2.5 px-3">Data / Hora</th>
-                  <th class="py-2.5 px-3">Tipo & Origem</th>
-                  <th class="py-2.5 px-2 text-center">UF</th>
-                  <th class="py-2.5 px-3 text-right">Novas Gravadas</th>
-                  <th class="py-2.5 px-3 text-right">Já Salvas</th>
-                  <th class="py-2.5 px-2 text-center">Erros</th>
-                  <th class="py-2.5 px-3 text-center">Status</th>
-                  <th class="py-2.5 px-2 text-right">Duração</th>
-                  <th class="py-2.5 px-3 text-center">Ações</th>
-                </tr>
-              </thead>
-              <tbody class="divide-y divide-slate-800/60 mono">
-        `;
-
-        for (const item of lista) {
-          const dataFmt = item.created_at ? new Date(item.created_at).toLocaleString("pt-BR") : "-";
-          const tipoIcon = item.tipo_envio === "ARQUIVO_ZIP" ? "📦" : "📂";
-          const tipoLabel = item.tipo_envio === "ARQUIVO_ZIP" ? "Arquivo .ZIP" : "Pasta Aberta";
-          
-          let statusBadge = "";
-          if (item.status === "CONCLUIDO") {
-            statusBadge = '<span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700/60 text-[10px] font-black">CONCLUÍDO</span>';
-          } else if (item.status === "CONCLUIDO_COM_AVISOS") {
-            statusBadge = '<span class="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700/60 text-[10px] font-black">COM AVISOS</span>';
-          } else if (item.status === "EM_ANDAMENTO") {
-            statusBadge = '<span class="px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-700/60 text-[10px] font-black animate-pulse">EM ANDAMENTO</span>';
-          } else {
-            statusBadge = '<span class="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-700/60 text-[10px] font-black">ERRO</span>';
-          }
-
-          const errosBadge = (item.total_erros > 0)
-            ? `<span class="px-1.5 py-0.5 rounded bg-rose-950 text-rose-400 border border-rose-800 font-bold text-[10px]">${item.total_erros}</span>`
-            : '<span class="text-slate-600">0</span>';
-
-          html += `
-            <tr class="hover:bg-slate-800/40 transition">
-              <td class="py-2.5 px-3 text-[11px] text-slate-300 whitespace-nowrap">${dataFmt}</td>
-              <td class="py-2.5 px-3">
-                <div class="flex items-center gap-1.5">
-                  <span>${tipoIcon}</span>
-                  <span class="font-bold text-white text-[11px] truncate max-w-[200px]" title="${item.nome_origem || ''}">${item.nome_origem || tipoLabel}</span>
-                </div>
-                <div class="text-[9px] text-slate-500">${item.total_arquivos_recebidos?.toLocaleString("pt-BR") || 0} arquivos</div>
-              </td>
-              <td class="py-2.5 px-2 text-center">
-                <span class="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-bold text-[10px] border border-cyan-800/50">${item.uf || "-"}</span>
-              </td>
-              <td class="py-2.5 px-3 text-right font-extrabold text-emerald-400">
-                +${(item.total_urnas_novas_gravadas || 0).toLocaleString("pt-BR")}
-              </td>
-              <td class="py-2.5 px-3 text-right text-amber-300/90">
-                ${(item.total_urnas_duplicadas_ignoradas || 0).toLocaleString("pt-BR")}
-              </td>
-              <td class="py-2.5 px-2 text-center">${errosBadge}</td>
-              <td class="py-2.5 px-3 text-center whitespace-nowrap">${statusBadge}</td>
-              <td class="py-2.5 px-2 text-right text-slate-400 text-[10px]">${item.duracao_segundos || 0}s</td>
-              <td class="py-2.5 px-3 text-center whitespace-nowrap">
-                <button
-                  onclick="inspecionarHistoricoUpload('${item.job_id}')"
-                  title="Ver detalhes completos deste upload"
-                  class="px-2 py-1 rounded bg-sky-950 hover:bg-sky-900 text-sky-300 border border-sky-800 text-[10px] font-bold transition mr-1"
-                >
-                  🔍 Detalhes
-                </button>
-                <button
-                  onclick="excluirItemHistoricoUpload(${item.id})"
-                  title="Remover este registro do histórico"
-                  class="px-1.5 py-1 rounded bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 text-[10px] transition"
-                >
-                  🗑️
-                </button>
-              </td>
-            </tr>
-          `;
-        }
-
-        html += `
-              </tbody>
-            </table>
-          </div>
-        `;
-        container.innerHTML = html;
+        renderizarTabelaHistorico(lista);
       } catch (err) {
-        container.innerHTML = `<div class="text-center py-10 text-rose-400 text-xs">Erro ao carregar histórico: ${err.message}</div>`;
+        console.warn("[HISTORICO] Erro ao atualizar lista:", err);
+        if (!window.historicoUploadsCache || window.historicoUploadsCache.length === 0) {
+          container.innerHTML = '<div class="text-center py-10 text-amber-400 text-xs">Não foi possível carregar o histórico no momento. Tente novamente em instantes.</div>';
+        }
       }
     }
 

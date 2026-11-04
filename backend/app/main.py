@@ -750,7 +750,7 @@ def api_auditar_logs_independente(payload: AuditoriaExternaLogsSchema, db: Sessi
 
 
 @app.post("/api/tse-reverso/upload")
-async def api_tse_reverso_upload(request: Request):
+async def api_tse_reverso_upload(request: Request, db: Session = Depends(get_db)):
     """
     Recebe o upload dos arquivos oficiais do TSE de uma ou mais seções eleitorais
     (`-log.jez`, `-imgbu.dat`, `-rdv.dat`, `-bu.dat`, `-vota.vsc`),
@@ -771,7 +771,7 @@ async def api_tse_reverso_upload(request: Request):
         raise HTTPException(status_code=400, detail="Nenhum arquivo válido encontrado no envio.")
 
     try:
-        lote_res = processar_lote_arquivos_tse(arquivos_dict)
+        lote_res = processar_lote_arquivos_tse(arquivos_dict, db=db)
         if lote_res.get("secoes_processadas_neste_lote") == 1 and lote_res.get("ultimo_relatorio_individual"):
             return lote_res["ultimo_relatorio_individual"]
         return consolidar_secoes_tse("TODAS", "TODAS", "CONSOLIDADO")
@@ -780,12 +780,12 @@ async def api_tse_reverso_upload(request: Request):
 
 
 @app.get("/api/tse-reverso/indice-ja-carregados")
-def api_tse_reverso_indice_ja_carregados():
+def api_tse_reverso_indice_ja_carregados(db: Session = Depends(get_db)):
     """
     Retorna a máscara de bits de todas as seções já carregadas no servidor
     para que o navegador pule 100% dos arquivos já processados em uploads anteriores.
     """
-    return obter_indice_secoes_carregadas()
+    return obter_indice_secoes_carregadas(db=db)
 
 
 @app.post("/api/tse-reverso/upload-lote")
@@ -809,7 +809,7 @@ async def api_tse_reverso_upload_lote(request: Request, db: Session = Depends(ge
             arquivos_dict[f.filename] = content
 
     try:
-        lote_res = processar_lote_arquivos_tse(arquivos_dict)
+        lote_res = processar_lote_arquivos_tse(arquivos_dict, db=db)
         if job_id:
             try:
                 uf_det = lote_res.get("ufs")[0] if lote_res.get("ufs") else None
@@ -1016,7 +1016,7 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
                         except Exception:
                             pass
                 if micro_lote_bytes:
-                    res = processar_lote_arquivos_tse(micro_lote_bytes)
+                    res = processar_lote_arquivos_tse(micro_lote_bytes, db=db_hist)
                     novas_secoes = res.get("secoes_processadas_neste_lote", 0)
                     total_secoes_gravadas += novas_secoes
                     micro_lote_bytes.clear()
