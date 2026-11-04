@@ -79,6 +79,18 @@ def on_startup():
     try:
         get_or_create_seccao(db)
         seed_default_candidates(db)
+        # Verificação e reparo automático de votos zerados em tse_votos_candidatos via catálogo
+        try:
+            from .database import TseVotoCandidato
+            from .tse_reverse_analyzer import ressincronizar_votos_catalogo_banco
+            votos_zerados = db.query(TseVotoCandidato).filter(TseVotoCandidato.quantidade_votos == 0).limit(5).all()
+            total_positivos = db.query(TseVotoCandidato).filter(TseVotoCandidato.quantidade_votos > 0).count()
+            if votos_zerados and total_positivos < 10:
+                print("[STARTUP] Votos zerados detectados em tse_votos_candidatos. Iniciando reparo automático via catálogo...")
+                rep_res = ressincronizar_votos_catalogo_banco(db=db)
+                print(f"[STARTUP] Resultado do reparo de votos: {rep_res}")
+        except Exception as e_rep:
+            print(f"[STARTUP] Aviso na verificação de votos do catálogo: {e_rep}")
     except Exception as exc:
         print(f"[STARTUP] Erro startup: {exc}")
     finally:
@@ -1225,6 +1237,16 @@ def api_tse_reverso_reauditar_divergentes():
     (`81 01 01` = Presidente vs 2º cargo/consulta popular), sem exigir novo upload.
     """
     return reauditar_urnas_divergentes_catalogo()
+
+
+@app.post("/api/tse-reverso/reparar-votos-zerados")
+def api_tse_reverso_reparar_votos_zerados():
+    """
+    Ressincroniza os votos por candidato do catálogo persistido no volume para o PostgreSQL.
+    Repara instantaneamente votos de candidatos que estejam zerados.
+    """
+    from .tse_reverse_analyzer import ressincronizar_votos_catalogo_banco
+    return ressincronizar_votos_catalogo_banco()
 
 
 @app.delete("/api/tse-reverso/catalogo")

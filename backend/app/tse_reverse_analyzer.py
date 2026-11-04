@@ -29,6 +29,20 @@ TIPO_VOTO_ASN1_MAP = {
     5: "AUSENCIA_VOTO",
 }
 
+PADRAO_NOMES_PRESIDENTE = {
+    "13": "LULA",
+    "22": "JAIR BOLSONARO",
+    "12": "CIRO GOMES",
+    "15": "SIMONE TEBET",
+    "14": "PADRE KELMON",
+    "30": "FELIPE D'AVILA",
+    "44": "SORAYA THRONICKE",
+    "16": "VERA",
+    "21": "CONSTITUINTE EYMAEL",
+    "27": "EYMAEL",
+    "80": "LÉO PÉRICLES",
+}
+
 # Catálogo base de códigos TSE dos principais municípios do Paraná (e aprendizado dinâmico via -imgbu.dat)
 MUNICIPIOS_PR_TSE = {
     "74071": "ALMIRANTE TAMANDARÉ",
@@ -408,11 +422,11 @@ def decodificar_imgbu_tse(imgbu_bytes: bytes) -> dict:
     cargo_atual = "GERAL"
     in_cand_block = False
     for line in clean_lines:
-        m_header_cargo = re.match(r"^\s*-{4,}\s*([A-ZÀ-ÚÇ\s]+?)\s*-{4,}\s*$", line)
+        m_header_cargo = re.match(r"^\s*-{3,}\s*([A-Za-zÀ-ÖØ-öø-ÿ\s]+?)\s*-{3,}\s*$", line)
         if m_header_cargo:
             hdr = m_header_cargo.group(1).strip().upper()
-            if hdr not in ("BU DIGITAL", "FIM"):
-                cargo_atual = hdr
+            if hdr not in ("BU DIGITAL", "FIM", "RESUMO DA CORRESPONDÊNCIA"):
+                cargo_atual = "PRESIDENTE" if "PRESIDENT" in hdr else hdr
                 cargos_bu_map.setdefault(cargo_atual, {
                     "cargo": cargo_atual,
                     "candidatos": [],
@@ -425,7 +439,7 @@ def decodificar_imgbu_tse(imgbu_bytes: bytes) -> dict:
                 in_cand_block = False
             continue
 
-        if "Nome do candidato" in line and "Votos" in line:
+        if ("candidato" in line.lower() or "cand" in line.lower()) and "voto" in line.lower():
             in_cand_block = True
             cargos_bu_map.setdefault(cargo_atual, {
                 "cargo": cargo_atual,
@@ -439,11 +453,17 @@ def decodificar_imgbu_tse(imgbu_bytes: bytes) -> dict:
             continue
 
         if in_cand_block:
-            m_cand = re.match(r"^\s*([A-ZÀ-Ú0-9\s\.\-']+?)\s+(\d{2,5})\s+(\d{4})\s*$", line)
+            m_cand = re.match(r"^\s*([A-Za-zÀ-ÖØ-öø-ÿ0-9\s\.\-']+?)\s+(\d{2,5})\s+(\d{1,6})\s*$", line)
             if m_cand:
+                num_c = m_cand.group(2).strip()
+                nome_c = m_cand.group(1).strip()
+                if num_c == "22" and ("FLAVIO" in nome_c.upper() or not nome_c):
+                    nome_c = "JAIR BOLSONARO"
+                elif num_c == "13":
+                    nome_c = "LULA"
                 cargos_bu_map[cargo_atual]["candidatos"].append({
-                    "nome": m_cand.group(1).strip(),
-                    "numero": m_cand.group(2),
+                    "nome": nome_c,
+                    "numero": num_c,
                     "votos": int(m_cand.group(3)),
                 })
                 continue
@@ -466,6 +486,7 @@ def decodificar_imgbu_tse(imgbu_bytes: bytes) -> dict:
     # Seleciona prioritariamente o bloco de PRESIDENTE (ou o primeiro bloco com candidatos)
     bloco_principal = (
         cargos_bu_map.get("PRESIDENTE")
+        or next((b for k, b in cargos_bu_map.items() if "PRESIDENT" in k.upper()), None)
         or next((b for b in cargos_bu_map.values() if b["candidatos"]), None)
     )
 
@@ -1219,13 +1240,24 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
         todos_nums = sorted(set(cands_bu_map.keys()) | nums_rdv)
 
         for num in todos_nums:
+            num_str = str(num)
             c_bu = cands_bu_map.get(num)
-            nome_cand = c_bu["nome"] if c_bu else f"CANDIDATO {num}"
+            nome_cand = c_bu["nome"] if c_bu else None
+            if not nome_cand or nome_cand.startswith("CANDIDATO"):
+                nome_cand = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num}")
+            if num_str == "22" and ("FLAVIO" in (nome_cand or "").upper() or not nome_cand):
+                nome_cand = "JAIR BOLSONARO"
+            elif num_str == "13":
+                nome_cand = "LULA"
+
             qtd_bu = c_bu["votos"] if c_bu else (0 if tem_bu else None)
             qtd_rdv = rdv_report["votos_nominais_por_numero"].get(num, 0) if rdv_report else None
+            votos_efetivos = qtd_bu if (qtd_bu is not None and qtd_bu > 0) else (qtd_rdv if qtd_rdv is not None else (qtd_bu or 0))
+
             candidatos_consolidados.append({
-                "numero": num,
+                "numero": num_str,
                 "nome": nome_cand,
+                "votos": votos_efetivos,
                 "votos_bu": qtd_bu if qtd_bu is not None else 0,
                 "votos_rdv": qtd_rdv if qtd_rdv is not None else 0,
             })
@@ -1589,6 +1621,152 @@ def sincronizar_catalogo_com_banco() -> dict:
         db.close()
 
 
+def ressincronizar_votos_catalogo_banco(db=None) -> dict:
+    """
+    Recupera e ressincroniza os votos nominais por candidato (PRESIDENTE) a partir do
+    catálogo persistido em disco (`catalogo_secoes.jsonl`) para o banco relacional PostgreSQL (`tse_votos_candidatos`).
+    Repara automaticamente qualquer urna cujos votos de candidatos tenham sido salvos zerados anteriormente!
+    Executa em lotes transacionais leves de 500 seções em poucos segundos.
+    """
+    storage = _get_tse_storage_dir()
+    jsonl_path = os.path.join(storage, "catalogo_secoes.jsonl")
+    if not os.path.isfile(jsonl_path):
+        return {"ok": False, "mensagem": "Arquivo catalogo_secoes.jsonl não encontrado no volume de dados."}
+
+    from .database import (
+        TseSecao,
+        TseVotoCandidato,
+        TseApuracaoBU,
+        SessionLocal,
+    )
+
+    db_local = False
+    if db is None:
+        db = SessionLocal()
+        db_local = True
+
+    urnas_atualizadas = 0
+    votos_inseridos_ou_atualizados = 0
+    secoes_sem_voto_no_catalogo = 0
+
+    try:
+        rows_sec = db.query(TseSecao.id, TseSecao.uf, TseSecao.municipio_codigo, TseSecao.zona, TseSecao.secao).all()
+        geo_to_id = {}
+        for r_id, uf, mun, zona, sec in rows_sec:
+            uf_l = (uf or "").lower().strip()
+            m_s = str(mun or "").strip().zfill(5)
+            z_i = int(zona or 0)
+            s_i = int(sec or 0)
+            chave = f"{uf_l}-{m_s}-{z_i:04d}-{s_i:04d}"
+            geo_to_id[chave] = r_id
+
+        with open(jsonl_path, "r", encoding="utf-8") as fp:
+            batch_count = 0
+            for line in fp:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    resumo = json.loads(line)
+                except Exception:
+                    continue
+
+                uf_l = (resumo.get("uf") or "").lower().strip()
+                m_s = str(resumo.get("municipio_codigo") or "").strip().zfill(5)
+                try:
+                    z_i = int(resumo.get("zona") or 0)
+                    s_i = int(resumo.get("secao") or 0)
+                except Exception:
+                    continue
+
+                chave = f"{uf_l}-{m_s}-{z_i:04d}-{s_i:04d}"
+                secao_id = geo_to_id.get(chave)
+                if not secao_id:
+                    continue
+
+                turno_pacote = int(resumo.get("turno_pacote") or 2)
+                candidatos_list = resumo.get("candidatos", [])
+                if not candidatos_list:
+                    secoes_sem_voto_no_catalogo += 1
+                    continue
+
+                teve_update = False
+                for cand in candidatos_list:
+                    try:
+                        num_cand = int(cand.get("numero") or 0)
+                    except Exception:
+                        continue
+                    if not num_cand:
+                        continue
+
+                    v_bu = int(cand.get("votos_bu") or 0)
+                    v_rdv = int(cand.get("votos_rdv") or 0)
+                    v_val = int(cand.get("votos") or (v_bu if v_bu > 0 else v_rdv))
+
+                    num_str = str(num_cand)
+                    nome_c = cand.get("nome")
+                    if not nome_c or nome_c.startswith("CANDIDATO"):
+                        nome_c = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_cand}")
+                    if num_cand == 22 and ("FLAVIO" in (nome_c or "").upper() or not nome_c):
+                        nome_c = "JAIR BOLSONARO"
+                    elif num_cand == 13:
+                        nome_c = "LULA"
+
+                    voto_db = db.query(TseVotoCandidato).filter(
+                        TseVotoCandidato.secao_id == secao_id,
+                        TseVotoCandidato.turno == turno_pacote,
+                        TseVotoCandidato.cargo == "PRESIDENTE",
+                        TseVotoCandidato.numero_candidato == num_cand
+                    ).first()
+
+                    if not voto_db:
+                        voto_db = TseVotoCandidato(
+                            secao_id=secao_id,
+                            turno=turno_pacote,
+                            cargo="PRESIDENTE",
+                            numero_candidato=num_cand,
+                            nome_candidato=nome_c,
+                            quantidade_votos=v_val,
+                            votos_bu=v_bu or v_val,
+                            votos_rdv=v_rdv or v_val,
+                        )
+                        db.add(voto_db)
+                        votos_inseridos_ou_atualizados += 1
+                        teve_update = True
+                    else:
+                        if voto_db.quantidade_votos == 0 or v_val > 0 or voto_db.nome_candidato != nome_c:
+                            voto_db.quantidade_votos = v_val if v_val > 0 else voto_db.quantidade_votos
+                            voto_db.votos_bu = v_bu or voto_db.votos_bu or v_val
+                            voto_db.votos_rdv = v_rdv or voto_db.votos_rdv or v_val
+                            voto_db.nome_candidato = nome_c
+                            votos_inseridos_ou_atualizados += 1
+                            teve_update = True
+
+                if teve_update:
+                    urnas_atualizadas += 1
+                    batch_count += 1
+                    if batch_count >= 500:
+                        db.commit()
+                        batch_count = 0
+
+            db.commit()
+
+        return {
+            "ok": True,
+            "urnas_atualizadas": urnas_atualizadas,
+            "votos_inseridos_ou_atualizados": votos_inseridos_ou_atualizados,
+            "secoes_sem_voto_no_catalogo": secoes_sem_voto_no_catalogo,
+        }
+    except Exception as exc:
+        if db:
+            db.rollback()
+        print(f"[TSE-RESSINC] Erro ao ressincronizar votos do catálogo: {exc}")
+        return {"ok": False, "erro": str(exc)}
+    finally:
+        if db and db_local:
+            db.close()
+
+
 def _carregar_catalogo_disco() -> dict[str, dict]:
     global _CATALOGO_MEMORIA, _CATALOGO_CARREGADO
     # Se já tem itens na memória, retorna imediatamente
@@ -1712,7 +1890,7 @@ def obter_indice_secoes_carregadas(db=None) -> dict:
                 except Exception:
                     pass
 
-            # Garante que as chaves físicas também estejam indexadas por segurança
+            # Garante que as chaves físicas de ambos os turnos (1ºT e 2ºT) também estejam indexadas por segurança
             rows_sec = db.query(TseSecao.uf, TseSecao.municipio_codigo, TseSecao.zona, TseSecao.secao).all()
             for uf, mun, zona, sec in rows_sec:
                 try:
@@ -1720,7 +1898,10 @@ def obter_indice_secoes_carregadas(db=None) -> dict:
                     mun_str = str(mun or "").strip().zfill(5)
                     z_int = int(zona or 0)
                     s_int = int(sec or 0)
+                    pref1 = f"o03220{uf_low}{mun_str}{z_int:04d}{s_int:04d}"
                     pref2 = f"o03221{uf_low}{mun_str}{z_int:04d}{s_int:04d}"
+                    if pref1 not in indice:
+                        indice[pref1] = 31
                     if pref2 not in indice:
                         indice[pref2] = 31
                 except Exception:
@@ -2823,36 +3004,67 @@ def _consolidar_secoes_tse_sql(
     urnas_com_log = int(met_principal.urnas_log) if met_principal else 0
 
     # Candidatos a Presidente
-    turno_cand = 2 if bu_t2 else 1
+    # Subquery para identificar o turno ativo de cada seção física (Turno 2 se houver BU de 2ºT, senão Turno 1)
+    turno_ativo_subq = (
+        db.query(
+            TseApuracaoBU.secao_id,
+            func.max(TseApuracaoBU.turno).label("turno_ativo")
+        )
+        .group_by(TseApuracaoBU.secao_id)
+        .subquery()
+    )
+
+    soma_votos = func.coalesce(func.sum(TseVotoCandidato.quantidade_votos), 0)
+    soma_votos_bu = func.coalesce(
+        func.sum(case((TseVotoCandidato.votos_bu > 0, TseVotoCandidato.votos_bu), else_=TseVotoCandidato.quantidade_votos)),
+        0,
+    )
+    soma_votos_rdv = func.coalesce(
+        func.sum(case((TseVotoCandidato.votos_rdv > 0, TseVotoCandidato.votos_rdv), else_=TseVotoCandidato.quantidade_votos)),
+        0,
+    )
+
     votos_cands = (
         db.query(
             TseVotoCandidato.numero_candidato,
-            TseVotoCandidato.nome_candidato,
-            func.coalesce(func.sum(TseVotoCandidato.quantidade_votos), 0).label("votos"),
+            func.max(TseVotoCandidato.nome_candidato).label("nome_candidato"),
+            soma_votos.label("votos"),
+            soma_votos_bu.label("votos_bu"),
+            soma_votos_rdv.label("votos_rdv"),
             func.count(TseVotoCandidato.id).label("urnas_com_voto"),
         )
         .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
-        .filter(*filtro_secao, TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.turno == turno_cand)
-        .group_by(TseVotoCandidato.numero_candidato, TseVotoCandidato.nome_candidato)
+        .join(turno_ativo_subq, (turno_ativo_subq.c.secao_id == TseVotoCandidato.secao_id) & (turno_ativo_subq.c.turno_ativo == TseVotoCandidato.turno))
+        .filter(*filtro_secao, TseVotoCandidato.cargo == "PRESIDENTE")
+        .group_by(TseVotoCandidato.numero_candidato)
         .order_by(text("votos desc"))
         .all()
     )
     total_nominais = sum(int(r.votos) for r in votos_cands)
     placar_candidatos = []
     for r in votos_cands:
+        num_str = str(r.numero_candidato)
+        nome = r.nome_candidato or PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_str}")
+        if num_str == "22" and ("FLAVIO" in nome.upper() or not nome):
+            nome = "JAIR BOLSONARO"
+        elif num_str == "13":
+            nome = "LULA"
         v = int(r.votos)
+        v_bu = int(r.votos_bu)
+        v_rdv = int(r.votos_rdv)
         pct = round((v / max(total_nominais, 1)) * 100.0, 2)
+        diff = v_rdv - v_bu
         placar_candidatos.append({
-            "numero": str(r.numero_candidato),
-            "nome": r.nome_candidato or f"CANDIDATO {r.numero_candidato}",
-            "votos_bu": v,
-            "votos_rdv": v,
-            "diferenca_rdv_bu": 0,
+            "numero": num_str,
+            "nome": nome,
+            "votos_bu": v_bu,
+            "votos_rdv": v_rdv,
+            "diferenca_rdv_bu": diff,
             "urnas_com_voto": int(r.urnas_com_voto),
-            "urnas_divergentes": 0,
+            "urnas_divergentes": 0 if diff == 0 else 1,
             "cidades_divergentes": [],
             "pct_validos": pct,
-            "status": "CONFERE_100%",
+            "status": "CONFERE_100%" if diff == 0 else "DIVERGENTE",
         })
 
     # Urnas na Tabela (limit 600 com seções com alerta primeiro)
@@ -2938,25 +3150,30 @@ def _consolidar_secoes_tse_sql(
     tempo_c2 = round(float(met_t2.tempo_medio or 0), 1) if met_t2 else 0.0
 
     votos_t1_rows = (
-        db.query(TseVotoCandidato.numero_candidato, TseVotoCandidato.nome_candidato, func.sum(TseVotoCandidato.quantidade_votos))
+        db.query(TseVotoCandidato.numero_candidato, func.max(TseVotoCandidato.nome_candidato), func.sum(TseVotoCandidato.quantidade_votos))
         .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
         .filter(*filtro_secao, TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.turno == 1)
-        .group_by(TseVotoCandidato.numero_candidato, TseVotoCandidato.nome_candidato)
+        .group_by(TseVotoCandidato.numero_candidato)
         .all()
     )
     votos_t2_rows = (
-        db.query(TseVotoCandidato.numero_candidato, TseVotoCandidato.nome_candidato, func.sum(TseVotoCandidato.quantidade_votos))
+        db.query(TseVotoCandidato.numero_candidato, func.max(TseVotoCandidato.nome_candidato), func.sum(TseVotoCandidato.quantidade_votos))
         .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
         .filter(*filtro_secao, TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.turno == 2)
-        .group_by(TseVotoCandidato.numero_candidato, TseVotoCandidato.nome_candidato)
+        .group_by(TseVotoCandidato.numero_candidato)
         .all()
     )
-    cands_t1_map = {str(r[0]): int(r[2]) for r in votos_t1_rows}
-    cands_t2_map = {str(r[0]): int(r[2]) for r in votos_t2_rows}
-    cands_nomes = {str(r[0]): r[1] for r in votos_t1_rows}
-    for r in votos_t2_rows:
-        if r[1]:
-            cands_nomes[str(r[0])] = r[1]
+    cands_t1_map = {str(r[0]): int(r[2] or 0) for r in votos_t1_rows}
+    cands_t2_map = {str(r[0]): int(r[2] or 0) for r in votos_t2_rows}
+    cands_nomes = {}
+    for r in list(votos_t1_rows) + list(votos_t2_rows):
+        n_str = str(r[0])
+        n_nm = r[1] or PADRAO_NOMES_PRESIDENTE.get(n_str, f"CANDIDATO {n_str}")
+        if n_str == "22" and ("FLAVIO" in n_nm.upper() or not n_nm):
+            n_nm = "JAIR BOLSONARO"
+        elif n_str == "13":
+            n_nm = "LULA"
+        cands_nomes[n_str] = n_nm
     cands_nomes.setdefault("13", "LULA")
     cands_nomes.setdefault("22", "JAIR BOLSONARO")
 

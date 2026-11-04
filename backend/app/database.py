@@ -202,6 +202,8 @@ class TseVotoCandidato(Base):
     numero_candidato = Column(Integer, index=True, nullable=False)  # Ex: 13, 22
     nome_candidato = Column(String(60), nullable=True)
     quantidade_votos = Column(Integer, default=0, nullable=False)
+    votos_bu = Column(Integer, default=0, nullable=False)
+    votos_rdv = Column(Integer, default=0, nullable=False)
 
     secao_rel = relationship("TseSecao", back_populates="votos_candidatos")
 
@@ -307,6 +309,21 @@ ESTADOS_E_REGIOES_BR = {
 }
 
 
+PADRAO_NOMES_PRESIDENTE = {
+    "13": "LULA",
+    "22": "JAIR BOLSONARO",
+    "12": "CIRO GOMES",
+    "15": "SIMONE TEBET",
+    "14": "PADRE KELMON",
+    "30": "FELIPE D'AVILA",
+    "44": "SORAYA THRONICKE",
+    "16": "VERA",
+    "21": "CONSTITUINTE EYMAEL",
+    "27": "EYMAEL",
+    "80": "LÉO PÉRICLES",
+}
+
+
 def obter_regiao_uf(uf: str) -> str:
     sigla = (uf or "").upper().strip()
     return ESTADOS_E_REGIOES_BR.get(sigla, {}).get("regiao", "EXTERIOR" if sigla == "ZZ" else "OUTRO")
@@ -394,6 +411,20 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
                 continue
             if not num_cand:
                 continue
+
+            votos_val = int(cand.get("votos") or cand.get("votos_bu") or cand.get("votos_rdv") or 0)
+            v_bu = int(cand.get("votos_bu") or (cand.get("votos") if cand.get("votos_bu") is None else 0) or 0)
+            v_rdv = int(cand.get("votos_rdv") or (cand.get("votos") if cand.get("votos_rdv") is None else 0) or 0)
+
+            nome_cand = cand.get("nome")
+            num_str = str(num_cand)
+            if not nome_cand or nome_cand.startswith("CANDIDATO"):
+                nome_cand = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_cand}")
+            if num_cand == 22 and ("FLAVIO" in (nome_cand or "").upper() or not nome_cand):
+                nome_cand = "JAIR BOLSONARO"
+            elif num_cand == 13:
+                nome_cand = "LULA"
+
             voto_db = db.query(TseVotoCandidato).filter(
                 TseVotoCandidato.secao_id == secao_db.id,
                 TseVotoCandidato.turno == turno_pacote,
@@ -406,14 +437,19 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
                     turno=turno_pacote,
                     cargo="PRESIDENTE",
                     numero_candidato=num_cand,
-                    nome_candidato=cand.get("nome"),
-                    quantidade_votos=int(cand.get("votos") or 0),
+                    nome_candidato=nome_cand,
+                    quantidade_votos=votos_val,
+                    votos_bu=v_bu or votos_val,
+                    votos_rdv=v_rdv or votos_val,
                 )
                 db.add(voto_db)
             else:
-                voto_db.quantidade_votos = int(cand.get("votos") or voto_db.quantidade_votos)
-                if cand.get("nome"):
-                    voto_db.nome_candidato = cand.get("nome")
+                if votos_val > 0 or voto_db.quantidade_votos == 0:
+                    voto_db.quantidade_votos = votos_val if votos_val > 0 else voto_db.quantidade_votos
+                voto_db.votos_bu = v_bu or voto_db.votos_bu or votos_val
+                voto_db.votos_rdv = v_rdv or voto_db.votos_rdv or votos_val
+                if nome_cand:
+                    voto_db.nome_candidato = nome_cand
 
     # 4. Upsert Métricas do Log (Turno Principal do Pacote)
     teclas_pres_t2 = int(resumo.get("total_teclas_indevidas_presidente_t2") or resumo.get("total_teclas_indevidas_presidente") or 0)
@@ -872,6 +908,14 @@ def init_db():
             pass
         try:
             conn.execute(text("ALTER TABLE seccao_config ADD COLUMN eleitor_habilitado_titulo VARCHAR(20)"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE tse_votos_candidatos ADD COLUMN votos_bu INTEGER DEFAULT 0"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE tse_votos_candidatos ADD COLUMN votos_rdv INTEGER DEFAULT 0"))
         except Exception:
             pass
 

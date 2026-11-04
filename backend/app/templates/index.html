@@ -1191,13 +1191,23 @@ o Boletim de Urna (apos encerramento da votacao).
           <!-- Barra de Rastreamento Forense de Divergências / 2º Cargo / Consulta Popular -->
           <div id="tseFiltroForenseBar" class="flex flex-wrap items-center justify-between gap-2 pt-1 pb-2 border-b border-slate-800 text-xs mono">
             <div id="tseFiltroForenseButtons" class="flex flex-wrap items-center gap-1.5"></div>
-            <button
-              onclick="reauditarUrnasDivergentesNoServidor()"
-              title="Reprocessa no servidor as urnas com divergência separando o container ASN.1 do 1º Cargo (Presidente) de eventuais 2ºs Cargos Municipais / Consultas Populares (1, 2, 55)"
-              class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] transition shrink-0"
-            >
-              🔄 Isolar 1º Cargo (Presidente) de 2º Cargo/Consulta nas Urnas Divergentes
-            </button>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                id="btnRepararVotosTse"
+                onclick="repararVotosZeradosTse()"
+                title="Sincroniza os votos nominais por candidato a partir do catálogo persistido no volume para o banco de dados PostgreSQL"
+                class="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[11px] transition shrink-0 shadow"
+              >
+                ⚡ Sincronizar Votos do Catálogo
+              </button>
+              <button
+                onclick="reauditarUrnasDivergentesNoServidor()"
+                title="Reprocessa no servidor as urnas com divergência separando o container ASN.1 do 1º Cargo (Presidente) de eventuais 2ºs Cargos Municipais / Consultas Populares (1, 2, 55)"
+                class="px-3 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] transition shrink-0"
+              >
+                🔄 Isolar 1º Cargo nas Urnas Divergentes
+              </button>
+            </div>
           </div>
 
           <div id="tsePlacarCandidatosGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"></div>
@@ -3809,6 +3819,38 @@ o Boletim de Urna (apos encerramento da votacao).
       await atualizarConsolidacaoTse(true);
     }
 
+    async function repararVotosZeradosTse() {
+      const btn = document.getElementById("btnRepararVotosTse");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "⏳ Sincronizando votos do catálogo...";
+      }
+      showSecurityAlert("Sincronizando votos de candidatos do catálogo persistido no volume...", false);
+      try {
+        const res = await fetch("/api/tse-reverso/reparar-votos-zerados", { method: "POST" });
+        const data = await res.json();
+        hideSecurityAlert();
+        if (data.ok) {
+          playBeepBiometriaOk();
+          showSecurityAlert(
+            `✅ Sincronização concluída! ${data.urnas_atualizadas || 0} urnas e ${data.votos_inseridos_ou_atualizados || 0} votos nominais atualizados no banco.`,
+            false
+          );
+          await carregarArvoreTseSql();
+        } else {
+          showSecurityAlert(`Aviso: ${data.erro || data.mensagem || 'Não foi possível sincronizar automaticamente.'}`, true);
+        }
+      } catch (err) {
+        hideSecurityAlert();
+        showSecurityAlert("Erro ao conectar com servidor para sincronizar votos: " + err.message, true);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = "⚡ Sincronizar Votos do Catálogo";
+        }
+      }
+    }
+
     async function reauditarUrnasDivergentesNoServidor() {
       showSecurityAlert("Reprocessando urnas com divergência no servidor para separar o container ASN.1 do 1º Cargo (Presidente) de 2ºs Cargos / Consultas Populares...", false);
       try {
@@ -4381,8 +4423,24 @@ o Boletim de Urna (apos encerramento da votacao).
         ffBarEl.innerHTML = pills.join("");
       }
 
+      const todosZerados = (cons.placar_candidatos || []).length > 0 &&
+        cons.comparecimento_total > 0 &&
+        (cons.placar_candidatos || []).every(c => (c.votos_bu || 0) === 0 && (c.votos_rdv || 0) === 0);
+
+      const bannerAvisoZerado = todosZerados
+        ? `<div class="col-span-full bg-amber-950/80 border border-amber-600/80 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-200 mb-2">
+             <div class="flex items-center gap-2">
+               <span class="text-base">⚠️</span>
+               <span>Totalizadores com votos zerados detectados nas urnas do banco. Clique ao lado para restaurar e sincronizar os votos a partir do catálogo:</span>
+             </div>
+             <button onclick="repararVotosZeradosTse()" class="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold transition shadow">
+               ⚡ Sincronizar Votos do Catálogo Agora
+             </button>
+           </div>`
+        : "";
+
       const gridCands = document.getElementById("tsePlacarCandidatosGrid");
-      gridCands.innerHTML = (cons.placar_candidatos || []).map(c => {
+      gridCands.innerHTML = bannerAvisoZerado + (cons.placar_candidatos || []).map(c => {
         const diff = (c.votos_rdv || 0) - (c.votos_bu || 0);
         const diffStr = diff === 0 ? "0" : (diff > 0 ? `+${diff.toLocaleString("pt-BR")} no RDV` : `${diff.toLocaleString("pt-BR")} no RDV`);
         const cidadesDiv = c.cidades_divergentes || [];
