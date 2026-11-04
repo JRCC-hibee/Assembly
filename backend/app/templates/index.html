@@ -134,6 +134,7 @@
           <div class="flex items-center gap-2">
             <h1 id="moduloMainTitle" class="font-bold text-lg leading-tight text-white">Sistema Eleitoral — Urna Eletrônica Brasileira</h1>
             <span id="moduloIndicatorBadge" class="text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase mono bg-emerald-950 text-emerald-300 border border-emerald-700">Módulo Simulador</span>
+            <span id="systemVersionBadge" class="text-[10px] font-extrabold px-2 py-0.5 rounded-full mono bg-indigo-950 text-indigo-300 border border-indigo-700 shadow-sm" title="Versão do Sistema em Produção">{{ versao_sistema|default('v2.5.0') }}</span>
           </div>
           <p id="moduloSubtitle" class="text-xs text-slate-400 mono">ESP32-C3/C6 RISC-V Assembly (ILI9341 SPI) + Terminal do Mesário Biométrico</p>
         </div>
@@ -178,6 +179,8 @@
         <span>BANCO: <strong class="text-white">PostgreSQL (Zero-Disk Raw)</strong></span>
         <span>•</span>
         <span>BASE: <strong id="headerAuditoriaCount" class="text-emerald-400">0 URNAS</strong></span>
+        <span>•</span>
+        <span id="headerAuditoriaVersionBadge" class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700 font-bold">{{ versao_sistema|default('v2.5.0') }}</span>
       </div>
     </div>
   </header>
@@ -1744,9 +1747,14 @@ o Boletim de Urna (apos encerramento da votacao).
               🚀
             </div>
             <div>
-              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
-                TRANSMISSÃO EM MICRO-LOTES TSE
-              </span>
+              <div class="flex items-center gap-1.5">
+                <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
+                  TRANSMISSÃO EM MICRO-LOTES TSE
+                </span>
+                <span class="px-1.5 py-0.5 text-[10px] font-extrabold rounded bg-indigo-950 text-indigo-300 border border-indigo-700 mono" id="modalSystemVersionBadge">
+                  {{ versao_sistema|default('v2.5.0') }}
+                </span>
+              </div>
               <h3 id="tseModalProgressTitle" class="text-base font-extrabold text-white mt-0.5">
                 Ingestão de Dados Eleitorais
               </h3>
@@ -3273,7 +3281,7 @@ o Boletim de Urna (apos encerramento da votacao).
         return;
       }
 
-      // 2. Consulta IMEDIATAMENTE o índice do PostgreSQL para saber com precisão quantas seções já existem
+      // 2. Consulta IMEDIATAMENTE o PostgreSQL para identificar com precisão cirúrgica quais seções já existem
       atualizarProgressoUploadTse(
         12,
         `⚡ Consultando banco PostgreSQL para identificar seções já gravadas... (${totalUrnasSelecionadas.toLocaleString("pt-BR")} urnas detectadas)`,
@@ -3283,16 +3291,35 @@ o Boletim de Urna (apos encerramento da votacao).
         totalUrnasSelecionadas
       );
 
+      let setUrnasSalvas = new Set();
       let indiceMascaras = {};
+
+      // 2.1 Verificação direta e atômica dos prefixos selecionados contra o PostgreSQL
+      try {
+        const resVerif = await fetch("/api/tse-reverso/verificar-urnas-existentes", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prefixos: todosPrefixosSelecionados })
+        });
+        if (resVerif.ok) {
+          const dataVerif = await resVerif.json();
+          (dataVerif.urnas_ja_salvas || []).forEach(p => setUrnasSalvas.add(p));
+          console.log(`[TSE] Verificação direta do banco: ${setUrnasSalvas.size} urnas já gravadas.`);
+        }
+      } catch (eVerif) {
+        console.warn("[TSE] Erro na verificação direta de urnas:", eVerif);
+      }
+
+      // 2.2 Complementa com o mapa de máscaras de arquivos
       try {
         const ctrlIdx = new AbortController();
-        const tId = setTimeout(() => ctrlIdx.abort(), 15000);
+        const tId = setTimeout(() => ctrlIdx.abort(), 10000);
         const resIdx = await fetch("/api/tse-reverso/indice-ja-carregados", { signal: ctrlIdx.signal });
         clearTimeout(tId);
         if (resIdx.ok) {
           const dataIdx = await resIdx.json();
           indiceMascaras = dataIdx.indice_mascaras || {};
-          console.log(`[TSE] Índice carregado com ${Object.keys(indiceMascaras).length} seções cadastradas.`);
+          console.log(`[TSE] Índice carregado com ${Object.keys(indiceMascaras).length} chaves indexadas.`);
         }
       } catch (e) {
         console.warn("[TSE] Falha ao consultar índice de urnas salvas:", e);
@@ -3308,6 +3335,16 @@ o Boletim de Urna (apos encerramento da votacao).
       let arquivosPuladosJaExistentes = 0;
 
       for (const pref of todosPrefixosSelecionados) {
+        const arqsDaSecao = gruposPorPrefixo.get(pref) || [];
+
+        // SEÇÃO JÁ GRAVADA NO POSTGRESQL (detectada pela verificação direta):
+        // Pula IMEDIATAMENTE 100% da urna sem enviar arquivos redundantes!
+        if (setUrnasSalvas.has(pref)) {
+          urnasPuladasJaExistentes++;
+          arquivosPuladosJaExistentes += arqsDaSecao.length;
+          continue;
+        }
+
         const geoKey = pref.length >= 15 ? pref.slice(-15) : pref;
         const eh1T = pref.includes("00406") || pref.includes("03220") || pref.includes("1t") || pref.includes("_1_");
         const eh2T = pref.includes("00407") || pref.includes("03221") || pref.includes("2t") || pref.includes("_2_");
@@ -3324,10 +3361,7 @@ o Boletim de Urna (apos encerramento da votacao).
           }
         }
 
-        const arqsDaSecao = gruposPorPrefixo.get(pref) || [];
-
-        // Se a seção já está gravada no banco de dados (BU/RDV/Votos já persistidos no PostgreSQL):
-        // Pula IMEDIATAMENTE 100% da urna sem retransmitir arquivos redundantes!
+        // Seção detectada pela máscara do banco de dados (BU/RDV/Votos já persistidos no PostgreSQL):
         if (mask === 31 || (mask & 8) !== 0 || (mask & 3) === 3) {
           urnasPuladasJaExistentes++;
           arquivosPuladosJaExistentes += arqsDaSecao.length;
@@ -3509,14 +3543,15 @@ o Boletim de Urna (apos encerramento da votacao).
 
           if (arquivosNaFatia > 0) {
             const pctAtual = Math.round(15 + ((urnasEnviadas / totalFaltantes) * 84));
+            const fimLote = Math.min(urnasEnviadas + fatiaPrefixos.length, totalFaltantes);
             const msgStatus = urnasPuladasJaExistentes > 0
-              ? `Enviando urnas ${urnasEnviadas + 1} a ${Math.min(urnasEnviadas + fatiaPrefixos.length, totalFaltantes)} de ${totalFaltantes.toLocaleString("pt-BR")} (${urnasPuladasJaExistentes.toLocaleString("pt-BR")} já salvas ignoradas)...`
-              : `Enviando urnas ${urnasEnviadas + 1} a ${Math.min(urnasEnviadas + fatiaPrefixos.length, totalFaltantes)} de ${totalFaltantes.toLocaleString("pt-BR")}...`;
+              ? `Transmitindo urnas ${urnasEnviadas + 1} a ${fimLote.toLocaleString("pt-BR")} de ${totalFaltantes.toLocaleString("pt-BR")} (${urnasPuladasJaExistentes.toLocaleString("pt-BR")} já salvas ignoradas)...`
+              : `Transmitindo urnas ${urnasEnviadas + 1} a ${fimLote.toLocaleString("pt-BR")} de ${totalFaltantes.toLocaleString("pt-BR")}...`;
 
             atualizarProgressoUploadTse(
               pctAtual,
               msgStatus,
-              `${urnasEnviadas + fatiaPrefixos.length} de ${totalFaltantes}`,
+              `${fimLote.toLocaleString("pt-BR")} de ${totalFaltantes.toLocaleString("pt-BR")}`,
               urnasEnviadas + fatiaPrefixos.length,
               urnasPuladasJaExistentes,
               totalUrnasSelecionadas
@@ -6473,8 +6508,30 @@ o Boletim de Urna (apos encerramento da votacao).
       else if (e.key === "Backspace") pressCorrige();
     });
 
+    async function checarVersaoProducao() {
+      try {
+        const r = await fetch("/api/versao");
+        if (r.ok) {
+          const d = await r.json();
+          const vTxt = `v${d.versao}`;
+          const bTxt = `Build: ${d.build} (${d.commit})`;
+          const b1 = document.getElementById("systemVersionBadge");
+          if (b1) b1.textContent = vTxt;
+          const b2 = document.getElementById("headerAuditoriaVersionBadge");
+          if (b2) b2.textContent = vTxt;
+          const b3 = document.getElementById("modalSystemVersionBadge");
+          if (b3) b3.textContent = vTxt;
+          const b4 = document.getElementById("footerVersionBadge");
+          if (b4) b4.textContent = `Versão: ${vTxt}`;
+          const b5 = document.getElementById("footerBuildBadge");
+          if (b5) b5.textContent = bTxt;
+        }
+      } catch (e) {}
+    }
+
     fetchStatusAndCandidates();
     atualizarBadgeHistoricoUploads();
+    checarVersaoProducao();
     try {
       const modSalvo = localStorage.getItem("urna_modulo_ativo") || "simulador";
       ativarModulo(modSalvo);
@@ -6482,5 +6539,22 @@ o Boletim de Urna (apos encerramento da votacao).
       ativarModulo("simulador");
     }
   </script>
+
+  <!-- Rodapé Institucional com Identificação Explícita de Versão e Build -->
+  <footer class="mt-12 py-4 border-t border-slate-800 text-center text-xs text-slate-500 mono bg-slate-950/80">
+    <div class="max-w-7xl mx-auto px-4 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="text-slate-300 font-bold">Sistema de Auditoria & Emulação de Urna Eletrônica</span>
+        <span class="text-slate-600">|</span>
+        <span class="text-slate-400">PostgreSQL (Zero-Disk Raw)</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="px-2.5 py-1 rounded bg-slate-900 border border-slate-700 text-cyan-300 font-extrabold" id="footerVersionBadge">Versão: {{ versao_sistema|default('v2.5.0') }}</span>
+        <span class="text-slate-600">•</span>
+        <span class="text-slate-400" id="footerBuildBadge">Build: {{ build_info|default('2026-11-04-rev2') }} ({{ commit_hash|default('692f0e3') }})</span>
+      </div>
+    </div>
+  </footer>
 </body>
 </html>

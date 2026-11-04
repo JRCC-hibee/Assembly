@@ -951,4 +951,12 @@ def init_db():
             conn.execute(text("ALTER TABLE tse_votos_candidatos ADD COLUMN votos_rdv INTEGER DEFAULT 0"))
         except Exception:
             pass
+        try:
+            conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN pleito VARCHAR(10)"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS pleito VARCHAR(10)"))
+        except Exception:
+            pass
 

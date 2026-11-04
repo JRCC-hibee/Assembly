@@ -48,6 +48,7 @@ from .tse_reverse_analyzer import (
     consolidar_secoes_tse,
     obter_secao_individual_tse,
     obter_indice_secoes_carregadas,
+    verificar_urnas_existentes_no_banco,
     reauditar_urnas_divergentes_catalogo,
     limpar_catalogo_tse,
     extrair_prefixo_seccao,
@@ -55,9 +56,13 @@ from .tse_reverse_analyzer import (
     _CATALOGO_MEMORIA,
 )
 
+SYSTEM_VERSION = "2.5.0"
+SYSTEM_BUILD = "2026-11-04-rev2"
+SYSTEM_COMMIT = "692f0e3"
+
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
-    version="1.1.0",
+    version=SYSTEM_VERSION,
     description="Motor Eleitoral de 1º e 2º Turnos, Terminal do Mesário com Biometria, Zerésima, Boletim de Urna, Cartucho RDV Assinado e Interface ESP32 RISC-V.",
 )
 
@@ -179,7 +184,29 @@ class AuditoriaExternaLogsSchema(BaseModel):
 # ==============================================================================
 @app.get("/", response_class=HTMLResponse)
 def index_page(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    response = templates.TemplateResponse("index.html", {
+        "request": request,
+        "versao_sistema": SYSTEM_VERSION,
+        "build_info": SYSTEM_BUILD,
+        "commit_hash": SYSTEM_COMMIT,
+    })
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
+
+
+@app.get("/api/versao")
+@app.get("/api/version")
+def api_get_versao():
+    """Retorna a versão e build do sistema para garantia visual de release."""
+    return {
+        "versao": SYSTEM_VERSION,
+        "build": SYSTEM_BUILD,
+        "commit": SYSTEM_COMMIT,
+        "banco": "PostgreSQL (Zero-Disk Raw)",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 @app.get("/api/status")
@@ -798,7 +825,26 @@ def api_tse_reverso_indice_ja_carregados(db: Session = Depends(get_db)):
     Retorna a máscara de bits de todas as seções já carregadas no servidor
     para que o navegador pule 100% dos arquivos já processados em uploads anteriores.
     """
-    return obter_indice_secoes_carregadas(db=db)
+    res = obter_indice_secoes_carregadas(db=db)
+    res["versao_sistema"] = SYSTEM_VERSION
+    res["build"] = SYSTEM_BUILD
+    return res
+
+
+@app.post("/api/tse-reverso/verificar-urnas-existentes")
+async def api_tse_reverso_verificar_urnas_existentes(request: Request, db: Session = Depends(get_db)):
+    """
+    Verificação direta e atômica de quais seções selecionadas pelo usuário já constam gravadas
+    no PostgreSQL, permitindo pular 100% delas instantaneamente no navegador.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    prefixos = body.get("prefixos", [])
+    res = verificar_urnas_existentes_no_banco(prefixos, db=db)
+    res["versao_sistema"] = SYSTEM_VERSION
+    return res
 
 
 @app.post("/api/tse-reverso/upload-lote")
