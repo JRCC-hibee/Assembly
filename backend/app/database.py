@@ -344,7 +344,7 @@ ESTADOS_E_REGIOES_BR = {
 
 PADRAO_NOMES_PRESIDENTE = {
     "13": "LULA",
-    "22": "JAIR BOLSONARO",
+    "22": "FLÁVIO BOLSONARO",
     "12": "CIRO GOMES",
     "15": "SIMONE TEBET",
     "14": "PADRE KELMON",
@@ -465,10 +465,10 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
                 nome_cand = cand.get("nome")
                 num_str = str(num_cand)
                 if cargo_nome == "PRESIDENTE":
-                    if not nome_cand or nome_cand.startswith("CANDIDATO"):
+                    if not nome_cand or nome_cand.startswith("CANDIDATO") or "JAIR" in (nome_cand or "").upper():
                         nome_cand = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_cand}")
-                    if num_cand == 22 and ("FLAVIO" in (nome_cand or "").upper() or not nome_cand):
-                        nome_cand = "JAIR BOLSONARO"
+                    elif num_cand == 22:
+                        nome_cand = "FLÁVIO BOLSONARO"
                     elif num_cand == 13:
                         nome_cand = "LULA"
 
@@ -515,10 +515,10 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
 
             nome_cand = cand.get("nome")
             num_str = str(num_cand)
-            if not nome_cand or nome_cand.startswith("CANDIDATO"):
+            if not nome_cand or nome_cand.startswith("CANDIDATO") or "JAIR" in (nome_cand or "").upper():
                 nome_cand = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_cand}")
-            if num_cand == 22 and ("FLAVIO" in (nome_cand or "").upper() or not nome_cand):
-                nome_cand = "JAIR BOLSONARO"
+            elif num_cand == 22:
+                nome_cand = "FLÁVIO BOLSONARO"
             elif num_cand == 13:
                 nome_cand = "LULA"
 

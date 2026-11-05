@@ -62,8 +62,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-04-rev10"
-SYSTEM_COMMIT = "rev10-bobina-completa-2t"
+SYSTEM_BUILD = "2026-11-04-rev11"
+SYSTEM_COMMIT = "rev11-fidelidade-flavio-bolsonaro-22"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -90,6 +90,16 @@ def on_startup():
     try:
         get_or_create_seccao(db)
         seed_default_candidates(db)
+        # Fidelidade cadastral e retroativa: Candidato 22 é FLÁVIO BOLSONARO na eleição de 2026
+        try:
+            from sqlalchemy import text
+            db.execute(text("UPDATE tse_votos_candidatos SET nome_candidato = 'FLÁVIO BOLSONARO' WHERE numero_candidato = 22 AND (cargo = 'PRESIDENTE' OR cargo IS NULL)"))
+            db.execute(text("UPDATE tse_dossie_secao SET espelho_bobina = REPLACE(REPLACE(espelho_bobina, 'JAIR BOLSONARO', 'FLÁVIO BOLSONARO'), 'FLAVIO BOLSONARO', 'FLÁVIO BOLSONARO') WHERE espelho_bobina LIKE '%BOLSONARO%'"))
+            db.commit()
+            print("[STARTUP] Fidelidade restaurada com sucesso: Candidato 22 normalizado para FLÁVIO BOLSONARO.")
+        except Exception as e_fid:
+            db.rollback()
+            print(f"[STARTUP] Aviso na restauração de fidelidade do candidato 22: {e_fid}")
         # Verificação e reparo automático de votos zerados em tse_votos_candidatos via catálogo
         try:
             from .database import TseVotoCandidato

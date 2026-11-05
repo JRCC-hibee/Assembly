@@ -33,7 +33,7 @@ TIPO_VOTO_ASN1_MAP = {
 
 PADRAO_NOMES_PRESIDENTE = {
     "13": "LULA",
-    "22": "JAIR BOLSONARO",
+    "22": "FLÁVIO BOLSONARO",
     "12": "CIRO GOMES",
     "15": "SIMONE TEBET",
     "14": "PADRE KELMON",
@@ -474,8 +474,8 @@ def decodificar_espelho_bu_txt(espelho_bu_raw: str, imgbu_bytes: bytes = None) -
             if m_cand:
                 num_c = m_cand.group(2).strip()
                 nome_c = m_cand.group(1).strip()
-                if num_c == "22" and ("FLAVIO" in nome_c.upper() or not nome_c):
-                    nome_c = "JAIR BOLSONARO"
+                if num_c == "22":
+                    nome_c = "FLÁVIO BOLSONARO"
                 elif num_c == "13":
                     nome_c = "LULA"
                 cargos_bu_map[cargo_atual]["candidatos"].append({
@@ -1284,10 +1284,10 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
             num_str = str(num)
             c_bu = cands_bu_map.get(num)
             nome_cand = c_bu["nome"] if c_bu else None
-            if not nome_cand or nome_cand.startswith("CANDIDATO"):
+            if not nome_cand or nome_cand.startswith("CANDIDATO") or "JAIR" in (nome_cand or "").upper():
                 nome_cand = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num}")
-            if num_str == "22" and ("FLAVIO" in (nome_cand or "").upper() or not nome_cand):
-                nome_cand = "JAIR BOLSONARO"
+            elif num_str == "22":
+                nome_cand = "FLÁVIO BOLSONARO"
             elif num_str == "13":
                 nome_cand = "LULA"
 
@@ -1751,10 +1751,10 @@ def ressincronizar_votos_catalogo_banco(db=None) -> dict:
 
                     num_str = str(num_cand)
                     nome_c = cand.get("nome")
-                    if not nome_c or nome_c.startswith("CANDIDATO"):
+                    if not nome_c or nome_c.startswith("CANDIDATO") or "JAIR" in (nome_c or "").upper():
                         nome_c = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_cand}")
-                    if num_cand == 22 and ("FLAVIO" in (nome_c or "").upper() or not nome_c):
-                        nome_c = "JAIR BOLSONARO"
+                    elif num_cand == 22:
+                        nome_c = "FLÁVIO BOLSONARO"
                     elif num_cand == 13:
                         nome_c = "LULA"
 
@@ -1840,6 +1840,9 @@ def _carregar_catalogo_disco() -> dict[str, dict]:
                     item = json.loads(line)
                     pref = item.get("prefixo")
                     if pref:
+                        for c in item.get("candidatos", []):
+                            if str(c.get("numero")) == "22":
+                                c["nome"] = "FLÁVIO BOLSONARO"
                         _CATALOGO_MEMORIA[pref] = item
         except Exception:
             pass
@@ -2503,8 +2506,8 @@ def gerar_espelho_bobina_completo_tse(
     for c in sorted(cands_lista, key=lambda x: int(x.get("votos", 0) or x.get("votos_bu", 0) or 0), reverse=True):
         nome_c = str(c.get("nome") or f"Candidato {c.get('numero')}").strip().upper()
         num_str = str(c.get("numero", ""))
-        if num_str == "22" and ("FLAVIO" in nome_c or not nome_c):
-            nome_c = "JAIR BOLSONARO"
+        if num_str == "22":
+            nome_c = "FLÁVIO BOLSONARO"
         elif num_str == "13":
             nome_c = "LULA"
         vt = int(c.get("votos", 0) or c.get("votos_bu", 0) or 0)
@@ -3110,7 +3113,7 @@ def _construir_comparativo_turnos(
 
     cands_t1_map = Counter()
     cands_t2_map = Counter()
-    nomes_cands: dict[str, str] = {"13": "LULA", "22": "JAIR BOLSONARO"}
+    nomes_cands: dict[str, str] = {"13": "LULA", "22": "FLÁVIO BOLSONARO"}
     brancos_t1 = 0
     brancos_t2 = 0
     nulos_t1 = 0
@@ -4521,8 +4524,8 @@ def _consolidar_secoes_tse_sql(
         num_str = str(r.numero_candidato)
         nome = r.nome_candidato or (PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_str}") if cargo_filtro == "PRESIDENTE" else f"CANDIDATO {num_str}")
         if cargo_filtro == "PRESIDENTE":
-            if num_str == "22" and ("FLAVIO" in nome.upper() or not nome):
-                nome = "JAIR BOLSONARO"
+            if num_str == "22":
+                nome = "FLÁVIO BOLSONARO"
             elif num_str == "13":
                 nome = "LULA"
         v = int(r.votos)
@@ -4650,14 +4653,14 @@ def _consolidar_secoes_tse_sql(
         n_str = str(r[0])
         n_nm = r[1] or (PADRAO_NOMES_PRESIDENTE.get(n_str, f"CANDIDATO {n_str}") if cargo_filtro == "PRESIDENTE" else f"CANDIDATO {n_str}")
         if cargo_filtro == "PRESIDENTE":
-            if n_str == "22" and ("FLAVIO" in (n_nm or "").upper() or not n_nm):
-                n_nm = "JAIR BOLSONARO"
+            if n_str == "22":
+                n_nm = "FLÁVIO BOLSONARO"
             elif n_str == "13":
                 n_nm = "LULA"
         cands_nomes[n_str] = n_nm
     if cargo_filtro == "PRESIDENTE":
         cands_nomes.setdefault("13", "LULA")
-        cands_nomes.setdefault("22", "JAIR BOLSONARO")
+        cands_nomes.setdefault("22", "FLÁVIO BOLSONARO")
 
     tot_t1_c = sum(cands_t1_map.values())
     tot_t2_c = sum(cands_t2_map.values())

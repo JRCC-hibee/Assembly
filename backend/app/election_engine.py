@@ -157,13 +157,13 @@ def seed_default_candidates(db: Session):
         Candidato(cargo="GOVERNADOR", numero="45", nome_urna="RODRIGO GARCIA", nome_completo="Rodrigo Garcia Lopes", sigla_partido="PSD", numero_partido="45", vice_ou_suplente1="Vice: Geninho Silva", turno=1),
         # 1º Turno - Presidente (2 dígitos)
         Candidato(cargo="PRESIDENTE", numero="13", nome_urna="LUIZ INÁCIO", nome_completo="Luiz Inácio Demo", sigla_partido="PTD", numero_partido="13", vice_ou_suplente1="Vice: Geraldo José", turno=1),
-        Candidato(cargo="PRESIDENTE", numero="22", nome_urna="JAIR MESSIAS", nome_completo="Jair Messias Demo", sigla_partido="PLD", numero_partido="22", vice_ou_suplente1="Vice: Walter Braga", turno=1),
+        Candidato(cargo="PRESIDENTE", numero="22", nome_urna="FLÁVIO BOLSONARO", nome_completo="Flávio Bolsonaro", sigla_partido="PLD", numero_partido="22", vice_ou_suplente1="Vice: Walter Braga", turno=1),
         Candidato(cargo="PRESIDENTE", numero="45", nome_urna="SIMONE TEBET", nome_completo="Simone Nassar Demo", sigla_partido="PSD", numero_partido="45", vice_ou_suplente1="Vice: Mara Gabrilli", turno=1),
         # 2º Turno - Governador e Presidente
         Candidato(cargo="GOVERNADOR", numero="10", nome_urna="TARCÍSIO MENDES", nome_completo="Tarcísio Mendes Prado", sigla_partido="PRB", numero_partido="10", vice_ou_suplente1="Vice: Celso Arantes", turno=2),
         Candidato(cargo="GOVERNADOR", numero="13", nome_urna="FERNANDO CASTRO", nome_completo="Fernando Castro Neto", sigla_partido="PTD", numero_partido="13", vice_ou_suplente1="Vice: Marina Alves", turno=2),
         Candidato(cargo="PRESIDENTE", numero="13", nome_urna="LUIZ INÁCIO", nome_completo="Luiz Inácio Demo", sigla_partido="PTD", numero_partido="13", vice_ou_suplente1="Vice: Geraldo José", turno=2),
-        Candidato(cargo="PRESIDENTE", numero="22", nome_urna="JAIR MESSIAS", nome_completo="Jair Messias Demo", sigla_partido="PLD", numero_partido="22", vice_ou_suplente1="Vice: Walter Braga", turno=2),
+        Candidato(cargo="PRESIDENTE", numero="22", nome_urna="FLÁVIO BOLSONARO", nome_completo="Flávio Bolsonaro", sigla_partido="PLD", numero_partido="22", vice_ou_suplente1="Vice: Walter Braga", turno=2),
     ]
     db.add_all(candidatos_demo)
     db.commit()
