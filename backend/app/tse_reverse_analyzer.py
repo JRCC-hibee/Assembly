@@ -4147,11 +4147,24 @@ def _executar_ingestao_servidor_worker():
             return
 
         origem_desc = f"VPS Local ({os.path.basename(arquivos_zip[0])})" if arquivos_zip else "VPS Local (Arquivos Avulsos)"
+        uf_inicial = "DESCONHECIDO"
+        if arquivos_zip:
+            m_uf = re.search(r"[_\-]([A-Za-z]{2})\.zip", arquivos_zip[0], re.IGNORECASE)
+            if m_uf:
+                uf_inicial = m_uf.group(1).upper()
+        elif arquivos_soltos:
+            m_uf = re.search(r"([A-Za-z]{2})\d{5}", os.path.basename(arquivos_soltos[0]), re.IGNORECASE)
+            if m_uf:
+                uf_inicial = m_uf.group(1).upper()
+
+        ufs_detectadas = set([uf_inicial] if uf_inicial != "DESCONHECIDO" else [])
+
         criar_historico_upload(
             db,
             job_id=job_id,
             tipo_envio="SERVIDOR_LOCAL",
             nome_origem=origem_desc,
+            uf=uf_inicial,
             total_arquivos=len(arquivos_soltos),
             total_urnas=0,
         )
@@ -4215,6 +4228,8 @@ def _executar_ingestao_servidor_worker():
                             resumo = relatorio["resumo_consolidacao"]
                             salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
                             urnas_novas += 1
+                            if resumo.get("uf"):
+                                ufs_detectadas.add(str(resumo["uf"]).upper().strip())
                             turno_salvo = int(resumo.get("turno_pacote") or turno_item)
                             if ch:
                                 apuracoes_existentes.add((ch, turno_salvo))
@@ -4324,6 +4339,7 @@ def _executar_ingestao_servidor_worker():
             mensagem=f"Ingestão local na VPS concluída com sucesso em {duracao}s: {urnas_novas:,} novas urnas salvas, {urnas_duplicadas:,} duplicadas puladas.",
             urnas_novas=urnas_novas,
             urnas_duplicadas=urnas_duplicadas,
+            uf=",".join(sorted(ufs_detectadas)) if ufs_detectadas else None,
         )
 
         _STATUS_INGESTAO_LOCAL.update({
@@ -4518,6 +4534,8 @@ def _executar_complementacao_worker():
                             resumo = relatorio["resumo_consolidacao"]
                             salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
                             urnas_novas += 1
+                            if resumo.get("uf"):
+                                ufs_detectadas.add(str(resumo["uf"]).upper().strip())
                             turno_salvo = int(resumo.get("turno_pacote") or turno_item)
                             if ch:
                                 apuracoes_existentes.add((ch, turno_salvo))

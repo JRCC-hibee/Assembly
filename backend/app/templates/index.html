@@ -1289,10 +1289,10 @@ o Boletim de Urna (apos encerramento da votacao).
               <span class="text-2xl mt-0.5 animate-pulse">⚠️</span>
               <div>
                 <div id="bannerUrnasFaltantesTitulo" class="text-sm font-black text-amber-200">
-                  Faltam 924 urnas no 2º Turno (16.402 de 17.326 carregadas — 5,3% pendente)
+                  Faltam urnas no 2º Turno
                 </div>
-                <div class="text-[11px] text-amber-300/80 mt-0.5 leading-relaxed">
-                  A base oficial do 2º Turno em SC possui 17.326 seções. Como 924 arquivos BU do 2ºT ainda não subiram ao banco, o totalizador deste painel reflete apenas as 16.402 seções carregadas.
+                <div id="bannerUrnasFaltantesDesc" class="text-[11px] text-amber-300/80 mt-0.5 leading-relaxed">
+                  As seções cadastradas refletem apenas o 1º Turno. Para habilitar o 2º Turno, envie os arquivos oficiais da eleição de 30/10/2022.
                 </div>
               </div>
             </div>
@@ -1302,7 +1302,7 @@ o Boletim de Urna (apos encerramento da votacao).
                 onclick="abrirModalAuditoriaCargaFaltantes2T()"
                 class="px-3.5 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-lg transition flex items-center gap-1.5 cursor-pointer"
               >
-                <span>🔍 Auditar 924 Urnas / Cidades Faltantes</span>
+                <span id="bannerUrnasFaltantesBtnText">🔍 Auditar Urnas / Cidades Faltantes</span>
               </button>
             </div>
           </div>
@@ -5143,6 +5143,18 @@ o Boletim de Urna (apos encerramento da votacao).
           if (titEl) {
             titEl.textContent = `Faltam ${diffFaltam.toLocaleString('pt-BR')} urnas no 2º Turno (${u2t.toLocaleString('pt-BR')} de ${u1t.toLocaleString('pt-BR')} carregadas — ${pctF}% pendente)`;
           }
+          const descEl = document.getElementById("bannerUrnasFaltantesDesc");
+          if (descEl) {
+            if (u2t === 0) {
+              descEl.innerHTML = `Todas as <strong>${u1t.toLocaleString('pt-BR')} seções</strong> cadastradas para <strong>${cidSel}</strong> pertencem ao <strong>1º Turno (02/10/2022)</strong>. Para habilitar a totalização do 2º Turno, envie os arquivos oficiais do TSE de <strong>30/10/2022</strong> correspondentes a este estado.`;
+            } else {
+              descEl.innerHTML = `A base oficial possui <strong>${u1t.toLocaleString('pt-BR')} seções</strong> no 1º Turno. Como ${diffFaltam.toLocaleString('pt-BR')} arquivos BU do 2º Turno ainda não subiram ao banco, o totalizador deste painel reflete apenas as ${u2t.toLocaleString('pt-BR')} seções carregadas.`;
+            }
+          }
+          const btnTxtEl = document.getElementById("bannerUrnasFaltantesBtnText");
+          if (btnTxtEl) {
+            btnTxtEl.textContent = `🔍 Auditar ${diffFaltam.toLocaleString('pt-BR')} Urnas / Cidades Faltantes`;
+          }
         } else {
           bannerFaltam.classList.add("hidden");
         }
@@ -7276,10 +7288,16 @@ o Boletim de Urna (apos encerramento da votacao).
             <td class="py-2.5 px-2 text-center">
               <span class="px-1.5 py-0.5 rounded bg-slate-800 text-cyan-300 font-bold text-[10px] border border-cyan-800/50">${item.uf || "-"}</span>
             </td>
-            <td class="py-2.5 px-3 text-right font-extrabold text-emerald-400">
-              +${(item.total_urnas_novas_gravadas || 0).toLocaleString("pt-BR")}
+            <td class="py-2.5 px-3 text-right">
+              ${(item.total_urnas_novas_gravadas > 0)
+                ? `<span class="font-extrabold text-emerald-400">+${(item.total_urnas_novas_gravadas || 0).toLocaleString("pt-BR")}</span>`
+                : (item.total_urnas_duplicadas_ignoradas > 0
+                  ? `<span class="font-bold text-slate-400">+0</span><span class="block text-[9px] text-amber-300 font-medium">já salvas</span>`
+                  : `<span class="font-bold text-slate-500">+0</span>`
+                )
+              }
             </td>
-            <td class="py-2.5 px-3 text-right text-amber-300/90">
+            <td class="py-2.5 px-3 text-right text-amber-300/90 font-bold">
               ${(item.total_urnas_duplicadas_ignoradas || 0).toLocaleString("pt-BR")}
             </td>
             <td class="py-2.5 px-2 text-center">${errosBadge}</td>

@@ -827,6 +827,7 @@ def finalizar_historico_upload(
     detalhes_adicionais: dict = None,
     urnas_duplicadas: int = None,
     urnas_novas: int = None,
+    uf: str = None,
 ) -> TseHistoricoUpload | None:
     """Finaliza o registro de upload gravando o tempo de processamento e resumo."""
     registro = db.query(TseHistoricoUpload).filter(TseHistoricoUpload.job_id == job_id).first()
@@ -846,6 +847,9 @@ def finalizar_historico_upload(
         registro.total_urnas_duplicadas_ignoradas = int(urnas_duplicadas)
     if urnas_novas is not None and (registro.total_urnas_novas_gravadas or 0) == 0:
         registro.total_urnas_novas_gravadas = int(urnas_novas)
+
+    if uf and (not registro.uf or registro.uf == "DESCONHECIDO"):
+        registro.uf = uf.upper().strip()
 
     if registro.total_erros and registro.total_erros > 0:
         status = "CONCLUIDO_COM_AVISOS" if status == "CONCLUIDO" else status
