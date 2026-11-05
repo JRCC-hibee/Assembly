@@ -63,8 +63,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-04-rev13"
-SYSTEM_COMMIT = "rev13-banner-urnas-faltantes-header-kpi"
+SYSTEM_BUILD = "2026-11-05-rev14"
+SYSTEM_COMMIT = "rev14-fix-unique-violation-voto-cand-ingestao"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",

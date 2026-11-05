@@ -3681,13 +3681,25 @@ def _executar_ingestao_servidor_worker():
                             if ch:
                                 apuracoes_existentes.add((ch, turno_salvo))
                         except Exception as e_sec:
+                            try:
+                                db.rollback()
+                            except Exception:
+                                pass
                             _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
+                            continue
 
                         urnas_processadas += 1
                         batch_count += 1
 
                         if batch_count >= 50:
-                            db.commit()
+                            try:
+                                db.commit()
+                            except Exception as e_cmt:
+                                try:
+                                    db.rollback()
+                                except Exception:
+                                    pass
+                                _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit lote ({pref}): {e_cmt}")
                             batch_count = 0
 
                         if urnas_processadas % 25 == 0:
@@ -3704,7 +3716,16 @@ def _executar_ingestao_servidor_worker():
                                 "mensagem": f"Processando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} novas, {urnas_duplicadas:,} já existentes...",
                             })
 
-                    db.commit()
+                    if batch_count > 0:
+                        try:
+                            db.commit()
+                        except Exception as e_cmt:
+                            try:
+                                db.rollback()
+                            except Exception:
+                                pass
+                            _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit final zip: {e_cmt}")
+                        batch_count = 0
             except Exception as e_zip:
                 _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro ao ler zip {zip_path}: {e_zip}")
 
@@ -3727,15 +3748,35 @@ def _executar_ingestao_servidor_worker():
                     salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
                     urnas_novas += 1
                 except Exception as e_solto:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
                     _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_solto}")
+                    continue
 
                 urnas_processadas += 1
                 batch_count += 1
                 if batch_count >= 50:
-                    db.commit()
+                    try:
+                        db.commit()
+                    except Exception as e_cmt:
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit soltos ({pref}): {e_cmt}")
                     batch_count = 0
 
-            db.commit()
+            if batch_count > 0:
+                try:
+                    db.commit()
+                except Exception as e_cmt:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+                batch_count = 0
 
         duracao = max(1, int(time.time() - t0))
         finalizar_historico_upload(
@@ -3944,13 +3985,25 @@ def _executar_complementacao_worker():
                                 apuracoes_existentes.add((ch, turno_salvo))
                                 dossies_existentes.add((ch, turno_salvo))
                         except Exception as e_sec:
+                            try:
+                                db.rollback()
+                            except Exception:
+                                pass
                             _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
+                            continue
 
                         urnas_processadas += 1
                         batch_count += 1
 
                         if batch_count >= 50:
-                            db.commit()
+                            try:
+                                db.commit()
+                            except Exception as e_cmt:
+                                try:
+                                    db.rollback()
+                                except Exception:
+                                    pass
+                                _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit lote ({pref}): {e_cmt}")
                             batch_count = 0
 
                         if urnas_processadas % 25 == 0:
@@ -3967,11 +4020,28 @@ def _executar_complementacao_worker():
                                 "mensagem": f"Complementando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} complementadas com 1ºT/dossiês...",
                             })
 
-                    db.commit()
+                    if batch_count > 0:
+                        try:
+                            db.commit()
+                        except Exception as e_cmt:
+                            try:
+                                db.rollback()
+                            except Exception:
+                                pass
+                            _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit final zip: {e_cmt}")
+                        batch_count = 0
             except Exception as e_zip:
                 _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro ao complementar zip {zip_path}: {e_zip}")
 
-        db.commit()
+        if batch_count > 0:
+            try:
+                db.commit()
+            except Exception as e_cmt:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+            batch_count = 0
         delta_tot = max(0.1, time.time() - t0)
         finalizar_historico_upload(
             db,

@@ -435,6 +435,10 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
         bu_db.votos_nulos = int(resumo.get("nulos_bu") or resumo.get("nulos_rdv") or bu_db.votos_nulos)
 
     # 3. Upsert Votos dos Candidatos (Suporte a múltiplos cargos: Presidente, Governador, Senador, etc.)
+    # Consolidação unificada em memória por (cargo_nome, num_cand) para blindar contra
+    # qualquer duplicidade na mesma transação/lote (evita violação de 'uq_tse_voto_secao_cand')
+    votos_map = {}
+
     cargos_bu_list = resumo.get("cargos_bu") or (relatorio_completo.get("imgbu", {}).get("cargos_bu") if relatorio_completo else None)
 
     if cargos_bu_list and isinstance(cargos_bu_list, list) and len(cargos_bu_list) > 0:
@@ -472,33 +476,16 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
                     elif num_cand == 13:
                         nome_cand = "LULA"
 
-                voto_db = db.query(TseVotoCandidato).filter(
-                    TseVotoCandidato.secao_id == secao_db.id,
-                    TseVotoCandidato.turno == turno_pacote,
-                    TseVotoCandidato.cargo == cargo_nome,
-                    TseVotoCandidato.numero_candidato == num_cand
-                ).first()
-                if not voto_db:
-                    voto_db = TseVotoCandidato(
-                        secao_id=secao_db.id,
-                        turno=turno_pacote,
-                        cargo=cargo_nome,
-                        numero_candidato=num_cand,
-                        nome_candidato=nome_cand,
-                        quantidade_votos=votos_val,
-                        votos_bu=votos_val,
-                        votos_rdv=votos_val,
-                    )
-                    db.add(voto_db)
-                else:
-                    if votos_val > 0 or voto_db.quantidade_votos == 0:
-                        voto_db.quantidade_votos = votos_val if votos_val > 0 else voto_db.quantidade_votos
-                    voto_db.votos_bu = votos_val or voto_db.votos_bu
-                    voto_db.votos_rdv = votos_val or voto_db.votos_rdv
-                    if nome_cand:
-                        voto_db.nome_candidato = nome_cand
+                votos_map[(cargo_nome, num_cand)] = {
+                    "cargo": cargo_nome,
+                    "numero": num_cand,
+                    "nome": nome_cand,
+                    "votos": votos_val,
+                    "votos_bu": votos_val,
+                    "votos_rdv": votos_val,
+                }
 
-    # Fallback ou garantia para Presidente a partir de candidatos_list
+    # Complemento/Fallback de Presidente via candidatos_list (caso não esteja em cargos_bu ou para enriquecer dados)
     candidatos_list = resumo.get("candidatos", [])
     if candidatos_list:
         for cand in candidatos_list:
@@ -522,24 +509,56 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
             elif num_cand == 13:
                 nome_cand = "LULA"
 
-            voto_db = db.query(TseVotoCandidato).filter(
+            key = ("PRESIDENTE", num_cand)
+            if key in votos_map:
+                if votos_val > 0:
+                    votos_map[key]["votos"] = votos_val
+                if v_bu:
+                    votos_map[key]["votos_bu"] = v_bu
+                if v_rdv:
+                    votos_map[key]["votos_rdv"] = v_rdv
+                if nome_cand and (not votos_map[key]["nome"] or str(votos_map[key]["nome"]).startswith("CANDIDATO")):
+                    votos_map[key]["nome"] = nome_cand
+            else:
+                votos_map[key] = {
+                    "cargo": "PRESIDENTE",
+                    "numero": num_cand,
+                    "nome": nome_cand,
+                    "votos": votos_val,
+                    "votos_bu": v_bu or votos_val,
+                    "votos_rdv": v_rdv or votos_val,
+                }
+
+    if votos_map:
+        # Busca todas as linhas existentes para esta seção e turno de uma só vez
+        votos_existentes = {
+            (v.cargo, v.numero_candidato): v
+            for v in db.query(TseVotoCandidato).filter(
                 TseVotoCandidato.secao_id == secao_db.id,
-                TseVotoCandidato.turno == turno_pacote,
-                TseVotoCandidato.cargo == "PRESIDENTE",
-                TseVotoCandidato.numero_candidato == num_cand
-            ).first()
+                TseVotoCandidato.turno == turno_pacote
+            ).all()
+        }
+
+        for (cg, nc), dados in votos_map.items():
+            voto_db = votos_existentes.get((cg, nc))
+            votos_val = dados["votos"]
+            v_bu = dados["votos_bu"]
+            v_rdv = dados["votos_rdv"]
+            nome_cand = dados["nome"]
+
             if not voto_db:
-                voto_db = TseVotoCandidato(
+                voto_novo = TseVotoCandidato(
                     secao_id=secao_db.id,
                     turno=turno_pacote,
-                    cargo="PRESIDENTE",
-                    numero_candidato=num_cand,
+                    cargo=cg,
+                    numero_candidato=nc,
                     nome_candidato=nome_cand,
                     quantidade_votos=votos_val,
-                    votos_bu=v_bu or votos_val,
-                    votos_rdv=v_rdv or votos_val,
+                    votos_bu=v_bu,
+                    votos_rdv=v_rdv,
                 )
-                db.add(voto_db)
+                db.add(voto_novo)
+                votos_existentes[(cg, nc)] = voto_novo
             else:
                 if votos_val > 0 or voto_db.quantidade_votos == 0:
                     voto_db.quantidade_votos = votos_val if votos_val > 0 else voto_db.quantidade_votos
@@ -577,7 +596,7 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
             metricas_t2.vazao_horaria_json = vazao_t2
 
     # 5. Se o log acumula dados do 1º Turno (Mídia Interna), salva também as métricas do 1º Turno
-    if resumo.get("tem_comparativo_1t_log"):
+    if resumo.get("tem_comparativo_1t_log") and turno_pacote != 1:
         teclas_pres_t1 = int(resumo.get("total_teclas_indevidas_presidente_t1") or 0)
         teclas_totais_t1 = int(resumo.get("total_teclas_indevidas_t1") or 0)
         tempo_medio_t1 = int(round(float(resumo.get("tempo_medio_cabine_t1_s") or resumo.get("tempo_medio_ciclo_t1_s") or 0.0)))
