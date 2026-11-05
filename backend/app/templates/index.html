@@ -3267,18 +3267,8 @@ o Boletim de Urna (apos encerramento da votacao).
 
     function extrairPrefixoNoCliente(filename) {
       const base = filename.split("/").pop().split("\\").pop().toLowerCase();
-      const m = base.match(/^(o?\d{5}[a-z]{2}\d{13,14})[-.]/i);
-      if (m) {
-        const p = m[1].toLowerCase();
-        return p.startsWith("o") ? p : `o${p}`;
-      }
-      const mZip = base.match(/^(o?\d{5}[a-z]{2}\d{13,14})\.zip$/i);
-      if (mZip) {
-        const p = mZip[1].toLowerCase();
-        return p.startsWith("o") ? p : `o${p}`;
-      }
-      const raw = base.replace(/-(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc|\.zip)$/i, "");
-      return raw.startsWith("o") ? raw : `o${raw}`;
+      const s = base.replace(/[-_.]?(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc|vscv\.vsc|logjez|vscmr|vscv|imgbu|bu|rdv|vsc|jez|dat|bin|asn1|\.zip)$/i, "").replace(/[-_.]+$/, "");
+      return s.startsWith("o") ? s : `o${s}`;
     }
 
     function atualizarProgressoUploadTse(pct, text, stats = "", enviados = 0, pulados = 0, total = 0) {
@@ -3549,7 +3539,8 @@ o Boletim de Urna (apos encerramento da votacao).
         const f = fileList[i];
         const base = f.name.toLowerCase();
         if (base.startsWith(".")) continue;
-        if (!(base.endsWith(".jez") || base.endsWith(".dat") || base.endsWith(".vsc") || base.endsWith(".zip"))) continue;
+        const extValida = base.endsWith(".jez") || base.endsWith(".dat") || base.endsWith(".vsc") || base.endsWith(".zip") || base.endsWith(".bu") || base.endsWith(".rdv") || base.endsWith(".logjez") || base.endsWith(".vscmr") || base.endsWith(".vscv") || base.endsWith(".imgbu") || base.endsWith(".bin") || base.endsWith(".asn1");
+        if (!extValida) continue;
 
         const prefixo = extrairPrefixoNoCliente(f.name);
         if (!prefixo) continue;
@@ -3663,7 +3654,7 @@ o Boletim de Urna (apos encerramento da votacao).
           } else if (eh2T) {
             mask = indiceMascaras["o00407" + geoKey] || indiceMascaras["o03221" + geoKey] || indiceMascaras["2t_" + geoKey] || 0;
           }
-          if (!mask) {
+          if (!mask && !eh1T && !eh2T) {
             mask = indiceMascaras[geoKey] || 0;
           }
         }
@@ -3677,7 +3668,7 @@ o Boletim de Urna (apos encerramento da votacao).
 
         const temBuOuRdvLocal = arqsDaSecao.some(a => {
           const n = a.name.toLowerCase();
-          return n.endsWith("imgbu.dat") || n.endsWith("rdv.dat") || n.endsWith("-bu.dat");
+          return n.endsWith("imgbu.dat") || n.endsWith("rdv.dat") || n.endsWith("-bu.dat") || n.endsWith(".bu") || n.endsWith(".rdv");
         });
         const jaTemBuOuRdvServidor = (mask & 1) !== 0 || (mask & 2) !== 0 || (mask & 8) !== 0;
 

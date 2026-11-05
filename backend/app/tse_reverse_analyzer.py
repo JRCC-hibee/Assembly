@@ -2029,12 +2029,11 @@ def obter_indice_secoes_carregadas(db=None) -> dict:
                     geo_key = f"{uf_low}{mun_str}{z_int:04d}{s_int:04d}"
 
                     turnos = turnos_por_sec.get(sec_id, set())
-                    if not turnos:
-                        turnos = {1, 2}  # Se cadastrado em TseSecao sem apuracao, protege ambos os turnos contra duplicatas
 
-                    # Chave geográfica pura (15 caracteres)
-                    indice[geo_key] = 31
-                    indice[f"{uf_low.upper()}_{mun_str}_{z_int:04d}_{s_int:04d}"] = 31
+                    # A chave geográfica pura só deve ser marcada como 31 se AMBOS os turnos já estiverem salvos
+                    if 1 in turnos and 2 in turnos:
+                        indice[geo_key] = 31
+                        indice[f"{uf_low.upper()}_{mun_str}_{z_int:04d}_{s_int:04d}"] = 31
 
                     # Chaves de 1º Turno (Gerais 2022 o00406, Canônico o03220, Semântico 1t_)
                     if 1 in turnos:
@@ -2067,15 +2066,13 @@ def obter_indice_secoes_carregadas(db=None) -> dict:
 def verificar_urnas_existentes_no_banco(prefixos: list[str], db=None) -> dict:
     """
     Verificação direta e atômica de prefixos contra o PostgreSQL.
-    Recebe a lista de prefixos selecionados pelo usuário (ex: 16.402 prefixos),
-    extrai as coordenadas geográficas (UF_MUNICÍPIO_ZONA_SEÇÃO), consulta o
-    índice único no PostgreSQL em sub-20ms e retorna com precisão cirúrgica
-    quais prefixos já estão gravados, garantindo que o navegador pule 100% delas!
+    Considera o TURNO de cada prefixo (1T vs 2T), de modo que uma seção
+    gravada no 1º Turno NÃO seja falsamente considerada duplicada ao subir o 2º Turno!
     """
     if not prefixos:
         return {"urnas_ja_salvas": [], "total_ja_salvas": 0}
 
-    prefixo_por_chave: dict[str, list[str]] = {}
+    prefixo_por_chave_turno: dict[tuple[str, int], list[str]] = {}
     for pref in prefixos:
         pref_str = str(pref).strip()
         pref_clean = extrair_prefixo_seccao(pref_str)
@@ -2097,10 +2094,13 @@ def verificar_urnas_existentes_no_banco(prefixos: list[str], db=None) -> dict:
                 s_p = int(m_geo.group(4))
                 ch = f"{uf_p}_{mun_p}_{z_p:04d}_{s_p:04d}"
 
-        if ch:
-            prefixo_por_chave.setdefault(ch, []).append(pref_str)
+        pref_low = pref_clean.lower()
+        turno = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "1turno" in pref_low) else 2
 
-    if not prefixo_por_chave:
+        if ch:
+            prefixo_por_chave_turno.setdefault((ch, turno), []).append(pref_str)
+
+    if not prefixo_por_chave_turno:
         return {"urnas_ja_salvas": [], "total_ja_salvas": 0}
 
     db_local = False
@@ -2111,15 +2111,21 @@ def verificar_urnas_existentes_no_banco(prefixos: list[str], db=None) -> dict:
     urnas_salvas = []
     if db:
         try:
-            from .database import TseSecao
-            chaves = list(prefixo_por_chave.keys())
+            from .database import TseSecao, TseApuracaoBU
+            chaves_unicas = list({ch for (ch, _) in prefixo_por_chave_turno.keys()})
             chunk_size = 5000
-            for i in range(0, len(chaves), chunk_size):
-                chunk = chaves[i : i + chunk_size]
-                rows = db.query(TseSecao.chave_secao).filter(TseSecao.chave_secao.in_(chunk)).all()
-                for (ch,) in rows:
-                    if ch in prefixo_por_chave:
-                        urnas_salvas.extend(prefixo_por_chave[ch])
+            for i in range(0, len(chaves_unicas), chunk_size):
+                chunk = chaves_unicas[i : i + chunk_size]
+                rows = (
+                    db.query(TseSecao.chave_secao, TseApuracaoBU.turno)
+                    .join(TseApuracaoBU, TseApuracaoBU.secao_id == TseSecao.id)
+                    .filter(TseSecao.chave_secao.in_(chunk))
+                    .all()
+                )
+                for ch, t in rows:
+                    t_int = int(t or 0)
+                    if (ch, t_int) in prefixo_por_chave_turno:
+                        urnas_salvas.extend(prefixo_por_chave_turno[(ch, t_int)])
         except Exception as exc:
             print(f"[TSE-VERIF] Erro ao verificar urnas existentes: {exc}")
         finally:
