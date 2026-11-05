@@ -121,42 +121,70 @@ ESTADOS_E_REGIOES_BR = {
 }
 
 
+EXTENSOES_TSE_VALIDAS = (
+    ".jez", ".dat", ".vsc", ".bu", ".rdv", ".logjez", ".vscmr", ".vscv", ".imgbu", ".bin", ".asn1"
+)
+
+
 def extrair_prefixo_seccao(filename: str) -> str:
     """
     Extrai o prefixo identificador da seção a partir do nome oficial do arquivo TSE.
-    Ex: 'o03221pr7407101710017-log.jez' -> 'o03221pr7407101710017'
+    Suporta todos os formatos oficiais:
+    - Com hífen e sufixo: 'o03221pr7407101710017-log.jez' -> 'o03221pr7407101710017'
+    - Sem hífen: 'o00407-7407101710017.bu' -> 'o00407-7407101710017'
+    - Extensões diretas: .bu, .rdv, .logjez, .vscmr, .imgbu, .dat, .jez
     """
     base = filename.split("/")[-1].split("\\")[-1]
-    m = re.match(r"^(o\d{5}[a-z]{2}\d{13,14})-", base, re.IGNORECASE)
-    if m:
-        return m.group(1).lower()
-    return re.sub(r"-(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc)$", "", base, flags=re.IGNORECASE).lower()
+    s = re.sub(
+        r"[-_.]?(bu\.dat|imgbu\.dat|log\.jez|rdv\.dat|vota\.vsc|vscmr\.vsc|vscv\.vsc|logjez|vscmr|vscv|imgbu|bu|rdv|vsc|jez|dat|bin|asn1)$",
+        "",
+        base,
+        flags=re.IGNORECASE,
+    )
+    s = s.rstrip("-_.")
+    return s.lower()
 
 
-def extrair_identificacao_arquivo_tse(filename: str) -> dict:
+def extrair_identificacao_arquivo_tse(filename: str, default_uf: str = "PR") -> dict:
     """
     Extrai pleito, UF, código do município (5 dígitos), zona (4 dígitos) e seção (4 dígitos)
-    diretamente da nomenclatura oficial do arquivo TSE:
-    Ex: 'o03221pr7407101710017-log.jez' ->
-        pleito='03221', uf='PR', municipio_codigo='74071', zona='0171', secao='0017'
+    diretamente da nomenclatura oficial do arquivo TSE. Suporta nomes com e sem sigla da UF.
     """
     prefixo = extrair_prefixo_seccao(filename)
-    m = re.match(r"^o(\d{5})([a-z]{2})(\d{5})(\d{4})(\d{4})$", prefixo, re.IGNORECASE)
-    if m:
-        mun_cod = m.group(3)
+    clean = re.sub(r"[_\-]", "", prefixo).lower()
+
+    # Padrão 1: o + 5 pleito + 2 uf + 5 mun + 4 zona + 4 secao (ex: o00407pr7407101710017)
+    m1 = re.match(r"^o?(\d{5})([a-z]{2})(\d{5})(\d{4})(\d{4})$", clean, re.IGNORECASE)
+    if m1:
+        mun_cod = m1.group(3)
         return {
             "prefixo": prefixo,
-            "pleito": m.group(1),
-            "uf": m.group(2).upper(),
+            "pleito": m1.group(1),
+            "uf": m1.group(2).upper(),
             "municipio_codigo": mun_cod,
             "municipio_nome": MUNICIPIOS_PR_TSE.get(mun_cod, f"MUNICÍPIO {mun_cod}"),
-            "zona": m.group(4),
-            "secao": m.group(5),
+            "zona": m1.group(4),
+            "secao": m1.group(5),
         }
+
+    # Padrão 2: o + 5 pleito + 5 mun + 4 zona + 4 secao (ex: o004077407101710017 ou o00407-7407101710017)
+    m2 = re.match(r"^o?(\d{5})(\d{5})(\d{4})(\d{4})$", clean, re.IGNORECASE)
+    if m2:
+        mun_cod = m2.group(2)
+        return {
+            "prefixo": prefixo,
+            "pleito": m2.group(1),
+            "uf": default_uf.upper(),
+            "municipio_codigo": mun_cod,
+            "municipio_nome": MUNICIPIOS_PR_TSE.get(mun_cod, f"MUNICÍPIO {mun_cod}"),
+            "zona": m2.group(3),
+            "secao": m2.group(4),
+        }
+
     return {
         "prefixo": prefixo,
         "pleito": "",
-        "uf": "PR",
+        "uf": default_uf.upper(),
         "municipio_codigo": "00000",
         "municipio_nome": "NÃO IDENTIFICADO",
         "zona": "0000",
@@ -1201,20 +1229,20 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
         if not prefixo:
             id_info = extrair_identificacao_arquivo_tse(fname)
             prefixo = id_info["prefixo"]
-        if low.endswith("-imgbu.dat") or low.endswith("imgbu.dat"):
+        if low.endswith(("-imgbu.dat", "imgbu.dat", "-bu.dat", "bu.dat", ".bu", ".imgbu")):
             imgbu_report = decodificar_imgbu_tse(content)
             if imgbu_report.get("municipio_codigo") and imgbu_report.get("municipio_nome"):
                 MUNICIPIOS_PR_TSE[imgbu_report["municipio_codigo"]] = imgbu_report["municipio_nome"]
-        elif low.endswith("-rdv.dat") or low.endswith("rdv.dat"):
+        elif low.endswith(("-rdv.dat", "rdv.dat", ".rdv")):
             rdv_report = decodificar_rdv_asn1_der(content)
 
     data_alvo = imgbu_report.get("data_abertura", "") if imgbu_report else ""
 
     for fname, content in arquivos_dict.items():
         low = fname.lower()
-        if low.endswith("-log.jez") or low.endswith(".jez"):
+        if low.endswith(("-log.jez", ".jez", ".logjez", "-logjez")):
             log_report = decodificar_log_jez_tse(content, data_alvo_filtro=data_alvo)
-        elif not (low.endswith("-imgbu.dat") or low.endswith("imgbu.dat") or low.endswith("-rdv.dat") or low.endswith("rdv.dat")):
+        elif not low.endswith(("-imgbu.dat", "imgbu.dat", "-bu.dat", "bu.dat", ".bu", ".imgbu", "-rdv.dat", "rdv.dat", ".rdv")):
             outros_hashes[fname] = {
                 "tamanho_bytes": len(content),
                 "sha256": hashlib.sha256(content).hexdigest().upper(),
@@ -2148,7 +2176,7 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes], db=None) -> dic
                         if zinfo.is_dir():
                             continue
                         zname = zinfo.filename.split("/")[-1].split("\\")[-1]
-                        if any(zname.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                        if any(zname.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                             arquivos_expandidos[zname] = zf.read(zinfo)
             except Exception:
                 pass
@@ -2158,7 +2186,7 @@ def processar_lote_arquivos_tse(arquivos_dict: dict[str, bytes], db=None) -> dic
         if not base_name or base_name.startswith("."):
             continue
         low = base_name.lower()
-        if not any(low.endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+        if not any(low.endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
             continue
         prefixo = extrair_prefixo_seccao(base_name)
         if not prefixo:
@@ -2301,7 +2329,7 @@ def buscar_pacotes_turnos_nos_zips(uf: str = "", mun: str = "", zona: int = 0, s
                             idx: dict[str, list[str]] = {}
                             for name in zf_idx.namelist():
                                 base = name.split("/")[-1].split("\\")[-1]
-                                if not any(base.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                                if not any(base.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                                     continue
                                 p = extrair_prefixo_seccao(base).lower()
                                 if p:
@@ -4047,7 +4075,7 @@ def obter_status_pasta_importacao_servidor() -> dict:
                             "caminho_rel": os.path.relpath(fpath, dir_import),
                             "tamanho_mb": round(sz / (1024 * 1024), 2),
                         })
-                    elif any(f.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                    elif any(f.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                         total_arquivos_soltos += 1
                 except Exception:
                     pass
@@ -4134,7 +4162,7 @@ def _executar_ingestao_servidor_worker():
                 fpath = os.path.join(root, f)
                 if f.lower().endswith(".zip"):
                     arquivos_zip.append(fpath)
-                elif any(f.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                elif any(f.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                     arquivos_soltos.append(fpath)
 
         if not arquivos_zip and not arquivos_soltos:
@@ -4142,7 +4170,7 @@ def _executar_ingestao_servidor_worker():
                 "ativo": False,
                 "finalizado": True,
                 "sucesso": False,
-                "mensagem": f"Nenhum arquivo .zip ou .dat/.jez encontrado em {dir_import}.",
+                "mensagem": f"Nenhum arquivo .zip ou arquivos TSE encontrados em {dir_import}.",
             })
             return
 
@@ -4184,31 +4212,62 @@ def _executar_ingestao_servidor_worker():
         for zip_path in arquivos_zip:
             try:
                 zip_low = os.path.basename(zip_path).lower()
+                m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.zip", os.path.basename(zip_path), re.IGNORECASE)
+                default_zip_uf = m_zip_uf.group(1).upper() if m_zip_uf else uf_inicial
+
                 with zipfile.ZipFile(zip_path, "r") as zf:
-                    namelist = [n for n in zf.namelist() if not n.startswith("__MACOSX")]
+                    namelist = [n for n in zf.namelist() if not n.startswith("__MACOSX") and not n.endswith("/")]
                     grupos_prefixo: dict[str, list[str]] = {}
+                    inner_zips: list[str] = []
+
                     for name in namelist:
                         base = name.split("/")[-1].split("\\")[-1]
-                        if not any(base.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                        if not base or base.startswith("."):
+                            continue
+                        if base.lower().endswith(".zip"):
+                            inner_zips.append(name)
+                            continue
+                        if not any(base.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                             continue
                         pref = extrair_prefixo_seccao(base)
                         if pref:
                             grupos_prefixo.setdefault(pref, []).append(name)
 
-                    total_secoes = len(grupos_prefixo)
+                    inner_pacotes: dict[str, dict[str, bytes]] = {}
+                    if inner_zips:
+                        for iz_name in inner_zips:
+                            try:
+                                iz_data = zf.read(iz_name)
+                                with zipfile.ZipFile(io.BytesIO(iz_data)) as iz_zf:
+                                    iz_base = iz_name.split("/")[-1].split("\\")[-1]
+                                    pref_default_iz = extrair_prefixo_seccao(iz_base)
+                                    for iname in iz_zf.namelist():
+                                        if iname.startswith("__MACOSX") or iname.endswith("/"):
+                                            continue
+                                        ibase = iname.split("/")[-1].split("\\")[-1]
+                                        if not any(ibase.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
+                                            continue
+                                        ipref = extrair_prefixo_seccao(ibase) or pref_default_iz
+                                        if ipref:
+                                            inner_pacotes.setdefault(ipref, {})[ibase] = iz_zf.read(iname)
+                            except Exception as e_iz:
+                                print(f"[ZIP] Aviso ao ler inner zip {iz_name}: {e_iz}")
+
+                    total_secoes = len(grupos_prefixo) + len(inner_pacotes)
                     _STATUS_INGESTAO_LOCAL["total_urnas"] += total_secoes
 
                     batch_count = 0
                     for pref, names in grupos_prefixo.items():
                         pref_clean = extrair_prefixo_seccao(pref)
-                        info = extrair_identificacao_arquivo_tse(pref_clean)
+                        info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
                         ch = None
                         if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
                             ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
                         else:
-                            m_geo = re.search(r"([a-zA-Z]{2})[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
+                            m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
                             if m_geo:
-                                ch = f"{m_geo.group(1).upper()}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
+                                uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or default_zip_uf)
+                                ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
 
                         pref_low = pref_clean.lower()
                         turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "_1t" in zip_low or "1turno" in zip_low) else 2
@@ -4268,6 +4327,57 @@ def _executar_ingestao_servidor_worker():
                                 "tempo_decorrido_s": int(delta_s),
                                 "mensagem": f"Processando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} novas, {urnas_duplicadas:,} já existentes...",
                             })
+
+                    # Processa pacotes dos inner zips se houver
+                    for pref, pacote in inner_pacotes.items():
+                        pref_clean = extrair_prefixo_seccao(pref)
+                        info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
+                        ch = None
+                        if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
+                            ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
+                        else:
+                            m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
+                            if m_geo:
+                                uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or default_zip_uf)
+                                ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
+
+                        pref_low = pref_clean.lower()
+                        turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "_1t" in zip_low or "1turno" in zip_low) else 2
+
+                        if ch and (ch, turno_item) in apuracoes_existentes:
+                            urnas_duplicadas += 1
+                            urnas_processadas += 1
+                            continue
+
+                        try:
+                            relatorio = analisar_pacote_seccao_tse(pacote)
+                            resumo = relatorio["resumo_consolidacao"]
+                            salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
+                            urnas_novas += 1
+                            if resumo.get("uf"):
+                                ufs_detectadas.add(str(resumo["uf"]).upper().strip())
+                            turno_salvo = int(resumo.get("turno_pacote") or turno_item)
+                            if ch:
+                                apuracoes_existentes.add((ch, turno_salvo))
+                        except Exception as e_sec:
+                            try:
+                                db.rollback()
+                            except Exception:
+                                pass
+                            _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
+                            continue
+
+                        urnas_processadas += 1
+                        batch_count += 1
+                        if batch_count >= 50:
+                            try:
+                                db.commit()
+                            except Exception:
+                                try:
+                                    db.rollback()
+                                except Exception:
+                                    pass
+                            batch_count = 0
 
                     if batch_count > 0:
                         try:
@@ -4332,11 +4442,22 @@ def _executar_ingestao_servidor_worker():
                 batch_count = 0
 
         duracao = max(1, int(time.time() - t0))
+        sucesso_op = (urnas_novas > 0 or urnas_duplicadas > 0)
+        status_txt = "CONCLUIDO" if sucesso_op else ("ERRO" if _STATUS_INGESTAO_LOCAL["erros"] else "CONCLUIDO_COM_AVISOS")
+
+        if sucesso_op:
+            msg_final = f"✅ Ingestão Local Concluída! {urnas_novas:,} novas urnas salvas no PostgreSQL em {duracao}s ({urnas_duplicadas:,} já existentes mantidas)."
+        else:
+            if _STATUS_INGESTAO_LOCAL["erros"]:
+                msg_final = f"🚨 Falha na leitura do(s) arquivo(s): {_STATUS_INGESTAO_LOCAL['erros'][0]}"
+            else:
+                msg_final = f"⚠️ Nenhuma seção reconhecida no(s) arquivo(s) .zip (0 urnas detectadas em {duracao}s). Verifique os arquivos dentro do .zip."
+
         finalizar_historico_upload(
             db,
             job_id=job_id,
-            status="CONCLUIDO",
-            mensagem=f"Ingestão local na VPS concluída com sucesso em {duracao}s: {urnas_novas:,} novas urnas salvas, {urnas_duplicadas:,} duplicadas puladas.",
+            status=status_txt,
+            mensagem=msg_final,
             urnas_novas=urnas_novas,
             urnas_duplicadas=urnas_duplicadas,
             uf=",".join(sorted(ufs_detectadas)) if ufs_detectadas else None,
@@ -4345,13 +4466,13 @@ def _executar_ingestao_servidor_worker():
         _STATUS_INGESTAO_LOCAL.update({
             "ativo": False,
             "finalizado": True,
-            "sucesso": True,
+            "sucesso": sucesso_op,
             "progresso_pct": 100,
             "urnas_processadas": urnas_processadas,
             "urnas_novas": urnas_novas,
             "urnas_duplicadas": urnas_duplicadas,
             "tempo_decorrido_s": duracao,
-            "mensagem": f"✅ Ingestão Local Concluída! {urnas_novas:,} novas urnas salvas no PostgreSQL em {duracao}s.",
+            "mensagem": msg_final,
         })
 
     except Exception as exc:
@@ -4442,7 +4563,7 @@ def _executar_complementacao_worker():
                 fpath = os.path.join(root, f)
                 if f.lower().endswith(".zip"):
                     arquivos_zip.append(fpath)
-                elif any(f.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                elif any(f.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                     arquivos_soltos.append(fpath)
 
         if not arquivos_zip and not arquivos_soltos:
@@ -4450,15 +4571,28 @@ def _executar_complementacao_worker():
                 "ativo": False,
                 "finalizado": True,
                 "sucesso": False,
-                "mensagem": f"Nenhum arquivo .zip ou .dat/.jez encontrado em {dir_import}.",
+                "mensagem": f"Nenhum arquivo .zip ou arquivos TSE encontrados em {dir_import}.",
             })
             return
+
+        uf_comp = "DESCONHECIDO"
+        if arquivos_zip:
+            m_uf = re.search(r"[_\-]([A-Za-z]{2})\.zip", arquivos_zip[0], re.IGNORECASE)
+            if m_uf:
+                uf_comp = m_uf.group(1).upper()
+        elif arquivos_soltos:
+            m_uf = re.search(r"([A-Za-z]{2})\d{5}", os.path.basename(arquivos_soltos[0]), re.IGNORECASE)
+            if m_uf:
+                uf_comp = m_uf.group(1).upper()
+
+        ufs_detectadas = set([uf_comp] if uf_comp != "DESCONHECIDO" else [])
 
         criar_historico_upload(
             db,
             job_id=job_id,
             tipo_envio="COMPLEMENTACAO_LOCAL",
             nome_origem="Complementação VPS (1º Turno + Dossiês)",
+            uf=uf_comp,
             total_arquivos=len(arquivos_soltos),
             total_urnas=0,
         )
@@ -4487,31 +4621,62 @@ def _executar_complementacao_worker():
         for zip_path in arquivos_zip:
             try:
                 zip_low = os.path.basename(zip_path).lower()
+                m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.zip", os.path.basename(zip_path), re.IGNORECASE)
+                default_zip_uf = m_zip_uf.group(1).upper() if m_zip_uf else uf_comp
+
                 with zipfile.ZipFile(zip_path, "r") as zf:
-                    namelist = [n for n in zf.namelist() if not n.startswith("__MACOSX")]
+                    namelist = [n for n in zf.namelist() if not n.startswith("__MACOSX") and not n.endswith("/")]
                     grupos_prefixo: dict[str, list[str]] = {}
+                    inner_zips: list[str] = []
+
                     for name in namelist:
                         base = name.split("/")[-1].split("\\")[-1]
-                        if not any(base.lower().endswith(ext) for ext in (".jez", ".dat", ".vsc")):
+                        if not base or base.startswith("."):
+                            continue
+                        if base.lower().endswith(".zip"):
+                            inner_zips.append(name)
+                            continue
+                        if not any(base.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                             continue
                         pref = extrair_prefixo_seccao(base)
                         if pref:
                             grupos_prefixo.setdefault(pref, []).append(name)
 
-                    total_secoes = len(grupos_prefixo)
+                    inner_pacotes: dict[str, dict[str, bytes]] = {}
+                    if inner_zips:
+                        for iz_name in inner_zips:
+                            try:
+                                iz_data = zf.read(iz_name)
+                                with zipfile.ZipFile(io.BytesIO(iz_data)) as iz_zf:
+                                    iz_base = iz_name.split("/")[-1].split("\\")[-1]
+                                    pref_default_iz = extrair_prefixo_seccao(iz_base)
+                                    for iname in iz_zf.namelist():
+                                        if iname.startswith("__MACOSX") or iname.endswith("/"):
+                                            continue
+                                        ibase = iname.split("/")[-1].split("\\")[-1]
+                                        if not any(ibase.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
+                                            continue
+                                        ipref = extrair_prefixo_seccao(ibase) or pref_default_iz
+                                        if ipref:
+                                            inner_pacotes.setdefault(ipref, {})[ibase] = iz_zf.read(iname)
+                            except Exception:
+                                pass
+
+                    total_secoes = len(grupos_prefixo) + len(inner_pacotes)
                     _STATUS_INGESTAO_LOCAL["total_urnas"] += total_secoes
 
                     batch_count = 0
                     for pref, names in grupos_prefixo.items():
                         pref_clean = extrair_prefixo_seccao(pref)
-                        info = extrair_identificacao_arquivo_tse(pref_clean)
+                        info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
                         ch = None
                         if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
                             ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
                         else:
-                            m_geo = re.search(r"([a-zA-Z]{2})[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
+                            m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
                             if m_geo:
-                                ch = f"{m_geo.group(1).upper()}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
+                                uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or default_zip_uf)
+                                ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
 
                         pref_low = pref_clean.lower()
                         turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "_1t" in zip_low or "1turno" in zip_low) else 2
@@ -4576,6 +4741,61 @@ def _executar_complementacao_worker():
                                 "mensagem": f"Complementando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} complementadas com 1ºT/dossiês...",
                             })
 
+                    # Processa pacotes dos inner zips se houver
+                    for pref, pacote in inner_pacotes.items():
+                        pref_clean = extrair_prefixo_seccao(pref)
+                        info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
+                        ch = None
+                        if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
+                            ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
+                        else:
+                            m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
+                            if m_geo:
+                                uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or default_zip_uf)
+                                ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
+
+                        pref_low = pref_clean.lower()
+                        turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "_1t" in zip_low or "1turno" in zip_low) else 2
+
+                        tem_apuracao = (ch, turno_item) in apuracoes_existentes if ch else False
+                        tem_dossie = (ch, turno_item) in dossies_existentes if ch else False
+
+                        if tem_apuracao and tem_dossie:
+                            urnas_duplicadas += 1
+                            urnas_processadas += 1
+                            continue
+
+                        try:
+                            relatorio = analisar_pacote_seccao_tse(pacote)
+                            resumo = relatorio["resumo_consolidacao"]
+                            salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
+                            urnas_novas += 1
+                            if resumo.get("uf"):
+                                ufs_detectadas.add(str(resumo["uf"]).upper().strip())
+                            turno_salvo = int(resumo.get("turno_pacote") or turno_item)
+                            if ch:
+                                apuracoes_existentes.add((ch, turno_salvo))
+                                dossies_existentes.add((ch, turno_salvo))
+                        except Exception as e_sec:
+                            try:
+                                db.rollback()
+                            except Exception:
+                                pass
+                            _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
+                            continue
+
+                        urnas_processadas += 1
+                        batch_count += 1
+                        if batch_count >= 50:
+                            try:
+                                db.commit()
+                            except Exception:
+                                try:
+                                    db.rollback()
+                                except Exception:
+                                    pass
+                            batch_count = 0
+
                     if batch_count > 0:
                         try:
                             db.commit()
@@ -4598,23 +4818,27 @@ def _executar_complementacao_worker():
                 except Exception:
                     pass
             batch_count = 0
+
         delta_tot = max(0.1, time.time() - t0)
+        sucesso_comp = (urnas_novas > 0 or urnas_duplicadas > 0)
+        status_comp_txt = "CONCLUIDO" if sucesso_comp else ("ERRO" if _STATUS_INGESTAO_LOCAL["erros"] else "CONCLUIDO_COM_AVISOS")
+
         finalizar_historico_upload(
             db,
             job_id=job_id,
             urnas_novas=urnas_novas,
-            urnas_atualizadas=0,
             urnas_duplicadas=urnas_duplicadas,
-            status="CONCLUIDO",
+            status=status_comp_txt,
+            uf=",".join(sorted(ufs_detectadas)) if ufs_detectadas else None,
         )
 
         _STATUS_INGESTAO_LOCAL.update({
             "ativo": False,
             "finalizado": True,
-            "sucesso": True,
+            "sucesso": sucesso_comp,
             "progresso_pct": 100,
             "tempo_decorrido_s": int(delta_tot),
-            "mensagem": f"✅ Complementação concluída com sucesso! {urnas_novas:,} urnas enriquecidas com 1º Turno, dossiês e boletins no PostgreSQL.",
+            "mensagem": f"✅ Complementação concluída com sucesso! {urnas_novas:,} urnas enriquecidas com 1º Turno, dossiês e boletins no PostgreSQL." if sucesso_comp else "⚠️ Nenhuma urna complementada. Verifique os arquivos no diretório.",
         })
     except Exception as exc_all:
         db.rollback()
