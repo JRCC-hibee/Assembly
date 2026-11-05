@@ -2054,6 +2054,115 @@ o Boletim de Urna (apos encerramento da votacao).
       </div>
     </div>
 
+    <!-- MODAL DE AUDITORIA DE CARGA: URNAS FALTANTES NO 2º TURNO -->
+    <div id="modalAuditoriaCargaFaltantes2T" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4" onclick="fecharModalAuditoriaCargaFaltantes2T(event)">
+      <div class="bg-slate-900 border-2 border-amber-500/70 rounded-2xl max-w-4xl w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+        <!-- Topo -->
+        <div class="flex items-start justify-between border-b border-slate-800 pb-3 flex-shrink-0">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-xl font-bold">
+              🔍
+            </div>
+            <div>
+              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-amber-950 text-amber-300 border border-amber-700 mono">
+                AUDITORIA DE CARGA FORENSE • BATIMENTO 1ºT × 2ºT
+              </span>
+              <h3 class="text-base font-extrabold text-white mt-0.5">
+                Diagnóstico de Integridade da Carga do 2º Turno (Santa Catarina)
+              </h3>
+            </div>
+          </div>
+          <button onclick="fecharModalAuditoriaCargaFaltantes2T()" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition">
+            ✕ Fechar
+          </button>
+        </div>
+
+        <!-- 3 Cards de Resumo -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-shrink-0">
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+            <div class="text-[10px] text-slate-400 font-bold">1º TURNO (100% AUDITADO)</div>
+            <div class="text-lg font-black text-emerald-400 font-mono" id="auditModalUrnas1T">17.326 Urnas</div>
+            <div class="text-[11px] text-slate-300 leading-tight">
+              Flávio: <strong class="text-emerald-300">3.000.020</strong> (100% oficial)<br>
+              Lula: <strong class="text-indigo-300">1.127.168</strong> (100% oficial)
+            </div>
+          </div>
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
+            <div class="text-[10px] text-slate-400 font-bold">2º TURNO NO BANCO (94,66%)</div>
+            <div class="text-lg font-black text-cyan-400 font-mono" id="auditModalUrnas2T">16.402 Urnas</div>
+            <div class="text-[11px] text-slate-300 leading-tight">
+              Flávio: <strong class="text-cyan-300">3.058.179</strong> (69,45%)<br>
+              Lula: <strong class="text-indigo-300">1.345.030</strong> (30,55%)
+            </div>
+          </div>
+          <div class="bg-slate-950 border border-amber-500/40 rounded-xl p-3 space-y-1">
+            <div class="text-[10px] text-amber-400 font-bold">URNAS FALTANTES NO 2ºT</div>
+            <div class="text-lg font-black text-amber-300 font-mono" id="auditModalUrnasFaltam">924 Urnas (5,34%)</div>
+            <div class="text-[11px] text-amber-200/90 leading-tight">
+              Δ Flávio: <strong class="text-amber-300">-161.892 votos</strong><br>
+              Δ Lula: <strong class="text-amber-300">-73.284 votos</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- Explicação Clara -->
+        <div class="p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-xl text-xs space-y-1 flex-shrink-0">
+          <div class="font-bold text-indigo-300 flex items-center gap-1.5">
+            <span>💡</span> <span>Por que os números do 2º Turno estão abaixo do oficial (G1/TSE)?</span>
+          </div>
+          <p class="text-slate-300 text-[11px] leading-relaxed">
+            O total oficial de Santa Catarina (100% apurado) é de <strong>3.220.071 votos</strong> para Flávio Bolsonaro em <strong>17.326 seções</strong>. Como a base de dados do 2º Turno atualmente contém <strong>16.402 seções</strong>, o resultado de <strong>3.058.179 votos</strong> está rigorosamente correto para as urnas carregadas. Faltam ser ingeridas apenas as <strong>924 seções</strong> restantes listadas abaixo para totalizar 100% do estado.
+          </p>
+        </div>
+
+        <!-- Tabela com Scroll das Cidades e Zonas Afetadas -->
+        <div class="flex-1 overflow-y-auto border border-slate-800 rounded-xl bg-slate-950 p-2 space-y-2 min-h-[160px]">
+          <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2">
+            Zonas e Municípios com Seções Faltantes no 2º Turno:
+          </div>
+          <table class="w-full text-xs text-left">
+            <thead class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-950">
+              <tr>
+                <th class="py-1 px-2">Município</th>
+                <th class="py-1 px-2 text-center">Zona</th>
+                <th class="py-1 px-2 text-center">Urnas 1ºT</th>
+                <th class="py-1 px-2 text-center">Urnas 2ºT Carregadas</th>
+                <th class="py-1 px-2 text-right text-amber-300">Urnas Faltantes</th>
+              </tr>
+            </thead>
+            <tbody id="auditModalTableBody" class="divide-y divide-slate-900 mono">
+              <tr>
+                <td colspan="5" class="py-4 text-center text-slate-500">Carregando diagnóstico do banco...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Rodapé com Ações -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800 flex-shrink-0">
+          <div class="text-[11px] text-slate-400">
+            Dica: Coloque os arquivos das seções faltantes em <code class="text-amber-300 bg-slate-950 px-1 py-0.5 rounded">/root/tse_import</code> e clique em Complementar.
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick="iniciarComplementacaoDiretaVps(); fecharModalAuditoriaCargaFaltantes2T();"
+              class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs rounded-xl shadow transition inline-flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>⚡</span> <span>Complementar Base Agora</span>
+            </button>
+            <button
+              type="button"
+              onclick="fecharModalAuditoriaCargaFaltantes2T()"
+              class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- MODAL DE HISTÓRICO DE INGESTÃO E AUDITORIA DE UPLOADS (POSTGRESQL AUDIT LOG) -->
     <div id="modalHistoricoUploadsTse" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
       <div class="bg-slate-900 border-2 border-sky-500/80 rounded-2xl max-w-5xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
@@ -4490,6 +4599,61 @@ o Boletim de Urna (apos encerramento da votacao).
       if (m) m.classList.add("hidden");
     }
 
+    async function abrirModalAuditoriaCargaFaltantes2T() {
+      const modal = document.getElementById("modalAuditoriaCargaFaltantes2T");
+      if (!modal) return;
+      modal.classList.remove("hidden");
+
+      const tbody = document.getElementById("auditModalTableBody");
+      if (tbody) {
+        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-cyan-400 animate-pulse">Consultando PostgreSQL em tempo real...</td></tr>`;
+      }
+
+      try {
+        const res = await fetch("/api/tse-reverso/auditoria-faltantes-2t");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (document.getElementById("auditModalUrnas1T")) {
+          document.getElementById("auditModalUrnas1T").textContent = `${data.total_urnas_1t.toLocaleString('pt-BR')} Urnas`;
+        }
+        if (document.getElementById("auditModalUrnas2T")) {
+          document.getElementById("auditModalUrnas2T").textContent = `${data.total_urnas_2t.toLocaleString('pt-BR')} Urnas`;
+        }
+        if (document.getElementById("auditModalUrnasFaltam")) {
+          document.getElementById("auditModalUrnasFaltam").textContent = `${data.urnas_faltantes_2t.toLocaleString('pt-BR')} Urnas (${(100 - data.pct_completude_2t).toFixed(1)}%)`;
+        }
+
+        const rows = data.detalhe_por_zona_municipio || [];
+        if (!tbody) return;
+
+        if (rows.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-emerald-400 font-bold">🎉 Nenhuma urna faltante no 2º Turno! A carga de 100% de Santa Catarina está completa.</td></tr>`;
+          return;
+        }
+
+        tbody.innerHTML = rows.map(r => `
+          <tr class="hover:bg-slate-900/60">
+            <td class="py-1.5 px-2 text-white font-sans font-bold">${r.municipio_nome}</td>
+            <td class="py-1.5 px-2 text-center text-indigo-300 font-mono">${r.zona}</td>
+            <td class="py-1.5 px-2 text-center text-slate-300 font-mono">${r.total_urnas_1t}</td>
+            <td class="py-1.5 px-2 text-center text-cyan-300 font-mono font-bold">${r.total_urnas_2t}</td>
+            <td class="py-1.5 px-2 text-right text-amber-300 font-mono font-extrabold">${r.urnas_faltantes_2t}</td>
+          </tr>
+        `).join("");
+      } catch (err) {
+        if (tbody) {
+          tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-rose-400">Erro ao carregar auditoria: ${err.message}</td></tr>`;
+        }
+      }
+    }
+
+    function fecharModalAuditoriaCargaFaltantes2T(event) {
+      if (event && event.target && event.target.id !== "modalAuditoriaCargaFaltantes2T") return;
+      const modal = document.getElementById("modalAuditoriaCargaFaltantes2T");
+      if (modal) modal.classList.add("hidden");
+    }
+
     async function selecionarArquivoJezManualDaUrna(prefixo) {
       abrirModalEscolhaUploadTse();
     }
@@ -5692,10 +5856,27 @@ o Boletim de Urna (apos encerramento da votacao).
       const compT2Ref = Number(ct.comparecimento_t2 || 0);
       const aptosRef = Number(ct.eleitores_aptos_comparados || 0);
 
+      const urnas1T = Number(cc.urnas_pareadas_bu_1t || ct.urnas_com_bu_1_turno || 0);
+      const urnas2T = Number(cc.urnas_pareadas_bu_2t || ct.urnas_com_bu_2_turno || 0);
+      const faltam2T = Math.max(0, urnas1T - urnas2T);
+
       if (badge) {
-        badge.innerHTML = temBu1T
-          ? `<span class="text-emerald-400 font-bold">✅ ${cc.urnas_pareadas_bu_1t} BU(s)/RDV(s) do 1º Turno pareados automaticamente</span>`
-          : `<span class="text-indigo-300">💡 Digite abaixo os votos do 1ºT (ou suba o BU do 1ºT) para simular a transferência 1ºT → 2ºT</span>`;
+        if (faltam2T > 0 && urnas2T > 0) {
+          badge.innerHTML = `
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-emerald-400 font-bold">✅ ${urnas1T.toLocaleString('pt-BR')} BU(s) do 1ºT</span>
+              <span class="text-slate-500">•</span>
+              <span class="text-amber-300 font-bold">⚠️ 2º Turno: ${urnas2T.toLocaleString('pt-BR')} de ${urnas1T.toLocaleString('pt-BR')} (faltam ${faltam2T.toLocaleString('pt-BR')} urnas — ${((faltam2T/urnas1T)*100).toFixed(1)}%)</span>
+              <button type="button" onclick="abrirModalAuditoriaCargaFaltantes2T()" class="px-2.5 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 rounded-lg text-[11px] font-extrabold cursor-pointer transition shadow-sm inline-flex items-center gap-1">
+                <span>🔍</span> <span>Ver Seções Faltantes</span>
+              </button>
+            </div>
+          `;
+        } else if (temBu1T) {
+          badge.innerHTML = `<span class="text-emerald-400 font-bold">✅ ${urnas1T.toLocaleString('pt-BR')} BU(s)/RDV(s) do 1º e 2º Turno pareados automaticamente (100% Carga Completa)</span>`;
+        } else {
+          badge.innerHTML = `<span class="text-indigo-300">💡 Digite abaixo os votos do 1ºT (ou suba o BU do 1ºT) para simular a transferência 1ºT → 2ºT</span>`;
+        }
       }
 
       // No comparativo forense, exibe ESTRITAMENTE quem disputou o 2º Turno (votos_t2 > 0)

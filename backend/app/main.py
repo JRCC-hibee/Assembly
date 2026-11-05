@@ -56,14 +56,15 @@ from .tse_reverse_analyzer import (
     iniciar_ingestao_servidor_background,
     iniciar_complementacao_servidor_background,
     obter_progresso_ingestao_servidor,
+    obter_auditoria_secoes_faltantes_2t,
     extrair_prefixo_seccao,
     sincronizar_catalogo_com_banco,
     _CATALOGO_MEMORIA,
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-04-rev11"
-SYSTEM_COMMIT = "rev11-fidelidade-flavio-bolsonaro-22"
+SYSTEM_BUILD = "2026-11-04-rev12"
+SYSTEM_COMMIT = "rev12-auditoria-carga-faltantes-2t"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1367,6 +1368,15 @@ def api_tse_reverso_servidor_iniciar_complementacao():
 def api_tse_reverso_servidor_progresso_ingestao():
     """Retorna o progresso em tempo real da ingestão local que está rodando na VPS."""
     return obter_progresso_ingestao_servidor()
+
+
+@app.get("/api/tse-reverso/auditoria-faltantes-2t")
+def api_tse_reverso_auditoria_faltantes_2t(db: Session = Depends(get_db)):
+    """
+    Audita e lista exatamente quais seções e municípios de Santa Catarina (ou outra UF)
+    possuem dados no 1º Turno mas ainda não foram integradas no 2º Turno.
+    """
+    return obter_auditoria_secoes_faltantes_2t(db=db)
 
 
 @app.post("/api/tse-reverso/amostra-pr")

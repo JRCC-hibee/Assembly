@@ -4777,6 +4777,7 @@ def _consolidar_secoes_tse_sql(
         "urnas_com_comparativo_log": int(met_t2.urnas_log) if met_t2 else 0,
         "urnas_com_bu_1_turno": int(bu_t1.urnas_bu) if bu_t1 else 0,
         "urnas_com_bu_2_turno": int(bu_t2.urnas_bu) if bu_t2 else 0,
+        "urnas_faltantes_2_turno": max(0, (int(bu_t1.urnas_bu) if bu_t1 else 0) - (int(bu_t2.urnas_bu) if bu_t2 else 0)),
         "data_1_turno": "04/10/2026",
         "data_2_turno": "25/10/2026",
         "eleitores_aptos_comparados": aptos_comp,
@@ -4851,6 +4852,8 @@ def _consolidar_secoes_tse_sql(
         "comparativo_candidatos": {
             "tem_bu_1_turno": bu_t1 is not None,
             "urnas_pareadas_bu_1t": int(bu_t1.urnas_bu) if bu_t1 else 0,
+            "urnas_pareadas_bu_2t": int(bu_t2.urnas_bu) if bu_t2 else 0,
+            "urnas_faltantes_bu_2t": max(0, (int(bu_t1.urnas_bu) if bu_t1 else 0) - (int(bu_t2.urnas_bu) if bu_t2 else 0)),
             "brancos_t1": brancos_1,
             "brancos_t2": brancos_2,
             "delta_brancos": brancos_2 - brancos_1,
@@ -5552,4 +5555,127 @@ def consolidar_secoes_tse(
             "lista_urnas": lista_urnas_tabela,
         },
     }
+
+
+def obter_auditoria_secoes_faltantes_2t(db=None) -> dict:
+    """
+    Audita a integridade da carga do 2º Turno em comparação com o 1º Turno.
+    Identifica exatamente quais zonas eleitorais e municípios possuem seções do 1º Turno
+    que não têm apuração (BU) do 2º Turno gravada no PostgreSQL.
+    """
+    from .database import SessionLocal, TseSecao, TseApuracaoBU, TseVotoCandidato
+    from sqlalchemy import func, case
+
+    close_db = False
+    if db is None:
+        db = SessionLocal()
+        close_db = True
+
+    try:
+        # 1. Total de seções físicas no banco
+        total_secoes = db.query(func.count(TseSecao.id)).scalar() or 0
+        total_1t = db.query(func.count(TseApuracaoBU.id)).filter(TseApuracaoBU.turno == 1).scalar() or 0
+        total_2t = db.query(func.count(TseApuracaoBU.id)).filter(TseApuracaoBU.turno == 2).scalar() or 0
+        faltantes_total = max(0, total_1t - total_2t)
+
+        # 2. Votos de Presidente computados em cada turno
+        votos_1t_cands = dict(
+            db.query(TseVotoCandidato.numero_candidato, func.sum(TseVotoCandidato.quantidade_votos))
+            .filter(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.turno == 1)
+            .group_by(TseVotoCandidato.numero_candidato)
+            .all()
+        )
+        votos_2t_cands = dict(
+            db.query(TseVotoCandidato.numero_candidato, func.sum(TseVotoCandidato.quantidade_votos))
+            .filter(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.turno == 2)
+            .group_by(TseVotoCandidato.numero_candidato)
+            .all()
+        )
+
+        # 3. Seções faltantes no 2º Turno agrupadas por município e zona
+        bu_2t_subq = db.query(TseApuracaoBU.secao_id).filter(TseApuracaoBU.turno == 2).subquery()
+
+        rows = (
+            db.query(
+                TseSecao.uf,
+                TseSecao.municipio_codigo,
+                TseSecao.municipio_nome,
+                TseSecao.zona,
+                func.count(TseSecao.id).label("total_1t"),
+                func.count(case((bu_2t_subq.c.secao_id.isnot(None), 1), else_=None)).label("total_2t"),
+                func.count(case((bu_2t_subq.c.secao_id.is_(None), 1), else_=None)).label("faltantes_2t"),
+            )
+            .outerjoin(bu_2t_subq, bu_2t_subq.c.secao_id == TseSecao.id)
+            .group_by(TseSecao.uf, TseSecao.municipio_codigo, TseSecao.municipio_nome, TseSecao.zona)
+            .having(func.count(case((bu_2t_subq.c.secao_id.is_(None), 1), else_=None)) > 0)
+            .order_by(func.count(case((bu_2t_subq.c.secao_id.is_(None), 1), else_=None)).desc())
+            .all()
+        )
+
+        detalhe_municipios = [
+            {
+                "uf": r.uf,
+                "municipio_codigo": r.municipio_codigo,
+                "municipio_nome": r.municipio_nome,
+                "zona": f"{int(r.zona):04d}",
+                "total_urnas_1t": int(r.total_1t),
+                "total_urnas_2t": int(r.total_2t),
+                "urnas_faltantes_2t": int(r.faltantes_2t),
+            }
+            for r in rows
+        ]
+
+        # Amostra das primeiras 100 seções individuais que faltam
+        secoes_amostra = (
+            db.query(
+                TseSecao.uf,
+                TseSecao.municipio_codigo,
+                TseSecao.municipio_nome,
+                TseSecao.zona,
+                TseSecao.secao,
+                TseSecao.chave_secao,
+            )
+            .outerjoin(bu_2t_subq, bu_2t_subq.c.secao_id == TseSecao.id)
+            .filter(bu_2t_subq.c.secao_id.is_(None))
+            .order_by(TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao)
+            .limit(100)
+            .all()
+        )
+
+        lista_secoes = [
+            {
+                "uf": s.uf,
+                "municipio_codigo": s.municipio_codigo,
+                "municipio_nome": s.municipio_nome,
+                "zona": f"{int(s.zona):04d}",
+                "secao": f"{int(s.secao):04d}",
+                "chave_secao": s.chave_secao,
+            }
+            for s in secoes_amostra
+        ]
+
+        v2_22 = int(votos_2t_cands.get(22, 0))
+        v2_13 = int(votos_2t_cands.get(13, 0))
+
+        return {
+            "ok": True,
+            "total_urnas_cadastradas": total_secoes,
+            "total_urnas_1t": total_1t,
+            "total_urnas_2t": total_2t,
+            "urnas_faltantes_2t": faltantes_total,
+            "pct_completude_2t": round((total_2t / max(total_1t, 1)) * 100.0, 2),
+            "votos_1t_presidente": {str(k): int(v) for k, v in votos_1t_cands.items()},
+            "votos_2t_presidente": {str(k): int(v) for k, v in votos_2t_cands.items()},
+            "oficial_tse_sc_cand22": 3220071,
+            "oficial_tse_sc_cand13": 1418314,
+            "diferenca_cand22": 3220071 - v2_22,
+            "diferenca_cand13": 1418314 - v2_13,
+            "total_municipios_zonas_afetados": len(detalhe_municipios),
+            "detalhe_por_zona_municipio": detalhe_municipios,
+            "amostra_secoes_faltantes": lista_secoes,
+        }
+    finally:
+        if close_db:
+            db.close()
+
 
