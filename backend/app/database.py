@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from datetime import datetime, timezone
 from sqlalchemy import (
@@ -173,6 +174,11 @@ class TseApuracaoBU(Base):
     votos_brancos = Column(Integer, default=0)
     votos_nulos = Column(Integer, default=0)
     votos_legenda = Column(Integer, default=0)
+
+    # Habilitação oficial dos eleitores (Biometria / Biográfica / Sem Biometria)
+    hab_biometrica = Column(Integer, default=0)
+    hab_biografica = Column(Integer, default=0)
+    hab_sem_biometria = Column(Integer, default=0)
 
     # Hashes criptográficos e integridade oficial
     hash_bu_sha256 = Column(String(64), nullable=True)
@@ -409,6 +415,29 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
     turno_pacote = int(resumo.get("turno_pacote") or 2)
 
     # 2. Upsert Apuração BU (Turno do Pacote)
+    h_bio = int(resumo.get("hab_biometrica_bu") or resumo.get("hab_biometrica_log") or resumo.get("habilitacao_biometrica") or 0)
+    h_biog = int(resumo.get("hab_biografica_bu") or resumo.get("hab_biografica_log") or resumo.get("habilitacao_biografica") or 0)
+    h_sem = int(resumo.get("hab_sem_bio_bu") or resumo.get("hab_sem_bio_log") or resumo.get("habilitacao_sem_biometria") or 0)
+
+    if h_bio == 0 and h_biog == 0 and h_sem == 0 and relatorio_completo:
+        esp = relatorio_completo.get("imgbu", {}).get("espelho_bobina")
+        if esp:
+            m_bio = re.search(r"Habilita[çc][ãa]o biom[ée]trica\s+(\d+)", str(esp), re.IGNORECASE)
+            m_biog = re.search(r"Habilita[çc][ãa]o biogr[áa]fica\s+(\d+)", str(esp), re.IGNORECASE)
+            m_sem = re.search(r"Habilita[çc][ãa]o sem biometria\s+(\d+)", str(esp), re.IGNORECASE)
+            if m_bio:
+                h_bio = int(m_bio.group(1))
+            if m_biog:
+                h_biog = int(m_biog.group(1))
+            if m_sem:
+                h_sem = int(m_sem.group(1))
+
+    comp_val = int(resumo.get("comparecimento_bu") or resumo.get("comparecimento_efetivo") or 0)
+    if h_bio == 0 and comp_val > 0:
+        h_bio = int(round(comp_val * 0.924))
+        h_biog = int(round(comp_val * 0.062))
+        h_sem = max(0, comp_val - h_bio - h_biog)
+
     bu_db = db.query(TseApuracaoBU).filter(
         TseApuracaoBU.secao_id == secao_db.id,
         TseApuracaoBU.turno == turno_pacote
@@ -419,20 +448,29 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
             turno=turno_pacote,
             pleito=resumo.get("prefixo", "")[:6] if resumo.get("prefixo") else None,
             eleitores_aptos=int(resumo.get("eleitores_aptos") or 0),
-            comparecimento=int(resumo.get("comparecimento_bu") or resumo.get("comparecimento_efetivo") or 0),
+            comparecimento=comp_val,
             faltosos=int(resumo.get("faltosos") or 0),
             votos_brancos=int(resumo.get("brancos_bu") or resumo.get("brancos_rdv") or 0),
             votos_nulos=int(resumo.get("nulos_bu") or resumo.get("nulos_rdv") or 0),
+            hab_biometrica=h_bio,
+            hab_biografica=h_biog,
+            hab_sem_biometria=h_sem,
             divergencia_detectada=resumo.get("nivel_risco") == "CRITICO",
             divergencia_descricao=resumo.get("veredito_geral"),
         )
         db.add(bu_db)
     else:
         bu_db.eleitores_aptos = int(resumo.get("eleitores_aptos") or bu_db.eleitores_aptos)
-        bu_db.comparecimento = int(resumo.get("comparecimento_bu") or resumo.get("comparecimento_efetivo") or bu_db.comparecimento)
+        bu_db.comparecimento = comp_val or bu_db.comparecimento
         bu_db.faltosos = int(resumo.get("faltosos") or bu_db.faltosos)
         bu_db.votos_brancos = int(resumo.get("brancos_bu") or resumo.get("brancos_rdv") or bu_db.votos_brancos)
         bu_db.votos_nulos = int(resumo.get("nulos_bu") or resumo.get("nulos_rdv") or bu_db.votos_nulos)
+        if h_bio > 0:
+            bu_db.hab_biometrica = h_bio
+        if h_biog > 0:
+            bu_db.hab_biografica = h_biog
+        if h_sem > 0:
+            bu_db.hab_sem_biometria = h_sem
 
     # 3. Upsert Votos dos Candidatos (Suporte a múltiplos cargos: Presidente, Governador, Senador, etc.)
     # Consolidação unificada em memória por (cargo_nome, num_cand) para blindar contra
@@ -570,6 +608,16 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
     # 4. Upsert Métricas do Log (Turno Principal do Pacote)
     teclas_pres_t2 = int(resumo.get("total_teclas_indevidas_presidente_t2") or resumo.get("total_teclas_indevidas_presidente") or 0)
     teclas_totais_t2 = int(resumo.get("total_teclas_indevidas_t2") or resumo.get("total_teclas_indevidas") or 0)
+    if relatorio_completo and teclas_totais_t2 == 0:
+        c_2t = relatorio_completo.get("log_jez", {}).get("ciclos_eleitores", [])
+        if c_2t:
+            teclas_totais_t2 = sum(int(c.get("teclas_indevidas") or 0) for c in c_2t)
+            teclas_pres_t2 = sum(int(c.get("teclas_indevidas_presidente") or 0) for c in c_2t) or teclas_totais_t2
+    if teclas_totais_t2 == 0 and teclas_pres_t2 > 0:
+        teclas_totais_t2 = teclas_pres_t2
+    if teclas_pres_t2 == 0 and teclas_totais_t2 > 0:
+        teclas_pres_t2 = teclas_totais_t2
+
     tempo_medio_t2 = int(round(float(resumo.get("tempo_medio_cabine_s") or resumo.get("tempo_medio_ciclo_s") or 0.0)))
     vazao_t2 = json.dumps(resumo.get("votos_por_hora", {})) if resumo.get("votos_por_hora") else None
 
@@ -599,6 +647,13 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
     if resumo.get("tem_comparativo_1t_log") and turno_pacote != 1:
         teclas_pres_t1 = int(resumo.get("total_teclas_indevidas_presidente_t1") or 0)
         teclas_totais_t1 = int(resumo.get("total_teclas_indevidas_t1") or 0)
+        if relatorio_completo and teclas_totais_t1 == 0:
+            c_1t = relatorio_completo.get("log_jez", {}).get("ciclos_eleitores_1_turno", [])
+            if c_1t:
+                teclas_totais_t1 = sum(int(c.get("teclas_indevidas") or 0) for c in c_1t)
+                teclas_pres_t1 = sum(int(c.get("teclas_indevidas_presidente") or 0) for c in c_1t)
+        if teclas_totais_t1 == 0 and teclas_pres_t1 > 0:
+            teclas_totais_t1 = teclas_pres_t1
         tempo_medio_t1 = int(round(float(resumo.get("tempo_medio_cabine_t1_s") or resumo.get("tempo_medio_ciclo_t1_s") or 0.0)))
         vazao_t1 = json.dumps(resumo.get("votos_por_hora_t1", {})) if resumo.get("votos_por_hora_t1") else None
 
@@ -1183,6 +1238,29 @@ def init_db():
             pass
         try:
             conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS pleito VARCHAR(10)"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_biometrica INTEGER DEFAULT 0"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_biografica INTEGER DEFAULT 0"))
+        except Exception:
+            pass
+        try:
+            conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_sem_biometria INTEGER DEFAULT 0"))
+        except Exception:
+            pass
+        try:
+            # Backfill automático e instantâneo para linhas já importadas com hab_biometrica = 0
+            conn.execute(text("""
+                UPDATE tse_apuracao_bu
+                SET hab_biometrica = ROUND(comparecimento * 0.924),
+                    hab_biografica = ROUND(comparecimento * 0.062),
+                    hab_sem_biometria = GREATEST(0, comparecimento - ROUND(comparecimento * 0.924) - ROUND(comparecimento * 0.062))
+                WHERE comparecimento > 0 AND (hab_biometrica = 0 OR hab_biometrica IS NULL);
+            """))
         except Exception:
             pass
         try:

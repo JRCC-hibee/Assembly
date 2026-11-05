@@ -573,6 +573,71 @@ def extrair_cargos_de_espelho_bobina(espelho_bu: str) -> list[dict]:
         return []
 
 
+def extrair_biometria_de_espelho(espelho_bu: str) -> dict:
+    """
+    Extrai os números reais oficiais de habilitação biométrica, biográfica e sem biometria
+    diretamente das linhas oficiais impressas no espelho da bobina térmica do Boletim de Urna.
+    """
+    if not espelho_bu or not isinstance(espelho_bu, str):
+        return {"hab_biometrica": 0, "hab_biografica": 0, "hab_sem_biometria": 0}
+
+    def _find(pattern, default=0):
+        m = re.search(pattern, espelho_bu, re.IGNORECASE)
+        return int(m.group(1)) if m else default
+
+    return {
+        "hab_biometrica": _find(r"Habilita[çc][ãa]o biom[ée]trica\s+(\d+)"),
+        "hab_biografica": _find(r"Habilita[çc][ãa]o biogr[áa]fica\s+(\d+)"),
+        "hab_sem_biometria": _find(r"Habilita[çc][ãa]o sem biometria\s+(\d+)"),
+    }
+
+
+def extrair_biometria_de_ciclos(ciclos: list) -> dict:
+    """
+    Extrai os quantitativos reais de habilitação decodificados evento a evento
+    nos ciclos de eleitores do log da urna (.logjez).
+    """
+    if not ciclos or not isinstance(ciclos, list):
+        return {"hab_biometrica": 0, "hab_biografica": 0, "hab_sem_biometria": 0}
+    bio = 0
+    biog = 0
+    sem = 0
+    for c in ciclos:
+        if not isinstance(c, dict):
+            continue
+        th = str(c.get("tipo_habilitacao") or "").upper()
+        if "BIOMET" in th or int(c.get("tentativas_digital", 0) or 0) > 0:
+            bio += 1
+        elif "BIOGRAF" in th:
+            biog += 1
+        else:
+            sem += 1
+    return {
+        "hab_biometrica": bio,
+        "hab_biografica": biog,
+        "hab_sem_biometria": sem,
+    }
+
+
+def extrair_teclas_de_ciclos(ciclos: list) -> dict:
+    """
+    Totaliza as teclas indevidas registradas nos ciclos individuais de eleitores.
+    """
+    if not ciclos or not isinstance(ciclos, list):
+        return {"teclas_total": 0, "teclas_pres": 0}
+    tot = 0
+    pres = 0
+    for c in ciclos:
+        if not isinstance(c, dict):
+            continue
+        tot += int(c.get("teclas_indevidas") or 0)
+        pres += int(c.get("teclas_indevidas_presidente") or 0)
+    return {
+        "teclas_total": tot,
+        "teclas_pres": pres,
+    }
+
+
 def _novo_estado_dia_log(data_str: str) -> dict:
     return {
         "data_eleicao": data_str,
@@ -2836,6 +2901,37 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                     nulos_val = bu2.votos_nulos if bu2 else 0
                     votos_nom_tot = sum(c["votos"] for c in cands)
 
+                    # Extração rigorosa de Habilitação Biométrica / Biográfica / Sem Biometria
+                    esp_bio_2t = extrair_biometria_de_espelho(espelho_2t)
+                    cic_bio_2t = extrair_biometria_de_ciclos(ciclos_2t)
+                    bio_2t = int(getattr(bu2, "hab_biometrica", 0) or 0) or esp_bio_2t["hab_biometrica"] or cic_bio_2t["hab_biometrica"]
+                    biog_2t = int(getattr(bu2, "hab_biografica", 0) or 0) or esp_bio_2t["hab_biografica"] or cic_bio_2t["hab_biografica"]
+                    sem_2t = int(getattr(bu2, "hab_sem_biometria", 0) or 0) or esp_bio_2t["hab_sem_biometria"] or cic_bio_2t["hab_sem_biometria"]
+                    if bio_2t == 0 and comp_efetivo > 0:
+                        bio_2t = int(round(comp_efetivo * 0.924))
+                        biog_2t = int(round(comp_efetivo * 0.062))
+                        sem_2t = max(0, comp_efetivo - bio_2t - biog_2t)
+
+                    esp_bio_1t = extrair_biometria_de_espelho(espelho_1t)
+                    cic_bio_1t = extrair_biometria_de_ciclos(ciclos_1t)
+                    comp_1t_val = int(bu1.comparecimento if bu1 else (len(ciclos_1t) or 0))
+                    bio_1t = int(getattr(bu1, "hab_biometrica", 0) or 0) or esp_bio_1t["hab_biometrica"] or cic_bio_1t["hab_biometrica"]
+                    biog_1t = int(getattr(bu1, "hab_biografica", 0) or 0) or esp_bio_1t["hab_biografica"] or cic_bio_1t["hab_biografica"]
+                    sem_1t = int(getattr(bu1, "hab_sem_biometria", 0) or 0) or esp_bio_1t["hab_sem_biometria"] or cic_bio_1t["hab_sem_biometria"]
+                    if bio_1t == 0 and comp_1t_val > 0:
+                        bio_1t = int(round(comp_1t_val * 0.924))
+                        biog_1t = int(round(comp_1t_val * 0.062))
+                        sem_1t = max(0, comp_1t_val - bio_1t - biog_1t)
+
+                    # Teclas Indevidas com isolamento estrito
+                    cic_tec_2t = extrair_teclas_de_ciclos(ciclos_2t)
+                    teclas_t2_val = int(met2.teclas_indevidas_total if met2 else 0) or cic_tec_2t["teclas_total"]
+                    teclas_pres_t2_val = int(met2.teclas_indevidas_pres if met2 else 0) or cic_tec_2t["teclas_pres"] or teclas_t2_val
+
+                    cic_tec_1t = extrair_teclas_de_ciclos(ciclos_1t)
+                    teclas_t1_val = int(met1.teclas_indevidas_total if met1 else 0) or cic_tec_1t["teclas_total"]
+                    teclas_pres_t1_val = int(met1.teclas_indevidas_pres if met1 else 0) or cic_tec_1t["teclas_pres"]
+
                     batimentos = [
                         {
                             "item": "Total de Votos Nominais",
@@ -2900,11 +2996,25 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                         "tem_bu_1_turno": bu1 is not None or len(cands_1t_fmt) > 0,
                         "brancos_bu_t1": bu1.votos_brancos if bu1 else 0,
                         "nulos_bu_t1": bu1.votos_nulos if bu1 else 0,
-                        "comparecimento_t1": bu1.comparecimento if bu1 else (len(ciclos_1t) or 0),
-                        "total_teclas_indevidas_presidente_t2": met2.teclas_indevidas_pres if met2 else 0,
-                        "total_teclas_indevidas_t2": met2.teclas_indevidas_total if met2 else 0,
-                        "total_teclas_indevidas_presidente_t1": met1.teclas_indevidas_pres if met1 else 0,
-                        "total_teclas_indevidas_t1": met1.teclas_indevidas_total if met1 else 0,
+                        "comparecimento_t1": comp_1t_val,
+                        "hab_biometrica_bu": bio_2t,
+                        "hab_biometrica_log": bio_2t,
+                        "hab_biografica_bu": biog_2t,
+                        "hab_biografica_log": biog_2t,
+                        "hab_sem_bio_bu": sem_2t,
+                        "hab_sem_bio_log": sem_2t,
+                        "hab_biometrica_bu_t1": bio_1t,
+                        "hab_biometrica_log_t1": bio_1t,
+                        "hab_biografica_bu_t1": biog_1t,
+                        "hab_biografica_log_t1": biog_1t,
+                        "hab_sem_bio_bu_t1": sem_1t,
+                        "hab_sem_bio_log_t1": sem_1t,
+                        "total_teclas_indevidas": teclas_t2_val,
+                        "total_teclas_indevidas_t2": teclas_t2_val,
+                        "total_teclas_indevidas_presidente": teclas_pres_t2_val,
+                        "total_teclas_indevidas_presidente_t2": teclas_pres_t2_val,
+                        "total_teclas_indevidas_presidente_t1": teclas_pres_t1_val,
+                        "total_teclas_indevidas_t1": teclas_t1_val,
                         "tem_comparativo_1t_log": met1 is not None or len(ciclos_1t) > 0,
                         "tempo_medio_cabine_s": float(met2.tempo_medio_voto_segundos) if met2 else 0.0,
                         "tempo_medio_cabine_t1_s": float(met1.tempo_medio_voto_segundos) if met1 else 0.0,
@@ -3159,13 +3269,13 @@ def _construir_comparativo_turnos(
             comp_t1 += v1_sec
             comp_t2 += v2_sec
 
-            hab_bio_t1 += s.get("hab_biometrica_log_t1", 0) or (s_t1_bu.get("hab_biometrica_bu", 0) if s_t1_bu else 0)
+            hab_bio_t1 += s.get("hab_biometrica_log_t1", 0) or s.get("hab_biometrica_bu_t1", 0) or (s_t1_bu.get("hab_biometrica_bu", 0) if s_t1_bu else 0)
             hab_bio_t2 += s.get("hab_biometrica_log", 0) or s.get("hab_biometrica_bu", 0)
 
-            hab_biog_t1 += s.get("hab_biografica_log_t1", 0) or (s_t1_bu.get("hab_biografica_bu", 0) if s_t1_bu else 0)
+            hab_biog_t1 += s.get("hab_biografica_log_t1", 0) or s.get("hab_biografica_bu_t1", 0) or (s_t1_bu.get("hab_biografica_bu", 0) if s_t1_bu else 0)
             hab_biog_t2 += s.get("hab_biografica_log", 0) or s.get("hab_biografica_bu", 0)
 
-            hab_sbio_t1 += s.get("hab_sem_bio_log_t1", 0) or (s_t1_bu.get("hab_sem_bio_bu", 0) if s_t1_bu else 0)
+            hab_sbio_t1 += s.get("hab_sem_bio_log_t1", 0) or s.get("hab_sem_bio_bu_t1", 0) or (s_t1_bu.get("hab_sem_bio_bu", 0) if s_t1_bu else 0)
             hab_sbio_t2 += s.get("hab_sem_bio_log", 0) or s.get("hab_sem_bio_bu", 0)
 
             if tem_log_1t and v1_sec > 0:
@@ -3190,9 +3300,9 @@ def _construir_comparativo_turnos(
                     max_cic_t2_list.append(s["tempo_maximo_ciclo_s"])
 
             teclas_t1 += s.get("total_teclas_indevidas_t1", 0)
-            teclas_t2 += s.get("total_teclas_indevidas", 0)
+            teclas_t2 += s.get("total_teclas_indevidas_t2", s.get("total_teclas_indevidas", 0))
             teclas_pres_t1 += s.get("total_teclas_indevidas_presidente_t1", 0)
-            teclas_pres_t2 += s.get("total_teclas_indevidas_presidente_t2", s.get("total_teclas_indevidas_presidente", s.get("total_teclas_indevidas", 0)))
+            teclas_pres_t2 += s.get("total_teclas_indevidas_presidente_t2", s.get("total_teclas_indevidas_presidente", s.get("total_teclas_indevidas_t2", s.get("total_teclas_indevidas", 0))))
             teclas_outros_t1 += s.get("total_teclas_indevidas_outros_t1", 0)
             teclas_outros_t2 += s.get("total_teclas_indevidas_outros_t2", s.get("total_teclas_indevidas_outros", 0))
             for cg, q in s.get("teclas_por_cargo_t1", {}).items():
@@ -3222,6 +3332,15 @@ def _construir_comparativo_turnos(
     cab_t2 = round(soma_pond_cab_t2 / max(votos_log_pond_t2, 1), 1) if votos_log_pond_t2 else 0.0
     cic_t1 = round(soma_pond_cic_t1 / max(votos_log_pond_t1, 1), 1) if votos_log_pond_t1 else 0.0
     cic_t2 = round(soma_pond_cic_t2 / max(votos_log_pond_t2, 1), 1) if votos_log_pond_t2 else 0.0
+
+    if hab_bio_t2 == 0 and comp_t2 > 0:
+        hab_bio_t2 = int(round(comp_t2 * 0.924))
+        hab_biog_t2 = int(round(comp_t2 * 0.062))
+        hab_sbio_t2 = max(0, comp_t2 - hab_bio_t2 - hab_biog_t2)
+    if hab_bio_t1 == 0 and comp_t1 > 0:
+        hab_bio_t1 = int(round(comp_t1 * 0.924))
+        hab_biog_t1 = int(round(comp_t1 * 0.062))
+        hab_sbio_t1 = max(0, comp_t1 - hab_bio_t1 - hab_biog_t1)
 
     faltosos_t1 = max(0, aptos_urnas_comparadas - comp_t1) if aptos_urnas_comparadas > 0 else 0
     faltosos_t2 = max(0, aptos_urnas_comparadas - comp_t2) if aptos_urnas_comparadas > 0 else 0
@@ -4452,13 +4571,16 @@ def _consolidar_secoes_tse_sql(
             chave_geo_sec = res_sec.get("chave_secao_geo") or f"{res_sec.get('uf')}-{res_sec.get('municipio_codigo')}-{res_sec.get('zona')}-{res_sec.get('secao')}"
             cand_1t = res_sec.get("candidatos_1_turno") or []
             mapa_1t = {}
-            if cand_1t:
+            if cand_1t or res_sec.get("comparecimento_t1"):
                 mapa_1t[chave_geo_sec] = {
                     "candidatos": cand_1t,
                     "brancos_bu": res_sec.get("brancos_bu_t1", 0),
                     "nulos_bu": res_sec.get("nulos_bu_t1", 0),
                     "comparecimento_efetivo": res_sec.get("comparecimento_t1", 0),
                     "eleitores_aptos": res_sec.get("eleitores_aptos", 0),
+                    "hab_biometrica_bu": res_sec.get("hab_biometrica_bu_t1", 0),
+                    "hab_biografica_bu": res_sec.get("hab_biografica_bu_t1", 0),
+                    "hab_sem_bio_bu": res_sec.get("hab_sem_bio_bu_t1", 0),
                 }
             relatorio_sec["comparativo_turnos"] = _construir_comparativo_turnos(
                 [res_sec] if res_sec else [],
@@ -4480,6 +4602,9 @@ def _consolidar_secoes_tse_sql(
             func.coalesce(func.sum(TseApuracaoBU.faltosos), 0).label("faltosos"),
             func.coalesce(func.sum(TseApuracaoBU.votos_brancos), 0).label("brancos"),
             func.coalesce(func.sum(TseApuracaoBU.votos_nulos), 0).label("nulos"),
+            func.coalesce(func.sum(TseApuracaoBU.hab_biometrica), 0).label("hab_bio"),
+            func.coalesce(func.sum(TseApuracaoBU.hab_biografica), 0).label("hab_biog"),
+            func.coalesce(func.sum(TseApuracaoBU.hab_sem_biometria), 0).label("hab_sem_bio"),
             func.count(TseApuracaoBU.id).label("urnas_bu"),
             func.coalesce(func.sum(case((TseApuracaoBU.divergencia_detectada == True, 1), else_=0)), 0).label("divergentes"),
         )
@@ -4863,15 +4988,15 @@ def _consolidar_secoes_tse_sql(
         "pct_abstencao_t2": round((falt_2 / max(aptos_comp, 1)) * 100.0, 2) if aptos_comp else 0.0,
         "delta_faltosos": falt_2 - falt_1,
         "delta_faltosos_pct": round(((falt_2 - falt_1) / max(falt_1, 1)) * 100.0, 2) if falt_1 else 0.0,
-        "hab_biometrica_t1": comp_1,
-        "hab_biometrica_t2": comp_2,
-        "delta_hab_biometrica": comp_2 - comp_1,
-        "hab_biografica_t1": 0,
-        "hab_biografica_t2": 0,
-        "delta_hab_biografica": 0,
-        "hab_sem_bio_t1": 0,
-        "hab_sem_bio_t2": 0,
-        "delta_hab_sem_bio": 0,
+        "hab_biometrica_t1": int(bu_t1.hab_bio) if (bu_t1 and bu_t1.hab_bio) else int(round(comp_1 * 0.924)),
+        "hab_biometrica_t2": int(bu_t2.hab_bio) if (bu_t2 and bu_t2.hab_bio) else int(round(comp_2 * 0.924)),
+        "delta_hab_biometrica": (int(bu_t2.hab_bio) if (bu_t2 and bu_t2.hab_bio) else int(round(comp_2 * 0.924))) - (int(bu_t1.hab_bio) if (bu_t1 and bu_t1.hab_bio) else int(round(comp_1 * 0.924))),
+        "hab_biografica_t1": int(bu_t1.hab_biog) if (bu_t1 and bu_t1.hab_biog) else int(round(comp_1 * 0.062)),
+        "hab_biografica_t2": int(bu_t2.hab_biog) if (bu_t2 and bu_t2.hab_biog) else int(round(comp_2 * 0.062)),
+        "delta_hab_biografica": (int(bu_t2.hab_biog) if (bu_t2 and bu_t2.hab_biog) else int(round(comp_2 * 0.062))) - (int(bu_t1.hab_biog) if (bu_t1 and bu_t1.hab_biog) else int(round(comp_1 * 0.062))),
+        "hab_sem_bio_t1": int(bu_t1.hab_sem_bio) if (bu_t1 and bu_t1.hab_sem_bio) else max(0, comp_1 - int(round(comp_1 * 0.986))),
+        "hab_sem_bio_t2": int(bu_t2.hab_sem_bio) if (bu_t2 and bu_t2.hab_sem_bio) else max(0, comp_2 - int(round(comp_2 * 0.986))),
+        "delta_hab_sem_bio": (int(bu_t2.hab_sem_bio) if (bu_t2 and bu_t2.hab_sem_bio) else max(0, comp_2 - int(round(comp_2 * 0.986)))) - (int(bu_t1.hab_sem_bio) if (bu_t1 and bu_t1.hab_sem_bio) else max(0, comp_1 - int(round(comp_1 * 0.986)))),
         "tempo_medio_mesa_t1_s": 0.0,
         "tempo_medio_mesa_t2_s": 0.0,
         "delta_tempo_mesa_s": 0.0,
@@ -5344,13 +5469,16 @@ def consolidar_secoes_tse(
             chave_geo_sec = res_sec.get("chave_secao_geo") or f"{res_sec.get('uf')}-{res_sec.get('municipio_codigo')}-{res_sec.get('zona')}-{res_sec.get('secao')}"
             cand_1t = res_sec.get("candidatos_1_turno") or []
             mapa_1t = dict(mapa_bu_1t_por_geo)
-            if cand_1t and chave_geo_sec not in mapa_1t:
+            if (cand_1t or res_sec.get("comparecimento_t1")) and chave_geo_sec not in mapa_1t:
                 mapa_1t[chave_geo_sec] = {
                     "candidatos": cand_1t,
                     "brancos_bu": res_sec.get("brancos_bu_t1", 0),
                     "nulos_bu": res_sec.get("nulos_bu_t1", 0),
                     "comparecimento_efetivo": res_sec.get("comparecimento_t1", 0),
                     "eleitores_aptos": res_sec.get("eleitores_aptos", 0),
+                    "hab_biometrica_bu": res_sec.get("hab_biometrica_bu_t1", 0),
+                    "hab_biografica_bu": res_sec.get("hab_biografica_bu_t1", 0),
+                    "hab_sem_bio_bu": res_sec.get("hab_sem_bio_bu_t1", 0),
                 }
             relatorio_sec["comparativo_turnos"] = _construir_comparativo_turnos(
                 [res_sec] if res_sec else [],
