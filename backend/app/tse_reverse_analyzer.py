@@ -5016,11 +5016,12 @@ def _consolidar_secoes_tse_sql(
                     "hab_biografica_bu": res_sec.get("hab_biografica_bu_t1", 0),
                     "hab_sem_bio_bu": res_sec.get("hab_sem_bio_bu_t1", 0),
                 }
-            relatorio_sec["comparativo_turnos"] = _construir_comparativo_turnos(
-                [res_sec] if res_sec else [],
-                mapa_1t,
-                escopo_label="SECAO_INDIVIDUAL",
-            )
+            if "comparativo_turnos" not in relatorio_sec or not relatorio_sec["comparativo_turnos"]:
+                relatorio_sec["comparativo_turnos"] = _construir_comparativo_turnos(
+                    [res_sec] if res_sec else [],
+                    mapa_1t,
+                    escopo_label="SECAO_INDIVIDUAL",
+                )
             return {
                 "modo_visao": "SECAO_INDIVIDUAL",
                 "hierarquia": hierarquia,
@@ -5937,11 +5938,12 @@ def consolidar_secoes_tse(
                     "hab_biografica_bu": res_sec.get("hab_biografica_bu_t1", 0),
                     "hab_sem_bio_bu": res_sec.get("hab_sem_bio_bu_t1", 0),
                 }
-            relatorio_sec["comparativo_turnos"] = _construir_comparativo_turnos(
-                [res_sec] if res_sec else [],
-                mapa_1t,
-                escopo_label="SECAO_INDIVIDUAL",
-            )
+            if "comparativo_turnos" not in relatorio_sec or not relatorio_sec["comparativo_turnos"]:
+                relatorio_sec["comparativo_turnos"] = _construir_comparativo_turnos(
+                    [res_sec] if res_sec else [],
+                    mapa_1t,
+                    escopo_label="SECAO_INDIVIDUAL",
+                )
             return {
                 "modo_visao": "SECAO_INDIVIDUAL",
                 "hierarquia": hierarquia,
