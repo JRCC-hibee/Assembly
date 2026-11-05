@@ -64,8 +64,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-05-rev18"
-SYSTEM_COMMIT = "rev18-fix-startup-resilience-bad-gateway-protect"
+SYSTEM_BUILD = "2026-11-05-rev19"
+SYSTEM_COMMIT = "rev19-fix-syntax-duplicate-declaration-tab-switch"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",

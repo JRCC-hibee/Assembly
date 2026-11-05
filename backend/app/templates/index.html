@@ -2440,8 +2440,16 @@ o Boletim de Urna (apos encerramento da votacao).
         const tabAuditoria = document.getElementById("tab-tse-reverso");
         if (tabAuditoria) tabAuditoria.classList.remove("hidden");
 
-        atualizarConsolidacaoTse(false);
-        atualizarStatusBancoAuditoria();
+        try {
+          atualizarConsolidacaoTse(false);
+        } catch (eCons) {
+          console.warn("[AUDITORIA] Falha ao atualizar consolidação:", eCons);
+        }
+        try {
+          atualizarStatusBancoAuditoria();
+        } catch (eStat) {
+          console.warn("[AUDITORIA] Falha ao atualizar status do banco:", eStat);
+        }
       } else {
         if (btnSimulador) btnSimulador.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition duration-150 bg-emerald-600 text-white shadow-md shadow-emerald-900/30";
         if (btnAuditoria) btnAuditoria.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-700/50";
@@ -5611,7 +5619,6 @@ o Boletim de Urna (apos encerramento da votacao).
       const meta = log.metadados_urna || {};
       const resLog = log.resumo_votacao_log || {};
       const rdv = data.rdv || {};
-      const resCons = data.resumo_consolidacao || {};
       window.currentTsePrefixoAtivo = data.prefixo_seccao || window.arvoreTseState?.secao || "";
 
       const munNome = bu.municipio_nome
