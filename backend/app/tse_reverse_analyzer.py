@@ -4060,7 +4060,9 @@ def _get_tse_import_dir() -> str:
 
 
 def obter_status_pasta_importacao_servidor() -> dict:
-    """Escaneia a pasta de importação da VPS e retorna arquivos encontrados."""
+    """Escaneia a pasta de importação da VPS e retorna arquivos encontrados com diagnóstico forense."""
+    from .tse_archive_helper import diagnosticar_arquivo_compactado, EXTENSOES_COMPACTADAS_VALIDAS
+
     dir_import = _get_tse_import_dir()
     arquivos_zip = []
     total_arquivos_soltos = 0
@@ -4075,13 +4077,22 @@ def obter_status_pasta_importacao_servidor() -> dict:
                 try:
                     sz = os.path.getsize(fpath)
                     tamanho_total_bytes += sz
-                    if f.lower().endswith(".zip"):
+                    f_low = f.lower()
+                    if any(f_low.endswith(ext) for ext in EXTENSOES_COMPACTADAS_VALIDAS):
+                        diag = diagnosticar_arquivo_compactado(fpath)
                         arquivos_zip.append({
                             "nome": f,
                             "caminho_rel": os.path.relpath(fpath, dir_import),
                             "tamanho_mb": round(sz / (1024 * 1024), 2),
+                            "formato": diag.get("formato", "ZIP"),
+                            "status": diag.get("status", "OK"),
+                            "valido": diag.get("valido", False),
+                            "mensagem_diagnostico": diag.get("mensagem_diagnostico", ""),
+                            "acao_recomendada": diag.get("acao_recomendada", ""),
+                            "tem_7z": diag.get("tem_7z_sistema", False),
+                            "tem_unzip": diag.get("tem_unzip_sistema", False),
                         })
-                    elif any(f.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
+                    elif any(f_low.endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                         total_arquivos_soltos += 1
                 except Exception:
                     pass
@@ -4159,6 +4170,8 @@ def _executar_ingestao_servidor_worker():
     job_id = f"srv_{int(time.time())}"
 
     try:
+        from .tse_archive_helper import extrair_arquivo_tse_resiliente, EXTENSOES_COMPACTADAS_VALIDAS
+
         arquivos_zip = []
         arquivos_soltos = []
         for root, _, files in os.walk(dir_import):
@@ -4166,9 +4179,10 @@ def _executar_ingestao_servidor_worker():
                 if f.startswith("."):
                     continue
                 fpath = os.path.join(root, f)
-                if f.lower().endswith(".zip"):
+                f_low = f.lower()
+                if any(f_low.endswith(ext) for ext in EXTENSOES_COMPACTADAS_VALIDAS):
                     arquivos_zip.append(fpath)
-                elif any(f.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
+                elif any(f_low.endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                     arquivos_soltos.append(fpath)
 
         if not arquivos_zip and not arquivos_soltos:
@@ -4176,14 +4190,14 @@ def _executar_ingestao_servidor_worker():
                 "ativo": False,
                 "finalizado": True,
                 "sucesso": False,
-                "mensagem": f"Nenhum arquivo .zip ou arquivos TSE encontrados em {dir_import}.",
+                "mensagem": f"Nenhum arquivo compactado ou arquivos TSE encontrados em {dir_import}.",
             })
             return
 
         origem_desc = f"VPS Local ({os.path.basename(arquivos_zip[0])})" if arquivos_zip else "VPS Local (Arquivos Avulsos)"
         uf_inicial = "DESCONHECIDO"
         if arquivos_zip:
-            m_uf = re.search(r"[_\-]([A-Za-z]{2})\.zip", arquivos_zip[0], re.IGNORECASE)
+            m_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(arquivos_zip[0]), re.IGNORECASE)
             if m_uf:
                 uf_inicial = m_uf.group(1).upper()
         elif arquivos_soltos:
@@ -4214,178 +4228,93 @@ def _executar_ingestao_servidor_worker():
         urnas_novas = 0
         urnas_duplicadas = 0
 
-        # 1. Processamento de Arquivos .ZIP
+        # 1. Processamento de Arquivos Compactados (.ZIP, .7Z, .TAR, etc.)
         for zip_path in arquivos_zip:
+            temp_extract_dir = None
             try:
                 zip_low = os.path.basename(zip_path).lower()
-                m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.zip", os.path.basename(zip_path), re.IGNORECASE)
+                m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(zip_path), re.IGNORECASE)
                 default_zip_uf = m_zip_uf.group(1).upper() if m_zip_uf else uf_inicial
 
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    namelist = [n for n in zf.namelist() if not n.startswith("__MACOSX") and not n.endswith("/")]
-                    grupos_prefixo: dict[str, list[str]] = {}
-                    inner_zips: list[str] = []
+                _STATUS_INGESTAO_LOCAL["mensagem"] = f"Descompactando e indexando {os.path.basename(zip_path)} de forma resiliente..."
 
-                    for name in namelist:
-                        base = name.split("/")[-1].split("\\")[-1]
-                        if not base or base.startswith("."):
-                            continue
-                        if base.lower().endswith(".zip"):
-                            inner_zips.append(name)
-                            continue
-                        if not any(base.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
-                            continue
-                        pref = extrair_prefixo_seccao(base)
-                        if pref:
-                            grupos_prefixo.setdefault(pref, []).append(name)
+                temp_extract_dir = tempfile.mkdtemp(prefix="tse_ingest_")
+                res_ext = extrair_arquivo_tse_resiliente(zip_path, temp_extract_dir)
 
-                    inner_pacotes: dict[str, dict[str, bytes]] = {}
-                    if inner_zips:
-                        for iz_name in inner_zips:
-                            try:
-                                iz_data = zf.read(iz_name)
-                                with zipfile.ZipFile(io.BytesIO(iz_data)) as iz_zf:
-                                    iz_base = iz_name.split("/")[-1].split("\\")[-1]
-                                    pref_default_iz = extrair_prefixo_seccao(iz_base)
-                                    for iname in iz_zf.namelist():
-                                        if iname.startswith("__MACOSX") or iname.endswith("/"):
-                                            continue
-                                        ibase = iname.split("/")[-1].split("\\")[-1]
-                                        if not any(ibase.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
-                                            continue
-                                        ipref = extrair_prefixo_seccao(ibase) or pref_default_iz
-                                        if ipref:
-                                            inner_pacotes.setdefault(ipref, {})[ibase] = iz_zf.read(iname)
-                            except Exception as e_iz:
-                                print(f"[ZIP] Aviso ao ler inner zip {iz_name}: {e_iz}")
+                if not res_ext["sucesso"] or res_ext["total_arquivos"] == 0:
+                    diag = res_ext.get("diagnostico", {})
+                    msg_erro = diag.get("mensagem_diagnostico") or f"Falha ao ler {os.path.basename(zip_path)}"
+                    acao = diag.get("acao_recomendada") or "Verifique a integridade do arquivo."
+                    _STATUS_INGESTAO_LOCAL["erros"].append(f"{os.path.basename(zip_path)}: {msg_erro} — {acao}")
+                    continue
 
-                    total_secoes = len(grupos_prefixo) + len(inner_pacotes)
-                    _STATUS_INGESTAO_LOCAL["total_urnas"] += total_secoes
+                if res_ext["metodo_usado"] == "STREAMING_RESILIENTE":
+                    _STATUS_INGESTAO_LOCAL["erros"].append(
+                        f"Aviso ({os.path.basename(zip_path)}): Fim de arquivo incompleto, mas {res_ext['total_arquivos']} arquivos foram recuperados pelo extrator resiliente!"
+                    )
 
-                    batch_count = 0
-                    for pref, names in grupos_prefixo.items():
-                        pref_clean = extrair_prefixo_seccao(pref)
-                        info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
-                        ch = None
-                        if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
-                            ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
-                        else:
-                            m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
-                            if m_geo:
-                                uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or default_zip_uf)
-                                ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
+                grupos_prefixo: dict[str, dict[str, str]] = {}
+                for f_base in os.listdir(temp_extract_dir):
+                    if not any(f_base.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
+                        continue
+                    pref = extrair_prefixo_seccao(f_base)
+                    if pref:
+                        grupos_prefixo.setdefault(pref, {})[f_base] = os.path.join(temp_extract_dir, f_base)
 
-                        pref_low = pref_clean.lower()
-                        turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "_1t" in zip_low or "1turno" in zip_low) else 2
+                total_secoes = len(grupos_prefixo)
+                _STATUS_INGESTAO_LOCAL["total_urnas"] += total_secoes
 
-                        if ch and (ch, turno_item) in apuracoes_existentes:
-                            urnas_duplicadas += 1
-                            urnas_processadas += 1
-                            continue
+                batch_count = 0
+                for pref, arquivos_secao in grupos_prefixo.items():
+                    pref_clean = extrair_prefixo_seccao(pref)
+                    info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
+                    ch = None
+                    if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
+                        ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
+                    else:
+                        m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
+                        if m_geo:
+                            uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or default_zip_uf)
+                            ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
 
-                        pacote = {}
-                        for n in names:
-                            base = n.split("/")[-1].split("\\")[-1]
-                            pacote[base] = zf.read(n)
+                    pref_low = pref_clean.lower()
+                    turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "_1t" in zip_low or "1turno" in zip_low) else 2
 
-                        try:
-                            relatorio = analisar_pacote_seccao_tse(pacote)
-                            resumo = relatorio["resumo_consolidacao"]
-                            salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
-                            urnas_novas += 1
-                            if resumo.get("uf"):
-                                ufs_detectadas.add(str(resumo["uf"]).upper().strip())
-                            turno_salvo = int(resumo.get("turno_pacote") or turno_item)
-                            if ch:
-                                apuracoes_existentes.add((ch, turno_salvo))
-                        except Exception as e_sec:
-                            try:
-                                db.rollback()
-                            except Exception:
-                                pass
-                            _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
-                            continue
-
+                    if ch and (ch, turno_item) in apuracoes_existentes:
+                        urnas_duplicadas += 1
                         urnas_processadas += 1
-                        batch_count += 1
+                        continue
 
-                        if batch_count >= 50:
-                            try:
-                                db.commit()
-                            except Exception as e_cmt:
-                                try:
-                                    db.rollback()
-                                except Exception:
-                                    pass
-                                _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit lote ({pref}): {e_cmt}")
-                            batch_count = 0
-
-                        if urnas_processadas % 25 == 0:
-                            tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
-                            pct = min(99, int((urnas_processadas / tot) * 98) + 2)
-                            delta_s = max(0.1, time.time() - t0)
-                            speed = urnas_processadas / delta_s
-                            _STATUS_INGESTAO_LOCAL.update({
-                                "progresso_pct": pct,
-                                "urnas_processadas": urnas_processadas,
-                                "urnas_novas": urnas_novas,
-                                "urnas_duplicadas": urnas_duplicadas,
-                                "tempo_decorrido_s": int(delta_s),
-                                "mensagem": f"Processando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} novas, {urnas_duplicadas:,} já existentes...",
-                            })
-
-                    # Processa pacotes dos inner zips se houver
-                    for pref, pacote in inner_pacotes.items():
-                        pref_clean = extrair_prefixo_seccao(pref)
-                        info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
-                        ch = None
-                        if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
-                            ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
-                        else:
-                            m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
-                            if m_geo:
-                                uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or default_zip_uf)
-                                ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
-
-                        pref_low = pref_clean.lower()
-                        turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "_1t" in zip_low or "1turno" in zip_low) else 2
-
-                        if ch and (ch, turno_item) in apuracoes_existentes:
-                            urnas_duplicadas += 1
-                            urnas_processadas += 1
-                            continue
-
+                    pacote = {}
+                    for base, f_path in arquivos_secao.items():
                         try:
-                            relatorio = analisar_pacote_seccao_tse(pacote)
-                            resumo = relatorio["resumo_consolidacao"]
-                            salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
-                            urnas_novas += 1
-                            if resumo.get("uf"):
-                                ufs_detectadas.add(str(resumo["uf"]).upper().strip())
-                            turno_salvo = int(resumo.get("turno_pacote") or turno_item)
-                            if ch:
-                                apuracoes_existentes.add((ch, turno_salvo))
-                        except Exception as e_sec:
-                            try:
-                                db.rollback()
-                            except Exception:
-                                pass
-                            _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
-                            continue
+                            with open(f_path, "rb") as fp:
+                                pacote[base] = fp.read()
+                        except Exception:
+                            pass
 
-                        urnas_processadas += 1
-                        batch_count += 1
-                        if batch_count >= 50:
-                            try:
-                                db.commit()
-                            except Exception:
-                                try:
-                                    db.rollback()
-                                except Exception:
-                                    pass
-                            batch_count = 0
+                    try:
+                        relatorio = analisar_pacote_seccao_tse(pacote)
+                        resumo = relatorio["resumo_consolidacao"]
+                        salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
+                        urnas_novas += 1
+                        if resumo.get("uf"):
+                            ufs_detectadas.add(str(resumo["uf"]).upper().strip())
+                        turno_salvo = int(resumo.get("turno_pacote") or turno_item)
+                        if ch:
+                            apuracoes_existentes.add((ch, turno_salvo))
+                    except Exception as e_sec:
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
+                        continue
 
-                    if batch_count > 0:
+                    urnas_processadas += 1
+                    batch_count += 1
+
+                    if batch_count >= 50:
                         try:
                             db.commit()
                         except Exception as e_cmt:
@@ -4393,29 +4322,91 @@ def _executar_ingestao_servidor_worker():
                                 db.rollback()
                             except Exception:
                                 pass
-                            _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit final zip: {e_cmt}")
+                            _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit lote ({pref}): {e_cmt}")
                         batch_count = 0
+
+                    if urnas_processadas % 25 == 0:
+                        tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
+                        pct = min(99, int((urnas_processadas / tot) * 98) + 2)
+                        delta_s = max(0.1, time.time() - t0)
+                        speed = urnas_processadas / delta_s
+                        _STATUS_INGESTAO_LOCAL.update({
+                            "progresso_pct": pct,
+                            "urnas_processadas": urnas_processadas,
+                            "urnas_novas": urnas_novas,
+                            "urnas_duplicadas": urnas_duplicadas,
+                            "tempo_decorrido_s": int(delta_s),
+                            "mensagem": f"Processando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} novas, {urnas_duplicadas:,} já existentes...",
+                        })
+
+                if batch_count > 0:
+                    try:
+                        db.commit()
+                    except Exception as e_cmt:
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit final arquivo: {e_cmt}")
+                    batch_count = 0
             except Exception as e_zip:
-                _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro ao ler zip {zip_path}: {e_zip}")
+                _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro ao processar {os.path.basename(zip_path)}: {e_zip}")
+            finally:
+                if temp_extract_dir and os.path.exists(temp_extract_dir):
+                    try:
+                        shutil.rmtree(temp_extract_dir, ignore_errors=True)
+                    except Exception:
+                        pass
 
         # 2. Processamento de Arquivos Soltos (se houver)
         if arquivos_soltos:
-            grupos_soltos: dict[str, dict[str, bytes]] = {}
+            grupos_soltos: dict[str, dict[str, str]] = {}
             for fpath in arquivos_soltos:
                 base = os.path.basename(fpath)
                 pref = extrair_prefixo_seccao(base)
                 if pref:
-                    with open(fpath, "rb") as fp:
-                        grupos_soltos.setdefault(pref, {})[base] = fp.read()
+                    grupos_soltos.setdefault(pref, {})[base] = fpath
 
             _STATUS_INGESTAO_LOCAL["total_urnas"] += len(grupos_soltos)
             batch_count = 0
-            for pref, pacote in grupos_soltos.items():
+            for pref, arquivos_map in grupos_soltos.items():
+                pref_clean = extrair_prefixo_seccao(pref)
+                info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=uf_inicial)
+                ch = None
+                if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
+                    ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
+                else:
+                    m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
+                    if m_geo:
+                        uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or uf_inicial)
+                        ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
+
+                pref_low = pref_clean.lower()
+                turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "1turno" in pref_low) else 2
+
+                if ch and (ch, turno_item) in apuracoes_existentes:
+                    urnas_duplicadas += 1
+                    urnas_processadas += 1
+                    continue
+
+                pacote = {}
+                for base, fpath in arquivos_map.items():
+                    try:
+                        with open(fpath, "rb") as fp:
+                            pacote[base] = fp.read()
+                    except Exception:
+                        pass
+
                 try:
                     relatorio = analisar_pacote_seccao_tse(pacote)
                     resumo = relatorio["resumo_consolidacao"]
                     salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
                     urnas_novas += 1
+                    if resumo.get("uf"):
+                        ufs_detectadas.add(str(resumo["uf"]).upper().strip())
+                    turno_salvo = int(resumo.get("turno_pacote") or turno_item)
+                    if ch:
+                        apuracoes_existentes.add((ch, turno_salvo))
                 except Exception as e_solto:
                     try:
                         db.rollback()
@@ -4436,6 +4427,20 @@ def _executar_ingestao_servidor_worker():
                             pass
                         _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit soltos ({pref}): {e_cmt}")
                     batch_count = 0
+
+                if urnas_processadas % 25 == 0:
+                    tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
+                    pct = min(99, int((urnas_processadas / tot) * 98) + 2)
+                    delta_s = max(0.1, time.time() - t0)
+                    speed = urnas_processadas / delta_s
+                    _STATUS_INGESTAO_LOCAL.update({
+                        "progresso_pct": pct,
+                        "urnas_processadas": urnas_processadas,
+                        "urnas_novas": urnas_novas,
+                        "urnas_duplicadas": urnas_duplicadas,
+                        "tempo_decorrido_s": int(delta_s),
+                        "mensagem": f"Processando arquivos avulsos: {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s)...",
+                    })
 
             if batch_count > 0:
                 try:
@@ -4560,6 +4565,8 @@ def _executar_complementacao_worker():
     job_id = f"comp_{int(time.time())}"
 
     try:
+        from .tse_archive_helper import extrair_arquivo_tse_resiliente, EXTENSOES_COMPACTADAS_VALIDAS
+
         arquivos_zip = []
         arquivos_soltos = []
         for root, _, files in os.walk(dir_import):
@@ -4567,9 +4574,10 @@ def _executar_complementacao_worker():
                 if f.startswith("."):
                     continue
                 fpath = os.path.join(root, f)
-                if f.lower().endswith(".zip"):
+                f_low = f.lower()
+                if any(f_low.endswith(ext) for ext in EXTENSOES_COMPACTADAS_VALIDAS):
                     arquivos_zip.append(fpath)
-                elif any(f.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
+                elif any(f_low.endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                     arquivos_soltos.append(fpath)
 
         if not arquivos_zip and not arquivos_soltos:
@@ -4583,7 +4591,7 @@ def _executar_complementacao_worker():
 
         uf_comp = "DESCONHECIDO"
         if arquivos_zip:
-            m_uf = re.search(r"[_\-]([A-Za-z]{2})\.zip", arquivos_zip[0], re.IGNORECASE)
+            m_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(arquivos_zip[0]), re.IGNORECASE)
             if m_uf:
                 uf_comp = m_uf.group(1).upper()
         elif arquivos_soltos:
@@ -4625,184 +4633,90 @@ def _executar_complementacao_worker():
         arquivos_zip.sort(key=lambda z: 0 if ("_1t" in z.lower() or "1turno" in z.lower()) else 1)
 
         for zip_path in arquivos_zip:
+            temp_extract_dir = None
             try:
                 zip_low = os.path.basename(zip_path).lower()
-                m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.zip", os.path.basename(zip_path), re.IGNORECASE)
+                m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(zip_path), re.IGNORECASE)
                 default_zip_uf = m_zip_uf.group(1).upper() if m_zip_uf else uf_comp
 
-                with zipfile.ZipFile(zip_path, "r") as zf:
-                    namelist = [n for n in zf.namelist() if not n.startswith("__MACOSX") and not n.endswith("/")]
-                    grupos_prefixo: dict[str, list[str]] = {}
-                    inner_zips: list[str] = []
+                _STATUS_INGESTAO_LOCAL["mensagem"] = f"Descompactando e indexando {os.path.basename(zip_path)} para complementação..."
 
-                    for name in namelist:
-                        base = name.split("/")[-1].split("\\")[-1]
-                        if not base or base.startswith("."):
-                            continue
-                        if base.lower().endswith(".zip"):
-                            inner_zips.append(name)
-                            continue
-                        if not any(base.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
-                            continue
-                        pref = extrair_prefixo_seccao(base)
-                        if pref:
-                            grupos_prefixo.setdefault(pref, []).append(name)
+                temp_extract_dir = tempfile.mkdtemp(prefix="tse_comp_")
+                res_ext = extrair_arquivo_tse_resiliente(zip_path, temp_extract_dir)
 
-                    inner_pacotes: dict[str, dict[str, bytes]] = {}
-                    if inner_zips:
-                        for iz_name in inner_zips:
-                            try:
-                                iz_data = zf.read(iz_name)
-                                with zipfile.ZipFile(io.BytesIO(iz_data)) as iz_zf:
-                                    iz_base = iz_name.split("/")[-1].split("\\")[-1]
-                                    pref_default_iz = extrair_prefixo_seccao(iz_base)
-                                    for iname in iz_zf.namelist():
-                                        if iname.startswith("__MACOSX") or iname.endswith("/"):
-                                            continue
-                                        ibase = iname.split("/")[-1].split("\\")[-1]
-                                        if not any(ibase.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
-                                            continue
-                                        ipref = extrair_prefixo_seccao(ibase) or pref_default_iz
-                                        if ipref:
-                                            inner_pacotes.setdefault(ipref, {})[ibase] = iz_zf.read(iname)
-                            except Exception:
-                                pass
+                if not res_ext["sucesso"] or res_ext["total_arquivos"] == 0:
+                    diag = res_ext.get("diagnostico", {})
+                    msg_erro = diag.get("mensagem_diagnostico") or f"Falha ao ler {os.path.basename(zip_path)}"
+                    acao = diag.get("acao_recomendada") or "Verifique a integridade do arquivo."
+                    _STATUS_INGESTAO_LOCAL["erros"].append(f"{os.path.basename(zip_path)}: {msg_erro} — {acao}")
+                    continue
 
-                    total_secoes = len(grupos_prefixo) + len(inner_pacotes)
-                    _STATUS_INGESTAO_LOCAL["total_urnas"] += total_secoes
+                grupos_prefixo: dict[str, dict[str, str]] = {}
+                for f_base in os.listdir(temp_extract_dir):
+                    if not any(f_base.lower().endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
+                        continue
+                    pref = extrair_prefixo_seccao(f_base)
+                    if pref:
+                        grupos_prefixo.setdefault(pref, {})[f_base] = os.path.join(temp_extract_dir, f_base)
 
-                    batch_count = 0
-                    for pref, names in grupos_prefixo.items():
-                        pref_clean = extrair_prefixo_seccao(pref)
-                        info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
-                        ch = None
-                        if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
-                            ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
-                        else:
-                            m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
-                            if m_geo:
-                                uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or default_zip_uf)
-                                ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
+                total_secoes = len(grupos_prefixo)
+                _STATUS_INGESTAO_LOCAL["total_urnas"] += total_secoes
 
-                        pref_low = pref_clean.lower()
-                        turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "_1t" in zip_low or "1turno" in zip_low) else 2
+                batch_count = 0
+                for pref, arquivos_secao in grupos_prefixo.items():
+                    pref_clean = extrair_prefixo_seccao(pref)
+                    info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
+                    ch = None
+                    if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
+                        ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
+                    else:
+                        m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
+                        if m_geo:
+                            uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or default_zip_uf)
+                            ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
 
-                        tem_apuracao = (ch, turno_item) in apuracoes_existentes if ch else False
-                        tem_dossie = (ch, turno_item) in dossies_existentes if ch else False
+                    pref_low = pref_clean.lower()
+                    turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "_1t" in zip_low or "1turno" in zip_low) else 2
 
-                        if tem_apuracao and tem_dossie:
-                            urnas_duplicadas += 1
-                            urnas_processadas += 1
-                            continue
+                    tem_apuracao = (ch, turno_item) in apuracoes_existentes if ch else False
+                    tem_dossie = (ch, turno_item) in dossies_existentes if ch else False
 
-                        pacote = {}
-                        for n in names:
-                            base = n.split("/")[-1].split("\\")[-1]
-                            pacote[base] = zf.read(n)
-
-                        try:
-                            relatorio = analisar_pacote_seccao_tse(pacote)
-                            resumo = relatorio["resumo_consolidacao"]
-                            salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
-                            urnas_novas += 1
-                            if resumo.get("uf"):
-                                ufs_detectadas.add(str(resumo["uf"]).upper().strip())
-                            turno_salvo = int(resumo.get("turno_pacote") or turno_item)
-                            if ch:
-                                apuracoes_existentes.add((ch, turno_salvo))
-                                dossies_existentes.add((ch, turno_salvo))
-                        except Exception as e_sec:
-                            try:
-                                db.rollback()
-                            except Exception:
-                                pass
-                            _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
-                            continue
-
+                    if tem_apuracao and tem_dossie:
+                        urnas_duplicadas += 1
                         urnas_processadas += 1
-                        batch_count += 1
+                        continue
 
-                        if batch_count >= 50:
-                            try:
-                                db.commit()
-                            except Exception as e_cmt:
-                                try:
-                                    db.rollback()
-                                except Exception:
-                                    pass
-                                _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit lote ({pref}): {e_cmt}")
-                            batch_count = 0
-
-                        if urnas_processadas % 25 == 0:
-                            tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
-                            pct = min(99, int((urnas_processadas / tot) * 98) + 2)
-                            delta_s = max(0.1, time.time() - t0)
-                            speed = urnas_processadas / delta_s
-                            _STATUS_INGESTAO_LOCAL.update({
-                                "progresso_pct": pct,
-                                "urnas_processadas": urnas_processadas,
-                                "urnas_novas": urnas_novas,
-                                "urnas_duplicadas": urnas_duplicadas,
-                                "tempo_decorrido_s": int(delta_s),
-                                "mensagem": f"Complementando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} complementadas com 1ºT/dossiês...",
-                            })
-
-                    # Processa pacotes dos inner zips se houver
-                    for pref, pacote in inner_pacotes.items():
-                        pref_clean = extrair_prefixo_seccao(pref)
-                        info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
-                        ch = None
-                        if info and info.get("municipio_codigo") != "00000" and info.get("secao") != "0000":
-                            ch = f"{info['uf']}_{info['municipio_codigo']}_{int(info['zona']):04d}_{int(info['secao']):04d}"
-                        else:
-                            m_geo = re.search(r"([a-zA-Z]{2})?[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})", pref_clean)
-                            if m_geo:
-                                uf_g = m_geo.group(1).upper() if m_geo.group(1) else (info.get("uf") or default_zip_uf)
-                                ch = f"{uf_g}_{m_geo.group(2)}_{int(m_geo.group(3)):04d}_{int(m_geo.group(4)):04d}"
-
-                        pref_low = pref_clean.lower()
-                        turno_item = 1 if ("o00406" in pref_low or "o03220" in pref_low or "_1t" in pref_low or "_1t" in zip_low or "1turno" in zip_low) else 2
-
-                        tem_apuracao = (ch, turno_item) in apuracoes_existentes if ch else False
-                        tem_dossie = (ch, turno_item) in dossies_existentes if ch else False
-
-                        if tem_apuracao and tem_dossie:
-                            urnas_duplicadas += 1
-                            urnas_processadas += 1
-                            continue
-
+                    pacote = {}
+                    for base, f_path in arquivos_secao.items():
                         try:
-                            relatorio = analisar_pacote_seccao_tse(pacote)
-                            resumo = relatorio["resumo_consolidacao"]
-                            salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
-                            urnas_novas += 1
-                            if resumo.get("uf"):
-                                ufs_detectadas.add(str(resumo["uf"]).upper().strip())
-                            turno_salvo = int(resumo.get("turno_pacote") or turno_item)
-                            if ch:
-                                apuracoes_existentes.add((ch, turno_salvo))
-                                dossies_existentes.add((ch, turno_salvo))
-                        except Exception as e_sec:
-                            try:
-                                db.rollback()
-                            except Exception:
-                                pass
-                            _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
-                            continue
+                            with open(f_path, "rb") as fp:
+                                pacote[base] = fp.read()
+                        except Exception:
+                            pass
 
-                        urnas_processadas += 1
-                        batch_count += 1
-                        if batch_count >= 50:
-                            try:
-                                db.commit()
-                            except Exception:
-                                try:
-                                    db.rollback()
-                                except Exception:
-                                    pass
-                            batch_count = 0
+                    try:
+                        relatorio = analisar_pacote_seccao_tse(pacote)
+                        resumo = relatorio["resumo_consolidacao"]
+                        salvar_resumo_tse_no_banco(db, resumo, relatorio, auto_commit=False)
+                        urnas_novas += 1
+                        if resumo.get("uf"):
+                            ufs_detectadas.add(str(resumo["uf"]).upper().strip())
+                        turno_salvo = int(resumo.get("turno_pacote") or turno_item)
+                        if ch:
+                            apuracoes_existentes.add((ch, turno_salvo))
+                            dossies_existentes.add((ch, turno_salvo))
+                    except Exception as e_sec:
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        _STATUS_INGESTAO_LOCAL["erros"].append(f"{pref}: {e_sec}")
+                        continue
 
-                    if batch_count > 0:
+                    urnas_processadas += 1
+                    batch_count += 1
+
+                    if batch_count >= 50:
                         try:
                             db.commit()
                         except Exception as e_cmt:
@@ -4810,10 +4724,41 @@ def _executar_complementacao_worker():
                                 db.rollback()
                             except Exception:
                                 pass
-                            _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit final zip: {e_cmt}")
+                            _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit lote ({pref}): {e_cmt}")
                         batch_count = 0
+
+                    if urnas_processadas % 25 == 0:
+                        tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
+                        pct = min(99, int((urnas_processadas / tot) * 98) + 2)
+                        delta_s = max(0.1, time.time() - t0)
+                        speed = urnas_processadas / delta_s
+                        _STATUS_INGESTAO_LOCAL.update({
+                            "progresso_pct": pct,
+                            "urnas_processadas": urnas_processadas,
+                            "urnas_novas": urnas_novas,
+                            "urnas_duplicadas": urnas_duplicadas,
+                            "tempo_decorrido_s": int(delta_s),
+                            "mensagem": f"Complementando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} complementadas com 1ºT/dossiês...",
+                        })
+
+                if batch_count > 0:
+                    try:
+                        db.commit()
+                    except Exception as e_cmt:
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+                        _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit final zip: {e_cmt}")
+                    batch_count = 0
             except Exception as e_zip:
-                _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro ao complementar zip {zip_path}: {e_zip}")
+                _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro ao complementar {os.path.basename(zip_path)}: {e_zip}")
+            finally:
+                if temp_extract_dir and os.path.exists(temp_extract_dir):
+                    try:
+                        shutil.rmtree(temp_extract_dir, ignore_errors=True)
+                    except Exception:
+                        pass
 
         if batch_count > 0:
             try:

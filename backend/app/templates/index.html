@@ -1070,8 +1070,8 @@ o Boletim de Urna (apos encerramento da votacao).
         <div class="mt-3 p-3 bg-slate-950/80 border border-emerald-500/30 rounded-xl flex items-start gap-2.5 text-xs text-slate-300">
           <span class="text-base text-emerald-400">⚡</span>
           <div>
-            <strong class="text-emerald-300">Dica de Envio Ultra-Rápido:</strong>
-            Para estados grandes como Santa Catarina (17.536 urnas), <strong>descompacte o arquivo .ZIP no seu computador e envie a pasta aberta</strong> pelo botão <strong><code class="text-emerald-400 font-bold">📂 Subir Pasta Aberta</code></strong>. O navegador lê a pasta instantaneamente, pula com velocidade máxima as <strong>6.133 urnas já salvas no banco</strong> e envia apenas as faltantes em micro-lotes leves de 50 urnas, sem sobrecarregar a memória da VPS e sem risco de travamento!
+            <strong class="text-emerald-300">Alta Disponibilidade e Recuperação Resiliente:</strong>
+            O motor suporta nativamente pacotes <strong class="text-cyan-300">.ZIP</strong>, <strong class="text-cyan-300">.7Z</strong>, arquivos avulsos e até arquivos truncados (caso o SFTP caia antes de 100%). Se preferir velocidade máxima absoluta, você pode descompactar os arquivos no seu computador e subir a pasta aberta pelo botão <strong class="text-emerald-400 font-bold">📂 Subir Pasta Aberta</strong>, ou executar <code class="text-amber-300 bg-slate-900 px-1 py-0.5 rounded">7z x *.zip</code> diretamente no terminal da VPS dentro de <code class="text-amber-300 bg-slate-900 px-1 py-0.5 rounded">/root/tse_import</code>.
           </div>
         </div>
 
@@ -4022,12 +4022,18 @@ o Boletim de Urna (apos encerramento da votacao).
         if (res.ok && data.ok) {
           if (data.pronto_para_processar) {
             if (dotEl) dotEl.className = "w-2 h-2 rounded-full bg-emerald-400";
-            let nomesZips = (data.zips || []).map(z => `${z.nome} (${z.tamanho_mb} MB)`).join(", ");
+            let nomesZips = (data.zips || []).map(z => {
+              let icon = z.status === 'OK' ? '✅' : (z.status === 'TRUNCADO' ? '⚠️' : 'ℹ️');
+              let tag = z.status === 'TRUNCADO'
+                ? '<span class="text-amber-400 font-bold">[FIM INCOMPLETO - AUTO-RECUPERAÇÃO ATIVA]</span>'
+                : (z.formato === '7Z' ? '<span class="text-cyan-300 font-bold">[7-ZIP .7Z]</span>' : '<span class="text-emerald-400 font-bold">[ARQUIVO VÁLIDO]</span>');
+              return `<div>${icon} <strong>${z.nome}</strong> (${z.tamanho_mb} MB) ${tag}</div>`;
+            }).join("");
             if (msgEl) {
-              msgEl.innerHTML = `✅ <strong class="text-emerald-300">${data.total_zips} arquivo(s) .zip</strong> detectados em <code class="text-cyan-300 font-bold">${data.diretorio_host_recomendado}</code>: ${nomesZips || (data.total_arquivos_soltos + ' arquivos avulsos')}. Pronto para processamento!`;
+              msgEl.innerHTML = `✅ <strong class="text-emerald-300">${data.total_zips} pacote(s) detectado(s)</strong> em <code class="text-cyan-300 font-bold">${data.diretorio_host_recomendado}</code>:<br><div class="mt-1 pl-2 border-l-2 border-indigo-500/40 text-[11px] leading-relaxed">${nomesZips || (data.total_arquivos_soltos + ' arquivos avulsos')}</div>`;
             }
             if (pillsEl) pillsEl.classList.remove("hidden");
-            if (zipsEl) zipsEl.textContent = `${data.total_zips} zips (${data.total_arquivos_soltos} avulsos)`;
+            if (zipsEl) zipsEl.textContent = `${data.total_zips} pacotes (${data.total_arquivos_soltos} avulsos)`;
             if (mbEl) mbEl.textContent = `${data.tamanho_total_mb} MB`;
           } else {
             if (dotEl) dotEl.className = "w-2 h-2 rounded-full bg-amber-400";
