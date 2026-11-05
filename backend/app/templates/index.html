@@ -1568,9 +1568,29 @@ o Boletim de Urna (apos encerramento da votacao).
             </div>
 
             <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col items-center">
-              <h3 class="text-sm font-bold text-white w-full mb-3">
-                🧾 Espelho Oficial Limpo do Boletim de Urna (`-imgbu.dat`)
-              </h3>
+              <div class="flex items-center justify-between w-full mb-3 gap-2">
+                <h3 class="text-sm font-bold text-white flex items-center gap-2">
+                  🧾 <span>Boletim de Urna Impresso (Bobina)</span>
+                </h3>
+                <div class="flex items-center gap-1.5" id="tseBobinaTurnoBtns">
+                  <button
+                    type="button"
+                    id="btnBobina1T"
+                    onclick="alternarBobinaTurnoTse(1)"
+                    class="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:text-white transition cursor-pointer"
+                  >
+                    🟣 1º Turno
+                  </button>
+                  <button
+                    type="button"
+                    id="btnBobina2T"
+                    onclick="alternarBobinaTurnoTse(2)"
+                    class="px-2.5 py-1 text-xs font-black rounded-lg bg-blue-600 text-white border border-blue-400 shadow transition cursor-pointer"
+                  >
+                    🔵 2º Turno
+                  </button>
+                </div>
+              </div>
               <pre id="tseEspelhoBuPre" class="thermal-paper mono text-[10px] leading-snug p-4 w-full max-h-96 overflow-y-auto whitespace-pre"></pre>
             </div>
           </div>
@@ -4247,7 +4267,20 @@ o Boletim de Urna (apos encerramento da votacao).
           : "px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 text-slate-300 hover:text-white";
       }
 
-      if (window.lastConsolidadoPayload?.consolidado) {
+      if (typeof alternarBobinaTurnoTse === "function") {
+        alternarBobinaTurnoTse(modo === "1T" ? 1 : 2);
+      }
+      if (typeof alternarTurnoGraficoEleitoresTse === "function" && (window.currentTseCiclos1T?.length || window.currentTseCiclos2T?.length)) {
+        alternarTurnoGraficoEleitoresTse(modo === "1T" ? 1 : 2);
+      }
+
+      if (window.arvoreTseState.secao && window.arvoreTseState.secao !== "CONSOLIDADO") {
+        if (window.lastSecaoIndividualPayload) {
+          renderizarLaudoTseReverso(window.lastSecaoIndividualPayload);
+        } else {
+          atualizarConsolidacaoTse(false);
+        }
+      } else if (window.lastConsolidadoPayload?.consolidado) {
         renderizarVisaoConsolidadaTse(window.lastConsolidadoPayload.consolidado, window.arvoreTseState.hierarquia);
       } else {
         atualizarConsolidacaoTse(false);
@@ -4524,17 +4557,26 @@ o Boletim de Urna (apos encerramento da votacao).
       const payload = await res.json();
       window.lastConsolidadoPayload = payload;
 
-      // Popula dinamicamente os cargos disponíveis retornados pelo banco
-      if (Array.isArray(payload.cargos_disponiveis) && payload.cargos_disponiveis.length > 0) {
-        const selCargo = document.getElementById("selectCargoTse");
-        if (selCargo) {
-          const cargoAtual = st.cargo || "PRESIDENTE";
-          const opts = payload.cargos_disponiveis.map(cg => {
-            const rotulo = cg === "PRESIDENTE" ? "Presidente da República" : (cg.charAt(0) + cg.slice(1).toLowerCase());
-            return `<option value="${cg}" ${cg === cargoAtual ? "selected" : ""}>${rotulo}</option>`;
-          }).join("");
-          selCargo.innerHTML = opts;
-        }
+      // Popula dinamicamente os cargos disponíveis retornados pelo banco mantendo a lista de cargos completa
+      const cargosLista = (Array.isArray(payload.cargos_disponiveis) && payload.cargos_disponiveis.length > 0)
+        ? payload.cargos_disponiveis
+        : ["PRESIDENTE", "GOVERNADOR", "SENADOR", "DEPUTADO FEDERAL", "DEPUTADO ESTADUAL"];
+      const selCargo = document.getElementById("selectCargoTse");
+      if (selCargo) {
+        const cargoAtual = st.cargo || "PRESIDENTE";
+        const rotulosCargos = {
+          "PRESIDENTE": "Presidente da República",
+          "GOVERNADOR": "Governador",
+          "SENADOR": "Senador",
+          "DEPUTADO FEDERAL": "Deputado Federal",
+          "DEPUTADO ESTADUAL": "Deputado Estadual",
+          "DEPUTADO DISTRITAL": "Deputado Distrital"
+        };
+        const opts = cargosLista.map(cg => {
+          const rotulo = rotulosCargos[cg] || (cg.charAt(0) + cg.slice(1).toLowerCase());
+          return `<option value="${cg}" ${cg === cargoAtual ? "selected" : ""}>${rotulo}</option>`;
+        }).join("");
+        selCargo.innerHTML = opts;
       }
 
       const hier = payload.hierarquia || {};
@@ -4584,6 +4626,7 @@ o Boletim de Urna (apos encerramento da votacao).
       popularSeletoresHierarquicosTse(hier);
 
       if (payload.modo_visao === "SECAO_INDIVIDUAL" && payload.secao_individual) {
+        window.lastSecaoIndividualPayload = payload.secao_individual;
         document.getElementById("btnVoltarConsolidado").classList.remove("hidden");
         // Mantém os cards totalizadores por candidato e resumo de Brancos/Nulos/Faltosos SEMPRE visíveis também na urna individual!
         document.getElementById("tsePlacarConsolidadoBox").classList.remove("hidden");
@@ -4591,6 +4634,7 @@ o Boletim de Urna (apos encerramento da votacao).
         document.getElementById("tseIndividualUrnaSection").classList.remove("hidden");
         renderizarLaudoTseReverso(payload.secao_individual);
       } else if (payload.consolidado) {
+        window.lastSecaoIndividualPayload = null;
         document.getElementById("btnVoltarConsolidado").classList.add("hidden");
         document.getElementById("tsePlacarConsolidadoBox").classList.remove("hidden");
         document.getElementById("tseListaUrnasConsolidadaBox").classList.remove("hidden");
@@ -5212,51 +5256,103 @@ o Boletim de Urna (apos encerramento da votacao).
       const placarBox = document.getElementById("tsePlacarConsolidadoBox");
       if (placarBox) placarBox.classList.remove("hidden");
 
+      const cargoAtual = window.arvoreTseState.cargo || "PRESIDENTE";
+      const modoVisao = window.arvoreTseState.modo_visao || "COMPARATIVO";
+
+      const rotulosCargos = {
+        "PRESIDENTE": "Presidente da República",
+        "GOVERNADOR": "Governador",
+        "SENADOR": "Senador",
+        "DEPUTADO FEDERAL": "Deputado Federal",
+        "DEPUTADO ESTADUAL": "Deputado Estadual"
+      };
+      const cargoLabel = rotulosCargos[cargoAtual] || cargoAtual;
+      const turnoLabel = modoVisao === "1T" ? "1º Turno" : (modoVisao === "2T" ? "2º Turno" : "Consolidado / 2º Turno");
+
       const titleEl = document.getElementById("tsePlacarTitle");
       if (titleEl) {
-        titleEl.textContent = `🏆 Totalização de Votos por Candidato na Urna (${munNome} — Zona ${zonaNum} / Seção ${secaoNum})`;
+        titleEl.textContent = `🏆 Totalização de Votos para ${cargoLabel} (${turnoLabel}) na Urna (${munNome} — Zona ${zonaNum} / Seção ${secaoNum})`;
       }
 
-      const aptosUrna = Number(bu.eleitores_aptos ?? resCons.eleitores_aptos ?? 0);
-      const compUrna = Number(bu.comparecimento ?? resCons.comparecimento_efetivo ?? rdv.total_votos_no_rdv ?? 0);
-      const faltososUrna = Number(bu.faltosos ?? resCons.faltosos ?? Math.max(0, aptosUrna - compUrna));
-      const brancosUrna = Number(bu.votos_brancos ?? resCons.brancos_bu ?? rdv.votos_brancos_rdv ?? 0);
-      const nulosUrna = Number(bu.votos_nulos ?? resCons.nulos_bu ?? rdv.votos_nulos_rdv ?? 0);
+      let aptosUrna = Number(bu.eleitores_aptos ?? resCons.eleitores_aptos ?? 0);
+      let compUrna = Number(bu.comparecimento ?? resCons.comparecimento_efetivo ?? rdv.total_votos_no_rdv ?? 0);
+      let faltososUrna = Number(bu.faltosos ?? resCons.faltosos ?? Math.max(0, aptosUrna - compUrna));
+      let brancosUrna = Number(bu.votos_brancos ?? resCons.brancos_bu ?? rdv.votos_brancos_rdv ?? 0);
+      let nulosUrna = Number(bu.votos_nulos ?? resCons.nulos_bu ?? rdv.votos_nulos_rdv ?? 0);
+
+      if (modoVisao === "1T" && resCons.tem_bu_1_turno) {
+        compUrna = Number(resCons.comparecimento_t1 || compUrna);
+        brancosUrna = Number(resCons.brancos_bu_t1 ?? brancosUrna);
+        nulosUrna = Number(resCons.nulos_bu_t1 ?? nulosUrna);
+        faltososUrna = Math.max(0, aptosUrna - compUrna);
+      }
+
+      // Monta lista de candidatos da urna de acordo com o Cargo Selecionado e o Turno
+      let candsUrna = [];
+
+      // Verifica se há bloco específico do cargo em cargos_bu (1T ou 2T)
+      const blocosDisponiveis = [
+        ...(modoVisao === "1T" ? (bu.cargos_bu_1t || resCons.cargos_bu_1t || []) : (bu.cargos_bu_2t || resCons.cargos_bu_2t || [])),
+        ...(bu.cargos_bu || resCons.cargos_bu || []),
+        ...(bu.cargos_bu_1t || resCons.cargos_bu_1t || [])
+      ];
+
+      const blocoCargo = blocosDisponiveis.find(b => {
+        const cName = String(b.cargo || "").toUpperCase();
+        if (cargoAtual === "GOVERNADOR" && cName.includes("GOVERNAD")) return true;
+        if (cargoAtual === "SENADOR" && cName.includes("SENAD")) return true;
+        if (cargoAtual === "DEPUTADO FEDERAL" && cName.includes("FED")) return true;
+        if (cargoAtual === "DEPUTADO ESTADUAL" && (cName.includes("EST") || cName.includes("DIST"))) return true;
+        if (cargoAtual === "PRESIDENTE" && cName.includes("PRESIDENT")) return true;
+        return cName === cargoAtual;
+      });
+
+      if (blocoCargo && Array.isArray(blocoCargo.candidatos) && blocoCargo.candidatos.length > 0) {
+        candsUrna = blocoCargo.candidatos.map(c => ({
+          numero: String(c.numero),
+          nome: c.nome || `CANDIDATO ${c.numero}`,
+          votos_bu: Number(c.votos || c.votos_bu || 0),
+          votos_rdv: Number(c.votos_rdv || c.votos || 0)
+        }));
+        if (blocoCargo.brancos !== undefined) brancosUrna = Number(blocoCargo.brancos);
+        if (blocoCargo.nulos !== undefined) nulosUrna = Number(blocoCargo.nulos);
+      } else if (cargoAtual === "PRESIDENTE") {
+        const candsFonte = (modoVisao === "1T" && Array.isArray(resCons.candidatos_1_turno) && resCons.candidatos_1_turno.length > 0)
+          ? resCons.candidatos_1_turno
+          : (resCons.candidatos || []);
+        if (Array.isArray(candsFonte) && candsFonte.length > 0) {
+          candsUrna = candsFonte.map(c => ({
+            numero: String(c.numero),
+            nome: c.nome || `CANDIDATO ${c.numero}`,
+            votos_bu: Number(c.votos_bu ?? c.votos ?? 0),
+            votos_rdv: Number(c.votos_rdv ?? c.votos ?? 0)
+          }));
+        } else {
+          const mapC = new Map();
+          (bu.votos_nominais || []).forEach(c => {
+            mapC.set(String(c.numero), {
+              numero: String(c.numero),
+              nome: c.nome || `CANDIDATO ${c.numero}`,
+              votos_bu: Number(c.votos ?? 0),
+              votos_rdv: Number((rdv.votos_nominais_rdv || {})[String(c.numero)] ?? c.votos ?? 0)
+            });
+          });
+          Object.entries(rdv.votos_nominais_rdv || {}).forEach(([num, qtd]) => {
+            if (!mapC.has(String(num))) {
+              mapC.set(String(num), {
+                numero: String(num),
+                nome: `CANDIDATO ${num}`,
+                votos_bu: Number(qtd),
+                votos_rdv: Number(qtd)
+              });
+            }
+          });
+          candsUrna = Array.from(mapC.values());
+        }
+      }
 
       document.getElementById("tsePlacarSubLabel").textContent =
         `Aptos: ${aptosUrna.toLocaleString("pt-BR")} • Comparecimento: ${compUrna.toLocaleString("pt-BR")} • Brancos: ${brancosUrna.toLocaleString("pt-BR")} • Nulos: ${nulosUrna.toLocaleString("pt-BR")} • Faltosos: ${faltososUrna.toLocaleString("pt-BR")}`;
-
-      // Monta lista de candidatos da urna combinando resumo_consolidacao, imgbu e rdv
-      let candsUrna = [];
-      if (Array.isArray(resCons.candidatos) && resCons.candidatos.length > 0) {
-        candsUrna = resCons.candidatos.map(c => ({
-          numero: String(c.numero),
-          nome: c.nome || `CANDIDATO ${c.numero}`,
-          votos_bu: Number(c.votos_bu ?? 0),
-          votos_rdv: Number(c.votos_rdv ?? 0)
-        }));
-      } else {
-        const mapC = new Map();
-        (bu.votos_nominais || []).forEach(c => {
-          mapC.set(String(c.numero), {
-            numero: String(c.numero),
-            nome: c.nome || `CANDIDATO ${c.numero}`,
-            votos_bu: Number(c.votos ?? 0),
-            votos_rdv: Number((rdv.votos_nominais_rdv || {})[String(c.numero)] ?? c.votos ?? 0)
-          });
-        });
-        Object.entries(rdv.votos_nominais_rdv || {}).forEach(([num, qtd]) => {
-          if (!mapC.has(String(num))) {
-            mapC.set(String(num), {
-              numero: String(num),
-              nome: `CANDIDATO ${num}`,
-              votos_bu: Number(qtd),
-              votos_rdv: Number(qtd)
-            });
-          }
-        });
-        candsUrna = Array.from(mapC.values());
-      }
 
       candsUrna.sort((a, b) => Math.max(b.votos_bu, b.votos_rdv) - Math.max(a.votos_bu, a.votos_rdv));
       const somaValidosUrna = candsUrna.reduce((acc, c) => acc + (c.votos_bu || c.votos_rdv || 0), 0);
@@ -5476,9 +5572,45 @@ o Boletim de Urna (apos encerramento da votacao).
       renderizarFiltroHorasTse();
       renderizarGraficoETabelaPorHoraTse();
 
-      // Espelho Original Limpo do Boletim de Urna
-      document.getElementById("tseEspelhoBuPre").textContent =
-        bu.espelho_bobina || "Suba o arquivo -imgbu.dat da seção para visualizar a bobina original.";
+      // Espelho Original Limpo do Boletim de Urna (com suporte a alternância instantânea entre 1º e 2º Turnos)
+      window.currentTseEspelho1T = bu.espelho_bobina_1t || (bu.turno === 1 ? bu.espelho_bobina : "");
+      window.currentTseEspelho2T = bu.espelho_bobina_2t || (bu.turno === 2 ? bu.espelho_bobina : "");
+      if (!window.currentTseEspelho2T && bu.espelho_bobina && bu.turno !== 1) {
+        window.currentTseEspelho2T = bu.espelho_bobina;
+      }
+      if (!window.currentTseEspelho1T && bu.espelho_bobina && bu.turno === 1) {
+        window.currentTseEspelho1T = bu.espelho_bobina;
+      }
+
+      const turnoPadraoBobina = (window.arvoreTseState.modo_visao === "1T") ? 1 : 2;
+      alternarBobinaTurnoTse(turnoPadraoBobina);
+    }
+
+    function alternarBobinaTurnoTse(turnoNum) {
+      window.currentTseBobinaTurno = turnoNum;
+      const btn1T = document.getElementById("btnBobina1T");
+      const btn2T = document.getElementById("btnBobina2T");
+      const pre = document.getElementById("tseEspelhoBuPre");
+
+      if (btn1T) {
+        btn1T.className = turnoNum === 1
+          ? "px-2.5 py-1 text-xs font-black rounded-lg bg-purple-600 text-white border border-purple-400 shadow transition cursor-pointer"
+          : "px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:text-white transition cursor-pointer";
+      }
+      if (btn2T) {
+        btn2T.className = turnoNum === 2
+          ? "px-2.5 py-1 text-xs font-black rounded-lg bg-blue-600 text-white border border-blue-400 shadow transition cursor-pointer"
+          : "px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:text-white transition cursor-pointer";
+      }
+
+      if (pre) {
+        const texto = turnoNum === 1 ? window.currentTseEspelho1T : window.currentTseEspelho2T;
+        if (texto && texto.trim()) {
+          pre.textContent = texto;
+        } else {
+          pre.textContent = `=== BOLETIM DE URNA OFICIAL (${turnoNum}º TURNO) ===\n(Bobina original do ${turnoNum}º Turno ainda não ingerida para esta seção específica)`;
+        }
+      }
     }
 
     function alternarTurnoGraficoEleitoresTse(turnoNum) {

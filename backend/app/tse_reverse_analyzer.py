@@ -45,6 +45,15 @@ PADRAO_NOMES_PRESIDENTE = {
     "80": "LÉO PÉRICLES",
 }
 
+# Cargos oficiais das Eleições Gerais (1º Turno e 2º Turno)
+CARGOS_PADRAO_ELEICAO = [
+    "PRESIDENTE",
+    "GOVERNADOR",
+    "SENADOR",
+    "DEPUTADO FEDERAL",
+    "DEPUTADO ESTADUAL",
+]
+
 # Catálogo base de códigos TSE dos principais municípios do Paraná (e aprendizado dinâmico via -imgbu.dat)
 MUNICIPIOS_PR_TSE = {
     "74071": "ALMIRANTE TAMANDARÉ",
@@ -532,6 +541,21 @@ def decodificar_imgbu_tse(imgbu_bytes: bytes) -> dict:
         "cargos_bu": list(cargos_bu_map.values()),
         "espelho_bobina": espelho_bu[:15000],
     }
+
+
+def extrair_cargos_de_espelho_bobina(espelho_bu: str) -> list[dict]:
+    """
+    Extrai todos os blocos de cargos e seus respectivos votos/candidatos a partir do
+    espelho oficial limpo do Boletim de Urna (suportando 1º e 2º Turnos).
+    """
+    if not espelho_bu or not espelho_bu.strip():
+        return []
+    try:
+        res = decodificar_espelho_bu_txt(espelho_bu)
+        return res.get("cargos_bu", [])
+    except Exception as e:
+        print(f"[TSE-BU] Erro ao extrair cargos do espelho da bobina: {e}")
+        return []
 
 
 def _novo_estado_dia_log(data_str: str) -> dict:
@@ -2412,7 +2436,15 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                         for v in sorted(cands_1t, key=lambda x: x.quantidade_votos, reverse=True)
                     ]
 
-                    espelho_bobina = dossie_db.espelho_bobina if dossie_db else None
+                    espelho_2t = dossie_db.espelho_bobina if (dossie_db and dossie_db.turno == 2) else None
+                    espelho_1t = dossie_1t_db.espelho_bobina if dossie_1t_db else (dossie_db.espelho_bobina if (dossie_db and dossie_db.turno == 1) else None)
+                    if not espelho_2t and dossie_db and dossie_db.turno != 1:
+                        espelho_2t = dossie_db.espelho_bobina
+
+                    cargos_bu_2t = extrair_cargos_de_espelho_bobina(espelho_2t) if espelho_2t else []
+                    cargos_bu_1t = extrair_cargos_de_espelho_bobina(espelho_1t) if espelho_1t else []
+                    cargos_bu_unificado = cargos_bu_2t or cargos_bu_1t
+
                     ciclos_2t = json.loads(dossie_db.ciclos_eleitores_json) if (dossie_db and dossie_db.ciclos_eleitores_json) else []
                     ciclos_1t = json.loads(dossie_db.ciclos_eleitores_1t_json) if (dossie_db and dossie_db.ciclos_eleitores_1t_json) else (
                         json.loads(dossie_1t_db.ciclos_eleitores_json) if (dossie_1t_db and dossie_1t_db.ciclos_eleitores_json) else []
@@ -2420,6 +2452,32 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                     vph_db = json.loads(dossie_db.vazao_horaria_json) if (dossie_db and dossie_db.vazao_horaria_json) else (
                         json.loads(met2.vazao_horaria_json) if (met2 and met2.vazao_horaria_json) else {}
                     )
+                    if not vph_db and ciclos_2t:
+                        vph_c2 = Counter()
+                        for c in ciclos_2t:
+                            hc = c.get("hora_computado", "")
+                            if len(hc) >= 2:
+                                vph_c2[hc[:2] + "h"] += 1
+                        vph_db = dict(sorted(vph_c2.items()))
+
+                    vph_1t_db = {}
+                    if dossie_1t_db and dossie_1t_db.vazao_horaria_json:
+                        try:
+                            vph_1t_db = json.loads(dossie_1t_db.vazao_horaria_json)
+                        except Exception:
+                            pass
+                    if not vph_1t_db and met1 and met1.vazao_horaria_json:
+                        try:
+                            vph_1t_db = json.loads(met1.vazao_horaria_json)
+                        except Exception:
+                            pass
+                    if not vph_1t_db and ciclos_1t:
+                        vph_c1 = Counter()
+                        for c in ciclos_1t:
+                            hc = c.get("hora_computado", "")
+                            if len(hc) >= 2:
+                                vph_c1[hc[:2] + "h"] += 1
+                        vph_1t_db = dict(sorted(vph_c1.items()))
 
                     pref_oficial = prefixo if prefixo else f"o03221{secao_db.uf.lower()}{secao_db.municipio_codigo}{secao_db.zona:04d}{secao_db.secao:04d}"
                     comp_efetivo = bu2.comparecimento if bu2 else 0
@@ -2485,6 +2543,7 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                         "comparecimento_efetivo": comp_efetivo,
                         "comparecimento_bu": comp_efetivo,
                         "comparecimento_log": met2.total_votos_computados if met2 else comp_efetivo,
+                        "comparecimento_log_t1": len(ciclos_1t) or (bu1.comparecimento if bu1 else 0),
                         "brancos_bu": brancos_val,
                         "nulos_bu": nulos_val,
                         "candidatos": cands,
@@ -2492,7 +2551,7 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                         "tem_bu_1_turno": bu1 is not None or len(cands_1t_fmt) > 0,
                         "brancos_bu_t1": bu1.votos_brancos if bu1 else 0,
                         "nulos_bu_t1": bu1.votos_nulos if bu1 else 0,
-                        "comparecimento_t1": bu1.comparecimento if bu1 else 0,
+                        "comparecimento_t1": bu1.comparecimento if bu1 else (len(ciclos_1t) or 0),
                         "total_teclas_indevidas_presidente_t2": met2.teclas_indevidas_pres if met2 else 0,
                         "total_teclas_indevidas_t2": met2.teclas_indevidas_total if met2 else 0,
                         "total_teclas_indevidas_presidente_t1": met1.teclas_indevidas_pres if met1 else 0,
@@ -2501,9 +2560,14 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                         "tempo_medio_cabine_s": float(met2.tempo_medio_voto_segundos) if met2 else 0.0,
                         "tempo_medio_cabine_t1_s": float(met1.tempo_medio_voto_segundos) if met1 else 0.0,
                         "tem_log_jez": met2 is not None or len(ciclos_2t) > 0,
-                        "tem_imgbu": bu2 is not None or espelho_bobina is not None,
+                        "tem_imgbu": bu2 is not None or espelho_2t is not None or espelho_1t is not None,
                         "tem_rdv": len(cands) > 0,
                         "votos_por_hora": vph_db,
+                        "votos_por_hora_t1": vph_1t_db,
+                        "cargos_bu": cargos_bu_unificado,
+                        "cargos_bu_1t": cargos_bu_1t,
+                        "cargos_bu_2t": cargos_bu_2t,
+                        "cargos_disponiveis": CARGOS_PADRAO_ELEICAO,
                     }
 
                     return {
@@ -2528,6 +2592,7 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                                 "tempo_medio_cabine_s": float(met2.tempo_medio_voto_segundos) if met2 else 0.0,
                                 "tempo_medio_ciclo_s": float(met2.tempo_medio_voto_segundos) if met2 else 0.0,
                                 "votos_por_hora": vph_db,
+                                "votos_por_hora_t1": vph_1t_db,
                             },
                             "ciclos_eleitores": ciclos_2t,
                             "ciclos_eleitores_1_turno": ciclos_1t,
@@ -2548,7 +2613,7 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                             "votos_brancos": brancos_val,
                             "votos_nulos": nulos_val,
                             "turno": bu2.turno if bu2 else 2,
-                            "espelho_bobina": espelho_bobina or (
+                            "espelho_bobina": espelho_2t or espelho_1t or (
                                 f"=== BOLETIM DE URNA OFICIAL ===\n"
                                 f"MUNICÍPIO: {secao_db.municipio_nome} ({secao_db.municipio_codigo})\n"
                                 f"ZONA: {secao_db.zona:04d}   SEÇÃO: {secao_db.secao:04d}\n"
@@ -2557,6 +2622,25 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                                 f"BRANCOS: {brancos_val}   NULOS: {nulos_val}\n"
                                 + "".join(f"VOTOS CANDIDATO {c['numero']} ({c['nome']}): {c['votos']}\n" for c in cands)
                             ),
+                            "espelho_bobina_1t": espelho_1t or (
+                                f"=== BOLETIM DE URNA OFICIAL (1º TURNO) ===\n"
+                                f"MUNICÍPIO: {secao_db.municipio_nome} ({secao_db.municipio_codigo})\n"
+                                f"ZONA: {secao_db.zona:04d}   SEÇÃO: {secao_db.secao:04d}\n"
+                                f"ELEITORES APTOS: {aptos_val}   COMPARECIMENTO: {bu1.comparecimento if bu1 else (len(ciclos_1t) or 0)}\n"
+                                + "".join(f"VOTOS CANDIDATO {c['numero']} ({c['nome']}): {c['votos']}\n" for c in cands_1t_fmt)
+                            ),
+                            "espelho_bobina_2t": espelho_2t or (
+                                f"=== BOLETIM DE URNA OFICIAL (2º TURNO) ===\n"
+                                f"MUNICÍPIO: {secao_db.municipio_nome} ({secao_db.municipio_codigo})\n"
+                                f"ZONA: {secao_db.zona:04d}   SEÇÃO: {secao_db.secao:04d}\n"
+                                f"ELEITORES APTOS: {aptos_val}   COMPARECIMENTO: {comp_efetivo}\n"
+                                f"FALTOSOS: {faltosos_val}\n"
+                                f"BRANCOS: {brancos_val}   NULOS: {nulos_val}\n"
+                                + "".join(f"VOTOS CANDIDATO {c['numero']} ({c['nome']}): {c['votos']}\n" for c in cands)
+                            ),
+                            "cargos_bu": cargos_bu_unificado,
+                            "cargos_bu_1t": cargos_bu_1t,
+                            "cargos_bu_2t": cargos_bu_2t,
                         },
                         "rdv": {
                             "total_votos_computados": comp_efetivo,
@@ -3641,14 +3725,76 @@ def _consolidar_secoes_tse_sql(
     cargo_filtro = (cargo_filtro or "PRESIDENTE").strip().upper()
     turno_filtro = (turno_filtro or "TODOS").strip().upper()
 
-    # Identifica dinamicamente os cargos disponíveis gravados no banco
+    # Identifica dinamicamente os cargos disponíveis gravados no banco garantindo a presença dos cargos oficiais
     try:
         cargos_rows = db.query(TseVotoCandidato.cargo).distinct().all()
-        cargos_disponiveis = [r[0] for r in cargos_rows if r[0]]
+        cargos_db = [r[0].strip().upper() for r in cargos_rows if r[0]]
     except Exception:
-        cargos_disponiveis = []
-    if "PRESIDENTE" not in cargos_disponiveis:
-        cargos_disponiveis.insert(0, "PRESIDENTE")
+        cargos_db = []
+    cargos_disponiveis = [cg for cg in CARGOS_PADRAO_ELEICAO]
+    for cg in cargos_db:
+        if cg not in cargos_disponiveis:
+            cargos_disponiveis.append(cg)
+
+    # Se o cargo solicitado ainda não foi extraído para a tabela tse_votos_candidatos,
+    # mas temos dossiês com espelho_bobina gravados, faz a extração automática sob demanda!
+    if cargo_filtro in ("GOVERNADOR", "SENADOR", "DEPUTADO FEDERAL", "DEPUTADO ESTADUAL"):
+        try:
+            qtd_votos_cargo = db.query(func.count(TseVotoCandidato.id)).filter(TseVotoCandidato.cargo == cargo_filtro).scalar() or 0
+            if qtd_votos_cargo == 0:
+                from .database import TseDossieSecao
+                dossies_com_espelho = db.query(TseDossieSecao).filter(TseDossieSecao.espelho_bobina.isnot(None)).all()
+                for d_sec in dossies_com_espelho:
+                    cargos_extraidos = extrair_cargos_de_espelho_bobina(d_sec.espelho_bobina)
+                    for blk in cargos_extraidos:
+                        c_nome = str(blk.get("cargo") or "").upper()
+                        if "PRESIDENT" in c_nome:
+                            norm_cg = "PRESIDENTE"
+                        elif "GOVERNAD" in c_nome:
+                            norm_cg = "GOVERNADOR"
+                        elif "SENAD" in c_nome:
+                            norm_cg = "SENADOR"
+                        elif "DEPUTADO FED" in c_nome:
+                            norm_cg = "DEPUTADO FEDERAL"
+                        elif "DEPUTADO EST" in c_nome or "DEPUTADO DIST" in c_nome:
+                            norm_cg = "DEPUTADO ESTADUAL"
+                        else:
+                            norm_cg = c_nome[:30]
+
+                        if norm_cg == cargo_filtro:
+                            for c_item in blk.get("candidatos", []):
+                                try:
+                                    n_num = int(c_item.get("numero") or 0)
+                                except Exception:
+                                    continue
+                                if not n_num:
+                                    continue
+                                v_qtd = int(c_item.get("votos") or 0)
+                                n_nome = c_item.get("nome")
+                                existente = db.query(TseVotoCandidato).filter(
+                                    TseVotoCandidato.secao_id == d_sec.secao_id,
+                                    TseVotoCandidato.turno == d_sec.turno,
+                                    TseVotoCandidato.cargo == norm_cg,
+                                    TseVotoCandidato.numero_candidato == n_num
+                                ).first()
+                                if not existente:
+                                    db.add(TseVotoCandidato(
+                                        secao_id=d_sec.secao_id,
+                                        turno=d_sec.turno,
+                                        cargo=norm_cg,
+                                        numero_candidato=n_num,
+                                        nome_candidato=n_nome,
+                                        quantidade_votos=v_qtd,
+                                        votos_bu=v_qtd,
+                                        votos_rdv=v_qtd,
+                                    ))
+                db.commit()
+        except Exception as exc_extrair:
+            print(f"[TSE-CARGOS] Erro ao auto-extrair cargo {cargo_filtro}: {exc_extrair}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
     # Aliases relacionais para apuração de 2º Turno (prioritário) e 1º Turno (fallback transparente)
     bu_t2_alias = aliased(TseApuracaoBU)
@@ -4248,6 +4394,45 @@ def _consolidar_secoes_tse_sql(
             "delta_pct_crescimento": dv_pct,
         })
 
+    # Agregação global da vazão horária dos logs (1º e 2º Turno)
+    vph_t1_global = Counter()
+    vph_t2_global = Counter()
+    try:
+        metricas_vph = (
+            db.query(TseMetricasLog.turno, TseMetricasLog.vazao_horaria_json)
+            .select_from(TseMetricasLog)
+            .join(TseSecao, TseMetricasLog.secao_id == TseSecao.id)
+            .filter(*filtro_secao)
+            .all()
+        )
+        for t_val, v_json in metricas_vph:
+            if v_json:
+                try:
+                    d_vph = json.loads(v_json)
+                    if isinstance(d_vph, dict):
+                        for hh, cnt in d_vph.items():
+                            if t_val == 1:
+                                vph_t1_global[hh] += int(cnt or 0)
+                            else:
+                                vph_t2_global[hh] += int(cnt or 0)
+                except Exception:
+                    pass
+    except Exception as exc_vph:
+        print(f"[TSE-SQL] Aviso ao agregar vazão horária global: {exc_vph}")
+
+    faixas_horas_global = ["08h", "09h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h"]
+    votos_por_hora_comp_global = []
+    for fh in faixas_horas_global:
+        q1 = vph_t1_global.get(fh, 0)
+        q2 = vph_t2_global.get(fh, 0)
+        if q1 > 0 or q2 > 0 or fh != "17h":
+            votos_por_hora_comp_global.append({
+                "hora": fh,
+                "votos_1_turno": q1,
+                "votos_2_turno": q2,
+                "diferenca": q2 - q1,
+            })
+
     comparativo_turnos_global = {
         "escopo": "CONSOLIDADO_GLOBAL",
         "disponivel": bu_t1 is not None and bu_t2 is not None,
@@ -4325,7 +4510,7 @@ def _consolidar_secoes_tse_sql(
         "titulo_encerramento_t2": "",
         "mesarios_registrados_t1": [],
         "mesarios_registrados_t2": [],
-        "votos_por_hora_comparado": [],
+        "votos_por_hora_comparado": votos_por_hora_comp_global,
         "comparativo_candidatos": {
             "tem_bu_1_turno": bu_t1 is not None,
             "urnas_pareadas_bu_1t": int(bu_t1.urnas_bu) if bu_t1 else 0,
@@ -4491,7 +4676,7 @@ def _consolidar_secoes_tse_sql(
             "total_id_invalido": 0,
             "placar_candidatos": placar_candidatos,
             "batimentos_cruzados": batimentos_consolidados,
-            "votos_por_hora": {},
+            "votos_por_hora": dict(sorted(vph_t1_global.items())) if turno_filtro == "1" else dict(sorted(vph_t2_global.items())),
             "comparativo_turnos": comparativo_turnos_global,
             "lista_urnas": lista_urnas,
         },
