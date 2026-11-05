@@ -1214,72 +1214,60 @@ def obter_totais_consolidados_tse(
 
 def init_db():
     Base.metadata.create_all(bind=engine)
-    # Migração automática suave para bancos PostgreSQL/SQLite já criados anteriormente
-    with engine.begin() as conn:
-        try:
-            conn.execute(text("ALTER TABLE seccao_config ADD COLUMN terminal_eleitor_liberado BOOLEAN DEFAULT FALSE"))
-        except Exception:
-            pass
-        try:
-            conn.execute(text("ALTER TABLE seccao_config ADD COLUMN eleitor_habilitado_titulo VARCHAR(20)"))
-        except Exception:
-            pass
-        try:
-            conn.execute(text("ALTER TABLE tse_votos_candidatos ADD COLUMN votos_bu INTEGER DEFAULT 0"))
-        except Exception:
-            pass
-        try:
-            conn.execute(text("ALTER TABLE tse_votos_candidatos ADD COLUMN votos_rdv INTEGER DEFAULT 0"))
-        except Exception:
-            pass
-        try:
-            conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN pleito VARCHAR(10)"))
-        except Exception:
-            pass
-        try:
-            conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS pleito VARCHAR(10)"))
-        except Exception:
-            pass
-        try:
-            conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_biometrica INTEGER DEFAULT 0"))
-        except Exception:
-            pass
-        try:
-            conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_biografica INTEGER DEFAULT 0"))
-        except Exception:
-            pass
-        try:
-            conn.execute(text("ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_sem_biometria INTEGER DEFAULT 0"))
-        except Exception:
-            pass
-        try:
-            # Backfill automático e instantâneo para linhas já importadas com hab_biometrica = 0
-            conn.execute(text("""
-                UPDATE tse_apuracao_bu
-                SET hab_biometrica = ROUND(comparecimento * 0.924),
-                    hab_biografica = ROUND(comparecimento * 0.062),
-                    hab_sem_biometria = GREATEST(0, comparecimento - ROUND(comparecimento * 0.924) - ROUND(comparecimento * 0.062))
-                WHERE comparecimento > 0 AND (hab_biometrica = 0 OR hab_biometrica IS NULL);
-            """))
-        except Exception:
-            pass
-        try:
-            conn.execute(text("""
-                CREATE TABLE IF NOT EXISTS tse_dossie_secao (
-                    id SERIAL PRIMARY KEY,
-                    secao_id INTEGER NOT NULL REFERENCES tse_secoes(id) ON DELETE CASCADE,
-                    turno SMALLINT DEFAULT 2 NOT NULL,
-                    prefixo VARCHAR(60) NOT NULL,
-                    espelho_bobina TEXT,
-                    ciclos_eleitores_json TEXT,
-                    ciclos_eleitores_1t_json TEXT,
-                    vazao_horaria_json TEXT,
-                    dossie_completo_json TEXT,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-                    UNIQUE(secao_id, turno)
-                );
-            """))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_tse_dossie_pref ON tse_dossie_secao(prefixo);"))
-        except Exception:
-            pass
+    # Migração automática suave com transações atômicas isoladas para cada comando DDL
+    ddl_statements = [
+        "ALTER TABLE seccao_config ADD COLUMN IF NOT EXISTS terminal_eleitor_liberado BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE seccao_config ADD COLUMN IF NOT EXISTS eleitor_habilitado_titulo VARCHAR(20)",
+        "ALTER TABLE tse_votos_candidatos ADD COLUMN IF NOT EXISTS votos_bu INTEGER DEFAULT 0",
+        "ALTER TABLE tse_votos_candidatos ADD COLUMN IF NOT EXISTS votos_rdv INTEGER DEFAULT 0",
+        "ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS pleito VARCHAR(10)",
+        "ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_biometrica INTEGER DEFAULT 0",
+        "ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_biografica INTEGER DEFAULT 0",
+        "ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_sem_biometria INTEGER DEFAULT 0",
+        """
+        UPDATE tse_apuracao_bu
+        SET hab_biometrica = ROUND(comparecimento * 0.924),
+            hab_biografica = ROUND(comparecimento * 0.062),
+            hab_sem_biometria = GREATEST(0, comparecimento - ROUND(comparecimento * 0.924) - ROUND(comparecimento * 0.062))
+        WHERE comparecimento > 0 AND (hab_biometrica = 0 OR hab_biometrica IS NULL);
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS tse_dossie_secao (
+            id SERIAL PRIMARY KEY,
+            secao_id INTEGER NOT NULL REFERENCES tse_secoes(id) ON DELETE CASCADE,
+            turno SMALLINT DEFAULT 2 NOT NULL,
+            prefixo VARCHAR(60) NOT NULL,
+            espelho_bobina TEXT,
+            ciclos_eleitores_json TEXT,
+            ciclos_eleitores_1t_json TEXT,
+            vazao_horaria_json TEXT,
+            dossie_completo_json TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            UNIQUE(secao_id, turno)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_tse_dossie_pref ON tse_dossie_secao(prefixo);",
+    ]
+
+    with engine.connect() as conn:
+        for stmt in ddl_statements:
+            try:
+                trans = conn.begin()
+                conn.execute(text(stmt))
+                trans.commit()
+            except Exception:
+                try:
+                    trans.rollback()
+                except Exception:
+                    pass
+                if "IF NOT EXISTS" in stmt and "ALTER TABLE" in stmt:
+                    try:
+                        trans2 = conn.begin()
+                        conn.execute(text(stmt.replace(" IF NOT EXISTS", "")))
+                        trans2.commit()
+                    except Exception:
+                        try:
+                            trans2.rollback()
+                        except Exception:
+                            pass
 

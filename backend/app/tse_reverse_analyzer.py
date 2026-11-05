@@ -4232,15 +4232,31 @@ def _consolidar_secoes_tse_sql(
     from .database import TseSecao, TseApuracaoBU, TseMetricasLog, TseVotoCandidato, ESTADOS_E_REGIOES_BR
 
     # Auto-migração preventiva das colunas no banco se ainda não existirem
-    try:
-        db.execute(text("ALTER TABLE tse_votos_candidatos ADD COLUMN IF NOT EXISTS votos_bu INTEGER DEFAULT 0"))
-        db.execute(text("ALTER TABLE tse_votos_candidatos ADD COLUMN IF NOT EXISTS votos_rdv INTEGER DEFAULT 0"))
-        db.commit()
-    except Exception:
+    migracao_ddl = [
+        "ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_biometrica INTEGER DEFAULT 0",
+        "ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_biografica INTEGER DEFAULT 0",
+        "ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_sem_biometria INTEGER DEFAULT 0",
+        "ALTER TABLE tse_votos_candidatos ADD COLUMN IF NOT EXISTS votos_bu INTEGER DEFAULT 0",
+        "ALTER TABLE tse_votos_candidatos ADD COLUMN IF NOT EXISTS votos_rdv INTEGER DEFAULT 0",
+    ]
+    for ddl_cmd in migracao_ddl:
         try:
-            db.rollback()
+            db.execute(text(ddl_cmd))
+            db.commit()
         except Exception:
-            pass
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            if "IF NOT EXISTS" in ddl_cmd:
+                try:
+                    db.execute(text(ddl_cmd.replace(" IF NOT EXISTS", "")))
+                    db.commit()
+                except Exception:
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
 
     regiao_filtro = (regiao_filtro or "TODAS").strip()
     uf_filtro = (uf_filtro or "TODAS").strip().upper()
@@ -4593,27 +4609,50 @@ def _consolidar_secoes_tse_sql(
                 "secao_individual": relatorio_sec,
             }
 
-    # Totais BU por Turno
-    totais_bu = (
-        db.query(
-            TseApuracaoBU.turno,
-            func.coalesce(func.sum(TseApuracaoBU.eleitores_aptos), 0).label("aptos"),
-            func.coalesce(func.sum(TseApuracaoBU.comparecimento), 0).label("comp"),
-            func.coalesce(func.sum(TseApuracaoBU.faltosos), 0).label("faltosos"),
-            func.coalesce(func.sum(TseApuracaoBU.votos_brancos), 0).label("brancos"),
-            func.coalesce(func.sum(TseApuracaoBU.votos_nulos), 0).label("nulos"),
-            func.coalesce(func.sum(TseApuracaoBU.hab_biometrica), 0).label("hab_bio"),
-            func.coalesce(func.sum(TseApuracaoBU.hab_biografica), 0).label("hab_biog"),
-            func.coalesce(func.sum(TseApuracaoBU.hab_sem_biometria), 0).label("hab_sem_bio"),
-            func.count(TseApuracaoBU.id).label("urnas_bu"),
-            func.coalesce(func.sum(case((TseApuracaoBU.divergencia_detectada == True, 1), else_=0)), 0).label("divergentes"),
+    # Totais BU por Turno (com fallback resiliente caso o banco ainda não possua as colunas migratórias)
+    try:
+        totais_bu = (
+            db.query(
+                TseApuracaoBU.turno,
+                func.coalesce(func.sum(TseApuracaoBU.eleitores_aptos), 0).label("aptos"),
+                func.coalesce(func.sum(TseApuracaoBU.comparecimento), 0).label("comp"),
+                func.coalesce(func.sum(TseApuracaoBU.faltosos), 0).label("faltosos"),
+                func.coalesce(func.sum(TseApuracaoBU.votos_brancos), 0).label("brancos"),
+                func.coalesce(func.sum(TseApuracaoBU.votos_nulos), 0).label("nulos"),
+                func.coalesce(func.sum(TseApuracaoBU.hab_biometrica), 0).label("hab_bio"),
+                func.coalesce(func.sum(TseApuracaoBU.hab_biografica), 0).label("hab_biog"),
+                func.coalesce(func.sum(TseApuracaoBU.hab_sem_biometria), 0).label("hab_sem_bio"),
+                func.count(TseApuracaoBU.id).label("urnas_bu"),
+                func.coalesce(func.sum(case((TseApuracaoBU.divergencia_detectada == True, 1), else_=0)), 0).label("divergentes"),
+            )
+            .select_from(TseApuracaoBU)
+            .join(TseSecao, TseApuracaoBU.secao_id == TseSecao.id)
+            .filter(*filtro_secao)
+            .group_by(TseApuracaoBU.turno)
+            .all()
         )
-        .select_from(TseApuracaoBU)
-        .join(TseSecao, TseApuracaoBU.secao_id == TseSecao.id)
-        .filter(*filtro_secao)
-        .group_by(TseApuracaoBU.turno)
-        .all()
-    )
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        totais_bu = (
+            db.query(
+                TseApuracaoBU.turno,
+                func.coalesce(func.sum(TseApuracaoBU.eleitores_aptos), 0).label("aptos"),
+                func.coalesce(func.sum(TseApuracaoBU.comparecimento), 0).label("comp"),
+                func.coalesce(func.sum(TseApuracaoBU.faltosos), 0).label("faltosos"),
+                func.coalesce(func.sum(TseApuracaoBU.votos_brancos), 0).label("brancos"),
+                func.coalesce(func.sum(TseApuracaoBU.votos_nulos), 0).label("nulos"),
+                func.count(TseApuracaoBU.id).label("urnas_bu"),
+                func.coalesce(func.sum(case((TseApuracaoBU.divergencia_detectada == True, 1), else_=0)), 0).label("divergentes"),
+            )
+            .select_from(TseApuracaoBU)
+            .join(TseSecao, TseApuracaoBU.secao_id == TseSecao.id)
+            .filter(*filtro_secao)
+            .group_by(TseApuracaoBU.turno)
+            .all()
+        )
 
     bu_t2 = next((r for r in totais_bu if r.turno == 2), None)
     bu_t1 = next((r for r in totais_bu if r.turno == 1), None)
@@ -4988,15 +5027,15 @@ def _consolidar_secoes_tse_sql(
         "pct_abstencao_t2": round((falt_2 / max(aptos_comp, 1)) * 100.0, 2) if aptos_comp else 0.0,
         "delta_faltosos": falt_2 - falt_1,
         "delta_faltosos_pct": round(((falt_2 - falt_1) / max(falt_1, 1)) * 100.0, 2) if falt_1 else 0.0,
-        "hab_biometrica_t1": int(bu_t1.hab_bio) if (bu_t1 and bu_t1.hab_bio) else int(round(comp_1 * 0.924)),
-        "hab_biometrica_t2": int(bu_t2.hab_bio) if (bu_t2 and bu_t2.hab_bio) else int(round(comp_2 * 0.924)),
-        "delta_hab_biometrica": (int(bu_t2.hab_bio) if (bu_t2 and bu_t2.hab_bio) else int(round(comp_2 * 0.924))) - (int(bu_t1.hab_bio) if (bu_t1 and bu_t1.hab_bio) else int(round(comp_1 * 0.924))),
-        "hab_biografica_t1": int(bu_t1.hab_biog) if (bu_t1 and bu_t1.hab_biog) else int(round(comp_1 * 0.062)),
-        "hab_biografica_t2": int(bu_t2.hab_biog) if (bu_t2 and bu_t2.hab_biog) else int(round(comp_2 * 0.062)),
-        "delta_hab_biografica": (int(bu_t2.hab_biog) if (bu_t2 and bu_t2.hab_biog) else int(round(comp_2 * 0.062))) - (int(bu_t1.hab_biog) if (bu_t1 and bu_t1.hab_biog) else int(round(comp_1 * 0.062))),
-        "hab_sem_bio_t1": int(bu_t1.hab_sem_bio) if (bu_t1 and bu_t1.hab_sem_bio) else max(0, comp_1 - int(round(comp_1 * 0.986))),
-        "hab_sem_bio_t2": int(bu_t2.hab_sem_bio) if (bu_t2 and bu_t2.hab_sem_bio) else max(0, comp_2 - int(round(comp_2 * 0.986))),
-        "delta_hab_sem_bio": (int(bu_t2.hab_sem_bio) if (bu_t2 and bu_t2.hab_sem_bio) else max(0, comp_2 - int(round(comp_2 * 0.986)))) - (int(bu_t1.hab_sem_bio) if (bu_t1 and bu_t1.hab_sem_bio) else max(0, comp_1 - int(round(comp_1 * 0.986)))),
+        "hab_biometrica_t1": int(getattr(bu_t1, "hab_bio", 0) or 0) if (bu_t1 and getattr(bu_t1, "hab_bio", 0)) else int(round(comp_1 * 0.924)),
+        "hab_biometrica_t2": int(getattr(bu_t2, "hab_bio", 0) or 0) if (bu_t2 and getattr(bu_t2, "hab_bio", 0)) else int(round(comp_2 * 0.924)),
+        "delta_hab_biometrica": (int(getattr(bu_t2, "hab_bio", 0) or 0) if (bu_t2 and getattr(bu_t2, "hab_bio", 0)) else int(round(comp_2 * 0.924))) - (int(getattr(bu_t1, "hab_bio", 0) or 0) if (bu_t1 and getattr(bu_t1, "hab_bio", 0)) else int(round(comp_1 * 0.924))),
+        "hab_biografica_t1": int(getattr(bu_t1, "hab_biog", 0) or 0) if (bu_t1 and getattr(bu_t1, "hab_biog", 0)) else int(round(comp_1 * 0.062)),
+        "hab_biografica_t2": int(getattr(bu_t2, "hab_biog", 0) or 0) if (bu_t2 and getattr(bu_t2, "hab_biog", 0)) else int(round(comp_2 * 0.062)),
+        "delta_hab_biografica": (int(getattr(bu_t2, "hab_biog", 0) or 0) if (bu_t2 and getattr(bu_t2, "hab_bio", 0)) else int(round(comp_2 * 0.062))) - (int(getattr(bu_t1, "hab_biog", 0) or 0) if (bu_t1 and getattr(bu_t1, "hab_biog", 0)) else int(round(comp_1 * 0.062))),
+        "hab_sem_bio_t1": int(getattr(bu_t1, "hab_sem_bio", 0) or 0) if (bu_t1 and getattr(bu_t1, "hab_sem_bio", 0)) else max(0, comp_1 - int(round(comp_1 * 0.986))),
+        "hab_sem_bio_t2": int(getattr(bu_t2, "hab_sem_bio", 0) or 0) if (bu_t2 and getattr(bu_t2, "hab_sem_bio", 0)) else max(0, comp_2 - int(round(comp_2 * 0.986))),
+        "delta_hab_sem_bio": (int(getattr(bu_t2, "hab_sem_bio", 0) or 0) if (bu_t2 and getattr(bu_t2, "hab_sem_bio", 0)) else max(0, comp_2 - int(round(comp_2 * 0.986)))) - (int(getattr(bu_t1, "hab_sem_bio", 0) or 0) if (bu_t1 and getattr(bu_t1, "hab_sem_bio", 0)) else max(0, comp_1 - int(round(comp_1 * 0.986)))),
         "tempo_medio_mesa_t1_s": 0.0,
         "tempo_medio_mesa_t2_s": 0.0,
         "delta_tempo_mesa_s": 0.0,
