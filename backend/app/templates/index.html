@@ -953,7 +953,20 @@ o Boletim de Urna (apos encerramento da votacao).
               <span>Visualizar Avanço (%)</span>
             </button>
 
-            <!-- Botão 4: Histórico de Ingestão -->
+            <!-- Botão 4: Sincronizar Base (Atualizar Dados Carregados / Parciais) -->
+            <button
+              id="btnSincronizarBancoTse"
+              type="button"
+              onclick="forcarSincronizacaoBancoTse()"
+              class="px-3.5 py-2.5 bg-emerald-950 hover:bg-emerald-900 border border-emerald-500/60 text-emerald-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5 shadow shadow-emerald-950/50"
+              title="Sincroniza o catálogo com as seções e votos gravados no banco PostgreSQL e atualiza todos os painéis e gráficos"
+            >
+              <span id="iconBtnSync">🔁</span>
+              <span id="textBtnSync">Sincronizar Base</span>
+              <span id="tseCatalogCountBadge" class="hidden px-2 py-0.5 rounded-full bg-emerald-400 text-slate-950 text-[10px] font-black"></span>
+            </button>
+
+            <!-- Botão 5: Histórico de Ingestão -->
             <button
               id="btnHistoricoUploadsTse"
               onclick="abrirModalHistoricoUploads()"
@@ -3997,6 +4010,16 @@ o Boletim de Urna (apos encerramento da votacao).
           }
           if (forcarAlerta) {
             showSecurityAlert(`⚡ Status do Servidor: ${pct}% concluído (${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} de ${(prog.total_urnas || 0).toLocaleString('pt-BR')} urnas gravadas no PostgreSQL em segundo plano).`, false);
+            try {
+              atualizarStatusBancoAuditoria();
+              atualizarConsolidacaoTse(false);
+            } catch (_) {}
+          } else if (prog.urnas_processadas && prog.urnas_processadas % 2500 === 0 && window._lastUrnasPollSync !== prog.urnas_processadas) {
+            window._lastUrnasPollSync = prog.urnas_processadas;
+            try {
+              atualizarStatusBancoAuditoria();
+              atualizarConsolidacaoTse(false);
+            } catch (_) {}
           }
         } else {
           if (_pollIngestaoVpsTimer) {
@@ -4014,6 +4037,10 @@ o Boletim de Urna (apos encerramento da votacao).
               pPill.className = "px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-extrabold";
               pPill.innerHTML = `✅ Concluído no Servidor`;
             }
+            try {
+              atualizarStatusBancoAuditoria();
+              atualizarConsolidacaoTse(false);
+            } catch (_) {}
             if (forcarAlerta) {
               showSecurityAlert(prog.mensagem || "Ingestão local concluída com sucesso!", !prog.sucesso);
             }
@@ -4713,8 +4740,15 @@ o Boletim de Urna (apos encerramento da votacao).
       window.arvoreTseState.filtro_forense = hier.filtro_forense_selecionado || "TODAS";
 
       const totalGeral = hier.total_geral_urnas || 0;
-      document.getElementById("tseCatalogCountBadge").textContent =
-        totalGeral > 0 ? `📦 ${totalGeral.toLocaleString("pt-BR")} Urna(s) / Seção(ões) carregada(s) no Catálogo` : "";
+      const cBadge = document.getElementById("tseCatalogCountBadge");
+      if (cBadge) {
+        cBadge.textContent = totalGeral > 0 ? `${totalGeral.toLocaleString("pt-BR")}` : "";
+        if (totalGeral > 0) {
+          cBadge.classList.remove("hidden");
+        } else {
+          cBadge.classList.add("hidden");
+        }
+      }
 
       if (totalGeral === 0) {
         // Se a memória estava vazia/fria mas existem seções gravadas no PostgreSQL,
@@ -4738,31 +4772,43 @@ o Boletim de Urna (apos encerramento da votacao).
         }
         window._tseAutoSyncTentado = false;
 
-        document.getElementById("tseFilterBarContainer").classList.add("hidden");
-        document.getElementById("tseReversoResultContainer").classList.add("hidden");
+        const fCont = document.getElementById("tseFilterBarContainer");
+        if (fCont) fCont.classList.add("hidden");
+        const rCont = document.getElementById("tseReversoResultContainer");
+        if (rCont) rCont.classList.add("hidden");
         return;
       }
       window._tseAutoSyncTentado = false;
 
-      document.getElementById("tseFilterBarContainer").classList.remove("hidden");
-      document.getElementById("tseReversoResultContainer").classList.remove("hidden");
+      const fCont = document.getElementById("tseFilterBarContainer");
+      if (fCont) fCont.classList.remove("hidden");
+      const rCont = document.getElementById("tseReversoResultContainer");
+      if (rCont) rCont.classList.remove("hidden");
 
       popularSeletoresHierarquicosTse(hier);
 
       if (payload.modo_visao === "SECAO_INDIVIDUAL" && payload.secao_individual) {
         window.lastSecaoIndividualPayload = payload.secao_individual;
-        document.getElementById("btnVoltarConsolidado").classList.remove("hidden");
+        const btnV = document.getElementById("btnVoltarConsolidado");
+        if (btnV) btnV.classList.remove("hidden");
         // Mantém os cards totalizadores por candidato e resumo de Brancos/Nulos/Faltosos SEMPRE visíveis também na urna individual!
-        document.getElementById("tsePlacarConsolidadoBox").classList.remove("hidden");
-        document.getElementById("tseListaUrnasConsolidadaBox").classList.add("hidden");
-        document.getElementById("tseIndividualUrnaSection").classList.remove("hidden");
+        const plBox = document.getElementById("tsePlacarConsolidadoBox");
+        if (plBox) plBox.classList.remove("hidden");
+        const lBox = document.getElementById("tseListaUrnasConsolidadaBox");
+        if (lBox) lBox.classList.add("hidden");
+        const iSec = document.getElementById("tseIndividualUrnaSection");
+        if (iSec) iSec.classList.remove("hidden");
         renderizarLaudoTseReverso(payload.secao_individual);
       } else if (payload.consolidado) {
         window.lastSecaoIndividualPayload = null;
-        document.getElementById("btnVoltarConsolidado").classList.add("hidden");
-        document.getElementById("tsePlacarConsolidadoBox").classList.remove("hidden");
-        document.getElementById("tseListaUrnasConsolidadaBox").classList.remove("hidden");
-        document.getElementById("tseIndividualUrnaSection").classList.add("hidden");
+        const btnV = document.getElementById("btnVoltarConsolidado");
+        if (btnV) btnV.classList.add("hidden");
+        const plBox = document.getElementById("tsePlacarConsolidadoBox");
+        if (plBox) plBox.classList.remove("hidden");
+        const lBox = document.getElementById("tseListaUrnasConsolidadaBox");
+        if (lBox) lBox.classList.remove("hidden");
+        const iSec = document.getElementById("tseIndividualUrnaSection");
+        if (iSec) iSec.classList.add("hidden");
         renderizarVisaoConsolidadaTse(payload.consolidado, hier);
       }
     }
