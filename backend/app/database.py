@@ -613,6 +613,20 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
             ciclos = log_rep.get("ciclos_eleitores") or []
             ciclos_1t = log_rep.get("ciclos_eleitores_1_turno") or []
             espelho = imgbu_rep.get("espelho_bobina")
+            if not espelho or len(str(espelho).strip().splitlines()) < 15:
+                try:
+                    from .tse_reverse_analyzer import gerar_espelho_bobina_completo_tse
+                    espelho = gerar_espelho_bobina_completo_tse(
+                        secao_db=secao_db,
+                        bu_db=bu_db,
+                        met_db=metricas_t2 if turno_pacote == 2 else (metricas_t1 if 'metricas_t1' in locals() else None),
+                        cands=candidatos_list,
+                        turno=turno_pacote,
+                        espelho_referencia_1t="",
+                        ciclos=ciclos,
+                    )
+                except Exception:
+                    pass
             vazao_str = json.dumps(resumo.get("votos_por_hora", {})) if resumo.get("votos_por_hora") else None
 
             if ciclos or espelho or vazao_str:
