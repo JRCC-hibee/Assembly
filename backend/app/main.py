@@ -64,8 +64,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-05-rev23"
-SYSTEM_COMMIT = "rev23-resilient-multi-format-archive-extraction-and-diagnostics"
+SYSTEM_BUILD = "2026-11-05-rev24"
+SYSTEM_COMMIT = "rev24-persistent-background-ingest-monitoring-and-ui-cleanup"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",

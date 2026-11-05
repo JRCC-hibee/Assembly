@@ -898,88 +898,74 @@ o Boletim de Urna (apos encerramento da votacao).
 
     <!-- MÓDULO 2: AUDITORIA FORENSE ELEIÇÕES (TSE) — COMPARATIVO 1ºT VS 2ºT E ÁRVORE NACIONAL -->
     <section id="tab-tse-reverso" class="hidden space-y-6">
-      <!-- Central de Ingestão de Arquivos e Pastas .ZIP / Estado Inteiro -->
-      <div class="bg-slate-900 border-2 border-cyan-500/50 rounded-2xl p-6 space-y-4 shadow-2xl">
+      <!-- Central de Ingestão de Dados na VPS (Segundo Plano Automático Permanente) -->
+      <div class="bg-slate-900 border-2 border-indigo-500/50 rounded-2xl p-6 space-y-4 shadow-2xl">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="max-w-2xl">
             <div class="flex items-center gap-2">
-              <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
+              <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700 mono">
                 MÓDULO DE AUDITORIA FORENSE ELEITORAL — TSE
               </span>
               <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-950 text-emerald-300 border border-emerald-800 mono">
-                Zero-Disk Raw Ativo
+                Segundo Plano Permanente Ativo
               </span>
             </div>
             <h2 class="text-lg font-extrabold text-white mt-1.5 flex items-center gap-2">
-              <span>Auditoria Nacional Multi-Urna e Ingestão de Arquivos .ZIP</span>
+              <span>Ingestão de Dados na VPS & Auditoria Nacional TSE</span>
             </h2>
             <p class="text-xs text-slate-300 mt-1 leading-relaxed">
-              Suba diretamente os arquivos <code class="text-cyan-300 font-bold">.ZIP</code> do 1º ou 2º turno de qualquer estado (ou pastas inteiras). O sistema realiza a extração em <strong>streaming na memória</strong>, grava as tabelas relacionais no <strong>PostgreSQL</strong> e descarta os arquivos brutos, consumindo <strong>zero gigabytes de armazenamento residual na VPS</strong>.
+              Suba seus arquivos compactados (<code class="text-cyan-300 font-bold">.zip</code> ou <code class="text-cyan-300 font-bold">.7z</code>) para a pasta <code class="text-amber-300 font-bold bg-slate-950 px-1.5 py-0.5 rounded border border-amber-500/30">/root/tse_import</code> via Termius SFTP. A ingestão roda <strong>100% no servidor em segundo plano</strong> — o avanço continua mesmo se você fechar o navegador ou desligar seu computador.
             </p>
           </div>
 
           <div class="flex flex-wrap items-center gap-2.5">
-            <!-- Botão 1 (HERO RECOMENDADO): Subir Pasta Aberta Descompactada -->
-            <label class="px-4 py-2.5 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs rounded-xl cursor-pointer shadow-lg shadow-emerald-950/60 transition inline-flex items-center gap-2" title="Subir pasta descompactada (pasta aberta) com envio direto em micro-lotes de 50 urnas">
-              <span>📂</span>
-              <span>Subir Pasta Aberta (Recomendado)</span>
-              <span class="px-1.5 py-0.5 rounded bg-slate-950 text-emerald-300 text-[9px] font-extrabold uppercase">10x Mais Rápido</span>
-              <input id="tseFolderInput" type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
-            </label>
-
-            <!-- Botão 2: Subir Arquivos .ZIP -->
-            <label class="px-3.5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold text-xs rounded-xl cursor-pointer shadow transition inline-flex items-center gap-2" title="Selecione um ou vários arquivos .zip de estados ou seções">
-              <span>📦</span>
-              <span>Subir Arquivo(s) .ZIP</span>
-              <input id="tseZipInput" type="file" multiple accept=".zip" onchange="iniciarImportacaoZipTse(event)" class="hidden" />
-            </label>
-
-            <!-- Botão 3: Subir Pasta com .ZIPs -->
-            <label class="px-3 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs rounded-xl cursor-pointer shadow transition inline-flex items-center gap-2" title="Selecione uma pasta contendo múltiplos arquivos .zip">
-              <span>🗂️</span>
-              <span>Pasta de .ZIPs</span>
-              <input id="tseZipFolderInput" type="file" webkitdirectory directory multiple onchange="iniciarImportacaoZipTse(event)" class="hidden" />
-            </label>
-
-            <!-- Botão 4: Sincronizar Base -->
+            <!-- Botão 1: Detectar Pasta / Arquivos .ZIP na VPS -->
             <button
-              id="btnSincronizarBancoTse"
-              onclick="forcarSincronizacaoBancoTse()"
-              title="Recarrega e sincroniza todas as seções já salvas no PostgreSQL com o catálogo de auditoria"
-              class="px-3.5 py-2.5 bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/50 text-emerald-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
+              type="button"
+              onclick="verificarArquivosServidorTse()"
+              class="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-indigo-500/50 text-indigo-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-2 shadow"
+              title="Escaneia /root/tse_import na VPS e lista arquivos prontos para carga"
             >
-              <span id="iconBtnSync">🔄</span>
-              <span id="textBtnSync">Sincronizar Base</span>
+              <span>🔍</span>
+              <span>Detectar Arquivos (.ZIP / .7Z)</span>
             </button>
 
-            <!-- Botão 5: Histórico de Ingestão & Auditoria de Uploads -->
+            <!-- Botão 2: Iniciar Ingestão no Servidor -->
+            <button
+              id="btnIniciarIngestaoVps"
+              type="button"
+              onclick="iniciarIngestaoDiretaVps()"
+              class="px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-slate-950 font-black text-xs rounded-xl shadow transition inline-flex items-center gap-2"
+              title="Inicia ou retoma a ingestão em segundo plano na VPS"
+            >
+              <span>⚡</span>
+              <span>Iniciar Ingestão no Servidor</span>
+            </button>
+
+            <!-- Botão 3: Visualizar Avanço em % (Atualizar Status) -->
+            <button
+              type="button"
+              onclick="atualizarProgressoIngestaoServidor(true)"
+              class="px-3.5 py-2.5 bg-cyan-950 hover:bg-cyan-900 border border-cyan-500/60 text-cyan-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-2 shadow"
+              title="Consulta o servidor e atualiza o status e % da ingestão em tempo real"
+            >
+              <span>🔄</span>
+              <span>Visualizar Avanço (%)</span>
+            </button>
+
+            <!-- Botão 4: Histórico de Ingestão -->
             <button
               id="btnHistoricoUploadsTse"
               onclick="abrirModalHistoricoUploads()"
-              title="Visualizar histórico completo de uploads de pastas e arquivos .zip"
-              class="px-3.5 py-2.5 bg-sky-600/30 hover:bg-sky-600/50 border border-sky-500/50 text-sky-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5 shadow"
+              title="Visualizar histórico completo de uploads e lotes gravados"
+              class="px-3 py-2.5 bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5 shadow"
             >
               <span>📋</span>
-              <span>Histórico de Ingestão</span>
+              <span>Histórico</span>
               <span id="badgeHistoricoCount" class="px-1.5 py-0.5 rounded-full bg-sky-400 text-slate-950 text-[10px] font-black hidden">0</span>
             </button>
 
-            <button
-              id="btnVincularPastaLocalTse"
-              onclick="vincularPastaLocalTseShowDirectoryPicker()"
-              title="Vincula sua pasta local do PR para leitura direta do log.jez sob demanda"
-              class="px-3 py-2.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
-            >
-              <span id="lblVincularPastaLocalTse">🔗 Vincular Pasta Local</span>
-            </button>
-
-            <button
-              onclick="carregarAmostraOficialPR()"
-              class="px-3 py-2.5 bg-slate-800 hover:bg-slate-700 border border-cyan-500/50 text-cyan-300 font-bold text-xs rounded-xl transition"
-            >
-              ⚡ Amostra PR
-            </button>
-
+            <!-- Botão 5: Reset Total do Banco -->
             <button
               onclick="confirmarResetTotalBanco()"
               title="Zerar 100% do banco de dados PostgreSQL e apagar todas as seções e votos"
@@ -991,119 +977,35 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
 
-        <!-- PAINEL OPÇÃO A: INGESTÃO DIRETA DE ALTA PERFORMANCE NA VPS (SFTP / TERMIUS) -->
-        <div class="mt-4 p-4 bg-gradient-to-r from-slate-900 via-indigo-950/50 to-slate-900 border border-indigo-500/40 rounded-2xl shadow-xl space-y-3">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex items-center gap-3">
-              <span class="p-2.5 rounded-xl bg-indigo-500/20 text-indigo-300 text-xl font-bold">🚀</span>
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-black text-indigo-200">Ingestão Direta na VPS (Opção A — Recomendado)</span>
-                  <span class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-extrabold uppercase">Alta Velocidade • Zero Quedas</span>
-                </div>
-                <p class="text-xs text-slate-400 mt-0.5">
-                  Suba seu arquivo compactado <span class="text-cyan-300 font-bold mono">.zip</span> (ex: <code class="text-emerald-400">sc.zip</code>) diretamente para <span class="text-amber-300 font-bold mono bg-slate-950 px-1.5 py-0.5 rounded border border-amber-500/30">/root/tse_import</span> via Termius SFTP.
-                </p>
-              </div>
-            </div>
-            <div class="flex items-center gap-2">
-              <button
-                type="button"
-                onclick="verificarArquivosServidorTse()"
-                class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-indigo-500/40 text-indigo-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5"
-              >
-                <span>🔍</span>
-                <span>Detectar Arquivos em /root/tse_import</span>
-              </button>
-              <button
-                id="btnIniciarIngestaoVps"
-                type="button"
-                onclick="iniciarIngestaoDiretaVps()"
-                class="px-4 py-2 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-slate-950 font-black text-xs rounded-xl shadow transition inline-flex items-center gap-1.5"
-                title="Inicia ingestão completa do zero dos arquivos da VPS"
-              >
-                <span>⚡</span>
-                <span>Iniciar Ingestão no Servidor</span>
-              </button>
-              <button
-                id="btnComplementarBaseVps"
-                type="button"
-                onclick="iniciarComplementacaoDiretaVps()"
-                class="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs rounded-xl shadow transition inline-flex items-center gap-1.5"
-                title="Complementa a base existente com o 1º Turno faltante, dossiês de eleitores do log e espelho oficial das bobinas"
-              >
-                <span>📦</span>
-                <span>Complementar Base (1ºT + Logs/Boletins)</span>
-              </button>
-            </div>
+        <!-- Status dos Arquivos Detectados na Pasta /root/tse_import -->
+        <div id="vpsImportStatusBox" class="p-3.5 bg-slate-950 border border-slate-800 rounded-xl text-xs flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2 text-slate-300">
+            <span class="w-2.5 h-2.5 rounded-full bg-slate-500" id="vpsImportStatusDot"></span>
+            <span id="vpsImportStatusMsg">Clique em "Detectar Arquivos (.ZIP / .7Z)" após subir os pacotes no Termius SFTP para /root/tse_import.</span>
           </div>
-
-          <!-- Status dos Arquivos Detectados na Pasta /root/tse_import -->
-          <div id="vpsImportStatusBox" class="p-3 bg-slate-950 border border-slate-800 rounded-xl text-xs flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2 text-slate-300">
-              <span class="w-2 h-2 rounded-full bg-slate-500" id="vpsImportStatusDot"></span>
-              <span id="vpsImportStatusMsg">Clique em "Detectar Arquivos em /root/tse_import" após subir o arquivo no Termius SFTP.</span>
-            </div>
-            <div id="vpsImportStatsPills" class="flex items-center gap-2 hidden">
-              <span class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/50 font-mono text-[11px]" id="vpsZipsFound">0 zips</span>
-              <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/50 font-mono text-[11px]" id="vpsTotalMbFound">0 MB</span>
-            </div>
-          </div>
-
-          <!-- Barra de Progresso da Ingestão na VPS -->
-          <div id="vpsIngestaoProgressBox" class="hidden p-3 bg-slate-950 border border-indigo-500/50 rounded-xl space-y-2">
-            <div class="flex items-center justify-between text-xs">
-              <span class="text-indigo-300 font-bold" id="vpsIngestaoMsg">Processando seções eleitorais...</span>
-              <span class="font-mono text-cyan-400 font-black text-sm" id="vpsIngestaoPct">0%</span>
-            </div>
-            <div class="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
-              <div id="vpsIngestaoBar" class="h-full bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400 transition-all duration-300" style="width: 2%"></div>
-            </div>
-            <div class="flex items-center justify-between text-[11px] text-slate-400 font-mono">
-              <span id="vpsIngestaoUrnas">0 de 0 urnas</span>
-              <span class="text-emerald-400 font-bold" id="vpsIngestaoSpeed">⚡ Processamento direto na VPS</span>
-            </div>
+          <div id="vpsImportStatsPills" class="flex items-center gap-2 hidden">
+            <span class="px-2.5 py-1 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/50 font-mono text-[11px]" id="vpsZipsFound">0 zips</span>
+            <span class="px-2.5 py-1 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/50 font-mono text-[11px]" id="vpsTotalMbFound">0 MB</span>
           </div>
         </div>
 
-        <!-- Banner de Orientação Estratégica para o Usuário -->
-        <div class="mt-3 p-3 bg-slate-950/80 border border-emerald-500/30 rounded-xl flex items-start gap-2.5 text-xs text-slate-300">
-          <span class="text-base text-emerald-400">⚡</span>
-          <div>
-            <strong class="text-emerald-300">Alta Disponibilidade e Recuperação Resiliente:</strong>
-            O motor suporta nativamente pacotes <strong class="text-cyan-300">.ZIP</strong>, <strong class="text-cyan-300">.7Z</strong>, arquivos avulsos e até arquivos truncados (caso o SFTP caia antes de 100%). Se preferir velocidade máxima absoluta, você pode descompactar os arquivos no seu computador e subir a pasta aberta pelo botão <strong class="text-emerald-400 font-bold">📂 Subir Pasta Aberta</strong>, ou executar <code class="text-amber-300 bg-slate-900 px-1 py-0.5 rounded">7z x *.zip</code> diretamente no terminal da VPS dentro de <code class="text-amber-300 bg-slate-900 px-1 py-0.5 rounded">/root/tse_import</code>.
-          </div>
-        </div>
-
-        <!-- Opção de Estratégia de Upload e Status da Base -->
-        <div class="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800/80 text-xs">
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="text-slate-400 font-semibold mono">Modo de Ingestão:</span>
-            <select id="tseUploadStrategy" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-cyan-300 font-bold mono">
-              <option value="TURBO" selected>🚀 Ultra-Rápido (Recomendado: BU + RDV instantâneo, Log sob demanda)</option>
-              <option value="AUTO">⚡ Inteligente (Lotes com BU + RDV + Logs Teclas Presidente)</option>
-              <option value="COMPLETO">🔬 Completo (Processa 100% dos eventos de log linha a linha)</option>
-            </select>
-          </div>
-          <div id="tseCatalogCountBadge" class="mono text-[11px] text-emerald-400 font-bold"></div>
-        </div>
-
-        <!-- Barra de Progresso de Upload em Lote -->
-        <div id="tseBatchProgressBox" class="hidden bg-slate-950 border border-cyan-500/50 rounded-xl p-3.5 space-y-2">
-          <div class="flex items-center justify-between text-xs mono">
-            <span id="tseBatchProgressText" class="font-bold text-cyan-300">Preparando lotes de urnas...</span>
-            <div class="flex items-center gap-3">
-              <span id="tseBatchProgressPct" class="font-extrabold text-white">0%</span>
-              <button
-                onclick="pararImportacaoLoteTse()"
-                class="px-2.5 py-1 rounded bg-amber-600 hover:bg-amber-500 text-slate-950 font-extrabold text-[11px]"
-              >
-                ⏹ Parar Aqui e Consolidar Urnas Já Enviadas
-              </button>
+        <!-- Barra de Progresso da Ingestão na VPS (Execução em Segundo Plano) -->
+        <div id="vpsIngestaoProgressBox" class="hidden p-4 bg-slate-950 border-2 border-indigo-500/60 rounded-xl space-y-2.5 shadow-xl">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+            <div class="flex items-center gap-2.5">
+              <span class="text-indigo-300 font-bold" id="vpsIngestaoMsg">Processando seções eleitorais em segundo plano na VPS...</span>
+              <span id="vpsBackgroundPill" class="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-extrabold">
+                🟢 Executando no Servidor (pode fechar o navegador)
+              </span>
             </div>
+            <span class="font-mono text-cyan-400 font-black text-sm" id="vpsIngestaoPct">0%</span>
           </div>
-          <div class="w-full bg-slate-900 rounded-full h-3 overflow-hidden border border-slate-800">
-            <div id="tseBatchProgressBar" style="width: 0%" class="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full transition-all duration-200"></div>
+          <div class="w-full bg-slate-900 rounded-full h-3.5 overflow-hidden border border-slate-800">
+            <div id="vpsIngestaoBar" class="h-full bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400 transition-all duration-300" style="width: 2%"></div>
+          </div>
+          <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400 font-mono">
+            <span id="vpsIngestaoUrnas">0 de 0 urnas</span>
+            <span class="text-emerald-400 font-bold" id="vpsIngestaoSpeed">⚡ Processamento direto na VPS</span>
           </div>
         </div>
       </div>
@@ -2449,6 +2351,11 @@ o Boletim de Urna (apos encerramento da votacao).
           atualizarStatusBancoAuditoria();
         } catch (eStat) {
           console.warn("[AUDITORIA] Falha ao atualizar status do banco:", eStat);
+        }
+        try {
+          atualizarProgressoIngestaoServidor(false);
+        } catch (eProg) {
+          console.warn("[AUDITORIA] Falha ao verificar progresso da VPS:", eProg);
         }
       } else {
         if (btnSimulador) btnSimulador.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition duration-150 bg-emerald-600 text-white shadow-md shadow-emerald-900/30";
@@ -4051,16 +3958,83 @@ o Boletim de Urna (apos encerramento da votacao).
 
     let _pollIngestaoVpsTimer = null;
 
-    async function iniciarIngestaoDiretaVps() {
+    async function atualizarProgressoIngestaoServidor(forcarAlerta = false) {
       const pBox = document.getElementById("vpsIngestaoProgressBox");
       const pBar = document.getElementById("vpsIngestaoBar");
       const pPct = document.getElementById("vpsIngestaoPct");
       const pMsg = document.getElementById("vpsIngestaoMsg");
       const pUrnas = document.getElementById("vpsIngestaoUrnas");
       const pSpeed = document.getElementById("vpsIngestaoSpeed");
+      const pPill = document.getElementById("vpsBackgroundPill");
+
+      try {
+        const rProg = await fetch("/api/tse-reverso/servidor/progresso-ingestao");
+        if (!rProg.ok) {
+          if (forcarAlerta) showSecurityAlert("Servidor indisponível no momento", true);
+          return;
+        }
+        const prog = await rProg.json();
+
+        if (prog.ativo) {
+          if (pBox) pBox.classList.remove("hidden");
+          const pct = Math.max(2, Math.min(100, prog.progresso_pct || 0));
+          if (pBar) pBar.style.width = `${pct}%`;
+          if (pPct) pPct.textContent = `${pct}%`;
+          if (pMsg) pMsg.textContent = prog.mensagem || "Processando seções em segundo plano na VPS...";
+          if (pUrnas) pUrnas.textContent = `${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} de ${(prog.total_urnas || 0).toLocaleString('pt-BR')} urnas (${(prog.urnas_novas || 0).toLocaleString('pt-BR')} novas salvas)`;
+          if (pSpeed && prog.tempo_decorrido_s > 0) {
+            const sp = (prog.urnas_processadas / prog.tempo_decorrido_s).toFixed(1);
+            pSpeed.textContent = `⚡ ${sp} urnas/segundo (${prog.tempo_decorrido_s}s decorridos)`;
+          }
+          if (pPill) {
+            pPill.classList.remove("hidden");
+            pPill.className = "px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-extrabold";
+            pPill.innerHTML = `🟢 <span class="animate-pulse">Executando no Servidor</span> (pode fechar o navegador)`;
+          }
+
+          if (!_pollIngestaoVpsTimer) {
+            _pollIngestaoVpsTimer = setInterval(() => atualizarProgressoIngestaoServidor(false), 1500);
+          }
+          if (forcarAlerta) {
+            showSecurityAlert(`⚡ Status do Servidor: ${pct}% concluído (${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} de ${(prog.total_urnas || 0).toLocaleString('pt-BR')} urnas gravadas no PostgreSQL em segundo plano).`, false);
+          }
+        } else {
+          if (_pollIngestaoVpsTimer) {
+            clearInterval(_pollIngestaoVpsTimer);
+            _pollIngestaoVpsTimer = null;
+          }
+          if (prog.finalizado) {
+            if (pBox) pBox.classList.remove("hidden");
+            if (pBar) pBar.style.width = `100%`;
+            if (pPct) pPct.textContent = `100%`;
+            if (pMsg) pMsg.textContent = prog.mensagem || "✅ Ingestão na VPS concluída com sucesso!";
+            if (pUrnas) pUrnas.textContent = `${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} urnas processadas (${(prog.urnas_novas || 0).toLocaleString('pt-BR')} salvas, ${(prog.urnas_duplicadas || 0).toLocaleString('pt-BR')} já existentes)`;
+            if (pPill) {
+              pPill.classList.remove("hidden");
+              pPill.className = "px-2.5 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 text-[10px] font-extrabold";
+              pPill.innerHTML = `✅ Concluído no Servidor`;
+            }
+            if (forcarAlerta) {
+              showSecurityAlert(prog.mensagem || "Ingestão local concluída com sucesso!", !prog.sucesso);
+            }
+          } else {
+            if (pPill) pPill.classList.add("hidden");
+            if (forcarAlerta) {
+              showSecurityAlert("Nenhuma ingestão em andamento na VPS no momento. Clique em 'Iniciar Ingestão no Servidor' para iniciar.", false);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("[VPS-PROGRESS] Erro ao buscar progresso:", err);
+      }
+    }
+
+    async function iniciarIngestaoDiretaVps() {
+      const pBox = document.getElementById("vpsIngestaoProgressBox");
+      const pMsg = document.getElementById("vpsIngestaoMsg");
 
       if (pBox) pBox.classList.remove("hidden");
-      if (pMsg) pMsg.textContent = "Iniciando motor de ingestão na VPS...";
+      if (pMsg) pMsg.textContent = "Disparando motor de ingestão na VPS em segundo plano...";
 
       try {
         const res = await fetch("/api/tse-reverso/servidor/iniciar-ingestao-local", { method: "POST" });
@@ -4072,37 +4046,8 @@ o Boletim de Urna (apos encerramento da votacao).
         const data = await res.json();
         if (!data.ok) {
           if (pMsg) pMsg.textContent = `Aviso: ${data.mensagem || 'Falha ao iniciar'}`;
-          if (!data.status?.ativo) return;
         }
-
-        if (_pollIngestaoVpsTimer) clearInterval(_pollIngestaoVpsTimer);
-        _pollIngestaoVpsTimer = setInterval(async () => {
-          try {
-            const rProg = await fetch("/api/tse-reverso/servidor/progresso-ingestao");
-            if (rProg.ok) {
-              const prog = await rProg.json();
-              const pct = Math.max(2, Math.min(100, prog.progresso_pct || 0));
-              if (pBar) pBar.style.width = `${pct}%`;
-              if (pPct) pPct.textContent = `${pct}%`;
-              if (pMsg) pMsg.textContent = prog.mensagem || "Processando...";
-              if (pUrnas) pUrnas.textContent = `${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} de ${(prog.total_urnas || 0).toLocaleString('pt-BR')} urnas (${(prog.urnas_novas || 0).toLocaleString('pt-BR')} novas salvas)`;
-              if (pSpeed && prog.tempo_decorrido_s > 0) {
-                const sp = (prog.urnas_processadas / prog.tempo_decorrido_s).toFixed(1);
-                pSpeed.textContent = `⚡ ${sp} urnas/segundo (${prog.tempo_decorrido_s}s decorridos)`;
-              }
-
-              if (prog.finalizado) {
-                clearInterval(_pollIngestaoVpsTimer);
-                _pollIngestaoVpsTimer = null;
-                playBeepBiometriaOk();
-                await atualizarStatusBancoAuditoria();
-                await atualizarBadgeHistoricoUploads();
-                await selecionarNoArvoreTse("TODAS", "TODAS", "TODAS", "TODAS", "CONSOLIDADO");
-                showSecurityAlert(prog.mensagem || "Ingestão local concluída com sucesso!", !prog.sucesso);
-              }
-            }
-          } catch (ePoll) {}
-        }, 800);
+        await atualizarProgressoIngestaoServidor(false);
       } catch (err) {
         if (pMsg) pMsg.textContent = `Erro ao disparar ingestão na VPS: ${err.message}`;
       }
@@ -4110,11 +4055,7 @@ o Boletim de Urna (apos encerramento da votacao).
 
     async function iniciarComplementacaoDiretaVps() {
       const pBox = document.getElementById("vpsIngestaoProgressBox");
-      const pBar = document.getElementById("vpsIngestaoBar");
-      const pPct = document.getElementById("vpsIngestaoPct");
       const pMsg = document.getElementById("vpsIngestaoMsg");
-      const pUrnas = document.getElementById("vpsIngestaoUrnas");
-      const pSpeed = document.getElementById("vpsIngestaoSpeed");
 
       if (pBox) pBox.classList.remove("hidden");
       if (pMsg) pMsg.textContent = "Iniciando complementação da base na VPS (1º Turno + Dossiês)...";
@@ -4129,37 +4070,8 @@ o Boletim de Urna (apos encerramento da votacao).
         const data = await res.json();
         if (!data.ok) {
           if (pMsg) pMsg.textContent = `Aviso: ${data.mensagem || 'Falha ao iniciar complementação'}`;
-          if (!data.status?.ativo) return;
         }
-
-        if (_pollIngestaoVpsTimer) clearInterval(_pollIngestaoVpsTimer);
-        _pollIngestaoVpsTimer = setInterval(async () => {
-          try {
-            const rProg = await fetch("/api/tse-reverso/servidor/progresso-ingestao");
-            if (rProg.ok) {
-              const prog = await rProg.json();
-              const pct = Math.max(2, Math.min(100, prog.progresso_pct || 0));
-              if (pBar) pBar.style.width = `${pct}%`;
-              if (pPct) pPct.textContent = `${pct}%`;
-              if (pMsg) pMsg.textContent = prog.mensagem || "Complementando base...";
-              if (pUrnas) pUrnas.textContent = `${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} de ${(prog.total_urnas || 0).toLocaleString('pt-BR')} urnas (${(prog.urnas_novas || 0).toLocaleString('pt-BR')} complementadas)`;
-              if (pSpeed && prog.tempo_decorrido_s > 0) {
-                const sp = (prog.urnas_processadas / prog.tempo_decorrido_s).toFixed(1);
-                pSpeed.textContent = `⚡ ${sp} urnas/segundo (${prog.tempo_decorrido_s}s decorridos)`;
-              }
-
-              if (prog.finalizado) {
-                clearInterval(_pollIngestaoVpsTimer);
-                _pollIngestaoVpsTimer = null;
-                playBeepBiometriaOk();
-                await atualizarStatusBancoAuditoria();
-                await atualizarBadgeHistoricoUploads();
-                await selecionarNoArvoreTse("TODAS", "TODAS", "TODAS", "TODAS", "CONSOLIDADO");
-                showSecurityAlert(prog.mensagem || "Complementação concluída com sucesso!", !prog.sucesso);
-              }
-            }
-          } catch (ePoll) {}
-        }, 800);
+        await atualizarProgressoIngestaoServidor(false);
       } catch (err) {
         if (pMsg) pMsg.textContent = `Erro ao disparar complementação na VPS: ${err.message}`;
       }
@@ -7509,6 +7421,14 @@ o Boletim de Urna (apos encerramento da votacao).
     } catch (e) {
       ativarModulo("simulador");
     }
+
+    // Monitoramento persistente da ingestão em segundo plano na VPS (reconexão imediata)
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        atualizarProgressoIngestaoServidor(false);
+      }
+    });
+    atualizarProgressoIngestaoServidor(false);
   </script>
 
   <!-- Rodapé Institucional com Identificação Explícita de Versão e Build -->
