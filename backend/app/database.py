@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import time
 from datetime import datetime, timezone
 from sqlalchemy import (
     create_engine, Column, Integer, SmallInteger, String, Boolean,
@@ -1212,8 +1213,18 @@ def obter_totais_consolidados_tse(
 
 
 
-def init_db():
-    Base.metadata.create_all(bind=engine)
+def init_db(max_retries=15, delay=2.0):
+    for attempt in range(1, max_retries + 1):
+        try:
+            Base.metadata.create_all(bind=engine)
+            break
+        except Exception as exc:
+            print(f"[INIT-DB] Tentativa {attempt}/{max_retries} falhou ao conectar ao banco ({exc}). Aguardando {delay}s...")
+            time.sleep(delay)
+    else:
+        print("[INIT-DB] Aviso: Não foi possível conectar ao banco após todas as tentativas. Prosseguindo...")
+        return
+
     # Migração automática suave com transações atômicas isoladas para cada comando DDL
     ddl_statements = [
         "ALTER TABLE seccao_config ADD COLUMN IF NOT EXISTS terminal_eleitor_liberado BOOLEAN DEFAULT FALSE",
@@ -1249,25 +1260,28 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_tse_dossie_pref ON tse_dossie_secao(prefixo);",
     ]
 
-    with engine.connect() as conn:
-        for stmt in ddl_statements:
-            try:
-                trans = conn.begin()
-                conn.execute(text(stmt))
-                trans.commit()
-            except Exception:
+    try:
+        with engine.connect() as conn:
+            for stmt in ddl_statements:
                 try:
-                    trans.rollback()
+                    trans = conn.begin()
+                    conn.execute(text(stmt))
+                    trans.commit()
                 except Exception:
-                    pass
-                if "IF NOT EXISTS" in stmt and "ALTER TABLE" in stmt:
                     try:
-                        trans2 = conn.begin()
-                        conn.execute(text(stmt.replace(" IF NOT EXISTS", "")))
-                        trans2.commit()
+                        trans.rollback()
                     except Exception:
+                        pass
+                    if "IF NOT EXISTS" in stmt and "ALTER TABLE" in stmt:
                         try:
-                            trans2.rollback()
+                            trans2 = conn.begin()
+                            conn.execute(text(stmt.replace(" IF NOT EXISTS", "")))
+                            trans2.commit()
                         except Exception:
-                            pass
+                            try:
+                                trans2.rollback()
+                            except Exception:
+                                pass
+    except Exception as exc_conn:
+        print(f"[INIT-DB] Aviso ao conectar para executar DDLs: {exc_conn}")
 

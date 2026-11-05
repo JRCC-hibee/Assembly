@@ -1,6 +1,7 @@
 import os
 import glob
 import time
+import json
 import zipfile
 import hashlib
 import uuid
@@ -63,8 +64,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-05-rev17"
-SYSTEM_COMMIT = "rev16-fix-migration-isolated-trans-panel-restored"
+SYSTEM_BUILD = "2026-11-05-rev18"
+SYSTEM_COMMIT = "rev18-fix-startup-resilience-bad-gateway-protect"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -86,37 +87,44 @@ def get_db():
 
 @app.on_event("startup")
 def on_startup():
-    init_db()
-    db = SessionLocal()
     try:
-        get_or_create_seccao(db)
-        seed_default_candidates(db)
-        # Fidelidade cadastral e retroativa: Candidato 22 é FLÁVIO BOLSONARO na eleição de 2026
+        init_db()
+    except Exception as exc_init:
+        print(f"[STARTUP] Aviso ao inicializar banco: {exc_init}")
+
+    try:
+        db = SessionLocal()
         try:
-            from sqlalchemy import text
-            db.execute(text("UPDATE tse_votos_candidatos SET nome_candidato = 'FLÁVIO BOLSONARO' WHERE numero_candidato = 22 AND (cargo = 'PRESIDENTE' OR cargo IS NULL)"))
-            db.execute(text("UPDATE tse_dossie_secao SET espelho_bobina = REPLACE(REPLACE(espelho_bobina, 'JAIR BOLSONARO', 'FLÁVIO BOLSONARO'), 'FLAVIO BOLSONARO', 'FLÁVIO BOLSONARO') WHERE espelho_bobina LIKE '%BOLSONARO%'"))
-            db.commit()
-            print("[STARTUP] Fidelidade restaurada com sucesso: Candidato 22 normalizado para FLÁVIO BOLSONARO.")
-        except Exception as e_fid:
-            db.rollback()
-            print(f"[STARTUP] Aviso na restauração de fidelidade do candidato 22: {e_fid}")
-        # Verificação e reparo automático de votos zerados em tse_votos_candidatos via catálogo
-        try:
-            from .database import TseVotoCandidato
-            from .tse_reverse_analyzer import ressincronizar_votos_catalogo_banco
-            votos_zerados = db.query(TseVotoCandidato).filter(TseVotoCandidato.quantidade_votos == 0).limit(5).all()
-            total_positivos = db.query(TseVotoCandidato).filter(TseVotoCandidato.quantidade_votos > 0).count()
-            if votos_zerados and total_positivos < 10:
-                print("[STARTUP] Votos zerados detectados em tse_votos_candidatos. Iniciando reparo automático via catálogo...")
-                rep_res = ressincronizar_votos_catalogo_banco(db=db)
-                print(f"[STARTUP] Resultado do reparo de votos: {rep_res}")
-        except Exception as e_rep:
-            print(f"[STARTUP] Aviso na verificação de votos do catálogo: {e_rep}")
-    except Exception as exc:
-        print(f"[STARTUP] Erro startup: {exc}")
-    finally:
-        db.close()
+            get_or_create_seccao(db)
+            seed_default_candidates(db)
+            # Fidelidade cadastral e retroativa: Candidato 22 é FLÁVIO BOLSONARO na eleição de 2026
+            try:
+                from sqlalchemy import text
+                db.execute(text("UPDATE tse_votos_candidatos SET nome_candidato = 'FLÁVIO BOLSONARO' WHERE numero_candidato = 22 AND (cargo = 'PRESIDENTE' OR cargo IS NULL)"))
+                db.execute(text("UPDATE tse_dossie_secao SET espelho_bobina = REPLACE(REPLACE(espelho_bobina, 'JAIR BOLSONARO', 'FLÁVIO BOLSONARO'), 'FLAVIO BOLSONARO', 'FLÁVIO BOLSONARO') WHERE espelho_bobina LIKE '%BOLSONARO%'"))
+                db.commit()
+                print("[STARTUP] Fidelidade restaurada com sucesso: Candidato 22 normalizado para FLÁVIO BOLSONARO.")
+            except Exception as e_fid:
+                db.rollback()
+                print(f"[STARTUP] Aviso na restauração de fidelidade do candidato 22: {e_fid}")
+            # Verificação e reparo automático de votos zerados em tse_votos_candidatos via catálogo
+            try:
+                from .database import TseVotoCandidato
+                from .tse_reverse_analyzer import ressincronizar_votos_catalogo_banco
+                votos_zerados = db.query(TseVotoCandidato).filter(TseVotoCandidato.quantidade_votos == 0).limit(5).all()
+                total_positivos = db.query(TseVotoCandidato).filter(TseVotoCandidato.quantidade_votos > 0).count()
+                if votos_zerados and total_positivos < 10:
+                    print("[STARTUP] Votos zerados detectados em tse_votos_candidatos. Iniciando reparo automático via catálogo...")
+                    rep_res = ressincronizar_votos_catalogo_banco(db=db)
+                    print(f"[STARTUP] Resultado do reparo de votos: {rep_res}")
+            except Exception as e_rep:
+                print(f"[STARTUP] Aviso na verificação de votos do catálogo: {e_rep}")
+        except Exception as exc:
+            print(f"[STARTUP] Erro no startup da seccao: {exc}")
+        finally:
+            db.close()
+    except Exception as exc_db:
+        print(f"[STARTUP] Erro geral ao obter sessao do banco: {exc_db}")
 
 
 # ==============================================================================
@@ -210,6 +218,17 @@ def index_page(request: Request):
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+
+@app.get("/health")
+@app.get("/api/health")
+def api_get_health():
+    return {
+        "status": "healthy",
+        "versao": SYSTEM_VERSION,
+        "build": SYSTEM_BUILD,
+        "commit": SYSTEM_COMMIT,
+    }
 
 
 @app.get("/api/versao")
