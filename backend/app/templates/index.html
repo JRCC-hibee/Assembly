@@ -179,6 +179,10 @@
         <span>BANCO: <strong class="text-white">PostgreSQL (Zero-Disk Raw)</strong></span>
         <span>•</span>
         <span>BASE: <strong id="headerAuditoriaCount" class="text-emerald-400">0 URNAS</strong></span>
+        <div id="headerUrnasFaltantesBadge" onclick="abrirModalAuditoriaCargaFaltantes2T()" class="hidden flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/25 hover:bg-amber-500/40 border border-amber-500/60 text-amber-200 font-extrabold cursor-pointer transition shadow-md">
+          <span>⚠️ 2ºT: 16.402 / 17.326 (Faltam 924 Urnas)</span>
+          <span class="px-1.5 py-0.5 bg-amber-400 text-slate-950 rounded text-[9px] font-black uppercase">Auditar</span>
+        </div>
         <span>•</span>
         <span id="headerAuditoriaVersionBadge" class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700 font-bold">{{ versao_sistema|default('v2.6.0') }}</span>
       </div>
@@ -1275,6 +1279,32 @@ o Boletim de Urna (apos encerramento da votacao).
               <option value="DEPUTADO FEDERAL">Deputado Federal</option>
               <option value="DEPUTADO ESTADUAL">Deputado Estadual</option>
             </select>
+          </div>
+        </div>
+
+        <!-- Alerta Crítico: Urnas Faltantes no 2º Turno (Visível em 2T e COMPARATIVO quando faltam urnas) -->
+        <div id="bannerUrnasFaltantes2T" class="hidden rounded-xl border-2 border-amber-500/80 bg-gradient-to-r from-amber-950/90 via-slate-900 to-amber-950/90 p-4 shadow-xl text-xs space-y-2">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-start gap-3">
+              <span class="text-2xl mt-0.5 animate-pulse">⚠️</span>
+              <div>
+                <div id="bannerUrnasFaltantesTitulo" class="text-sm font-black text-amber-200">
+                  Faltam 924 urnas no 2º Turno (16.402 de 17.326 carregadas — 5,3% pendente)
+                </div>
+                <div class="text-[11px] text-amber-300/80 mt-0.5 leading-relaxed">
+                  A base oficial do 2º Turno em SC possui 17.326 seções. Como 924 arquivos BU do 2ºT ainda não subiram ao banco, o totalizador deste painel reflete apenas as 16.402 seções carregadas.
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                onclick="abrirModalAuditoriaCargaFaltantes2T()"
+                class="px-3.5 py-2 rounded-lg bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs shadow-lg transition flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>🔍 Auditar 924 Urnas / Cidades Faltantes</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -2435,6 +2465,16 @@ o Boletim de Urna (apos encerramento da votacao).
           const badge = document.getElementById("headerAuditoriaCount");
           if (badge) {
             badge.textContent = `${(d.total_secoes || 0).toLocaleString("pt-BR")} URNAS (${d.total_ufs || 0} UF)`;
+          }
+          const fBadge = document.getElementById("headerUrnasFaltantesBadge");
+          if (fBadge) {
+            const faltam2t = d.faltam_bu_2t || 0;
+            if (faltam2t > 0) {
+              fBadge.classList.remove("hidden");
+              fBadge.innerHTML = `<span>⚠️ 2ºT: ${(d.total_bu_2t || 0).toLocaleString('pt-BR')} / ${(d.total_bu_1t || 0).toLocaleString('pt-BR')} (Faltam ${faltam2t.toLocaleString('pt-BR')} Urnas)</span> <span class="px-1.5 py-0.5 bg-amber-400 text-slate-950 rounded text-[9px] font-black uppercase">Auditar</span>`;
+            } else {
+              fBadge.classList.add("hidden");
+            }
           }
         }
       } catch (e) {}
@@ -5077,12 +5117,56 @@ o Boletim de Urna (apos encerramento da votacao).
       const pctCompVisao = dadosTotais.pct_comparecimento || (aptosVisao ? ((compVisao / aptosVisao) * 100).toFixed(2) : "0.00");
       const tempoCabineVisao = dadosTotais.tempo_medio_cabine_s || cons.tempo_medio_cabine_s || 0;
 
+      const compTurnos = cons.comparativo_turnos || {};
+      const u1t = Number(compTurnos.urnas_com_bu_1_turno || (cons.totais_t1 ? cons.totais_t1.total_urnas : 0) || 0);
+      const u2t = Number(compTurnos.urnas_com_bu_2_turno || (cons.totais_t2 ? cons.totais_t2.total_urnas : 0) || 0);
+      const diffFaltam = Math.max(0, u1t - u2t);
+
+      // Controle do Banner de Urnas Faltantes do 2º Turno
+      const bannerFaltam = document.getElementById("bannerUrnasFaltantes2T");
+      if (bannerFaltam) {
+        if (diffFaltam > 0 && modo !== "1T") {
+          bannerFaltam.classList.remove("hidden");
+          const pctF = ((diffFaltam / Math.max(1, u1t)) * 100).toFixed(1);
+          const titEl = document.getElementById("bannerUrnasFaltantesTitulo");
+          if (titEl) {
+            titEl.textContent = `Faltam ${diffFaltam.toLocaleString('pt-BR')} urnas no 2º Turno (${u2t.toLocaleString('pt-BR')} de ${u1t.toLocaleString('pt-BR')} carregadas — ${pctF}% pendente)`;
+          }
+        } else {
+          bannerFaltam.classList.add("hidden");
+        }
+      }
+
+      // Atualiza também o badge do cabeçalho fixo se houver urnas faltantes
+      const fBadge = document.getElementById("headerUrnasFaltantesBadge");
+      if (fBadge) {
+        if (diffFaltam > 0) {
+          fBadge.classList.remove("hidden");
+          fBadge.innerHTML = `<span>⚠️ 2ºT: ${u2t.toLocaleString('pt-BR')} / ${u1t.toLocaleString('pt-BR')} (Faltam ${diffFaltam.toLocaleString('pt-BR')} Urnas)</span> <span class="px-1.5 py-0.5 bg-amber-400 text-slate-950 rounded text-[9px] font-black uppercase">Auditar</span>`;
+        } else {
+          fBadge.classList.add("hidden");
+        }
+      }
+
       document.getElementById("tseMunVal").textContent = cidSel;
-      document.getElementById("tseZonaSecaoVal").textContent = `${zonaSel} / ${totalUrnasVisao} Seção(ões)`;
+      document.getElementById("tseZonaSecaoVal").textContent = (modo === "2T" && diffFaltam > 0)
+        ? `${zonaSel} / ${u2t.toLocaleString("pt-BR")} Seções (${diffFaltam.toLocaleString("pt-BR")} faltam)`
+        : `${zonaSel} / ${totalUrnasVisao.toLocaleString("pt-BR")} Seção(ões)`;
+
       document.getElementById("tseModeloSerialVal").textContent =
-        `${urnasIntegrasVisao} Íntegras / ${urnasAlertaVisao} Alertas`;
-      document.getElementById("tseVersaoSwVal").textContent =
-        `BU:${cons.urnas_com_bu} | RDV:${cons.urnas_com_rdv} | Log:${cons.urnas_com_log}`;
+        `${urnasIntegrasVisao.toLocaleString("pt-BR")} Íntegras / ${urnasAlertaVisao.toLocaleString("pt-BR")} Alertas`;
+
+      if (modo === "2T" && diffFaltam > 0) {
+        document.getElementById("tseVersaoSwVal").innerHTML =
+          `BU: <strong class="text-white">${u2t.toLocaleString("pt-BR")} (2ºT)</strong> <span class="text-amber-400 font-extrabold">• Faltam ${diffFaltam.toLocaleString("pt-BR")}</span>`;
+      } else if (modo === "COMPARATIVO" && diffFaltam > 0) {
+        document.getElementById("tseVersaoSwVal").innerHTML =
+          `BU: <strong>${u2t.toLocaleString("pt-BR")} (2ºT)</strong> <span class="text-amber-400">/ ${u1t.toLocaleString("pt-BR")} (1ºT)</span>`;
+      } else {
+        document.getElementById("tseVersaoSwVal").textContent =
+          `BU:${cons.urnas_com_bu} | RDV:${cons.urnas_com_rdv} | Log:${cons.urnas_com_log}`;
+      }
+
       document.getElementById("tseCompAptosVal").textContent =
         `${compVisao.toLocaleString("pt-BR")} / ${aptosVisao.toLocaleString("pt-BR")} (${pctCompVisao}%)`;
       document.getElementById("tseCadenciaMediaVal").textContent = tempoCabineVisao > 0
@@ -5090,14 +5174,18 @@ o Boletim de Urna (apos encerramento da votacao).
         : "Suba .jez ou abra urna";
 
       const verBox = document.getElementById("tseVereditoBox");
+      const subAviso2T = (modo === "2T" && diffFaltam > 0)
+        ? ` <span class="text-amber-300 font-bold">• ⚠️ Carga 2ºT Parcial: faltam ${diffFaltam.toLocaleString('pt-BR')} urnas (${u2t.toLocaleString('pt-BR')} de ${u1t.toLocaleString('pt-BR')})</span>`
+        : "";
+
       if (cons.nivel_risco === "BAIXO") {
         verBox.className = "p-4 rounded-xl border-2 bg-emerald-950/90 border-emerald-500 text-emerald-100 text-xs";
         verBox.innerHTML = `<div class="font-extrabold text-sm text-emerald-300 uppercase">✅ ${cons.veredito_geral}</div>
-          <div class="mt-1 mono">Visão Ativa: <strong>${labelTurno}</strong> • Cargo: <strong>${cargoAtual}</strong> • Filtro: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong> • <strong>${totalUrnasVisao} urna(s) consolidada(s)</strong> | Selecione qualquer urna na tabela abaixo para inspecionar os eleitores hora a hora.</div>`;
+          <div class="mt-1 mono">Visão Ativa: <strong>${labelTurno}</strong> • Cargo: <strong>${cargoAtual}</strong> • Filtro: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong> • <strong>${totalUrnasVisao} urna(s) consolidada(s)</strong>${subAviso2T} | Selecione qualquer urna na tabela abaixo para inspecionar os eleitores hora a hora.</div>`;
       } else {
         verBox.className = "p-4 rounded-xl border-2 bg-rose-950/90 border-rose-500 text-rose-100 text-xs";
         verBox.innerHTML = `<div class="font-extrabold text-sm text-rose-300 uppercase">🚨 ${cons.veredito_geral}</div>
-          <div class="mt-1 mono">Visão Ativa: <strong>${labelTurno}</strong> • Cargo: <strong>${cargoAtual}</strong> • Filtro: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong> • Verifique as urnas sinalizadas na tabela abaixo.</div>`;
+          <div class="mt-1 mono">Visão Ativa: <strong>${labelTurno}</strong> • Cargo: <strong>${cargoAtual}</strong> • Filtro: <strong>${cidSel}</strong> • <strong>${zonaSel}</strong>${subAviso2T} • Verifique as urnas sinalizadas na tabela abaixo.</div>`;
       }
 
       // Placar Consolidado de Candidatos + Barra Forense de Rastreamento de Divergências

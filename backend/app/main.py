@@ -63,8 +63,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-04-rev12"
-SYSTEM_COMMIT = "rev12-auditoria-carga-faltantes-2t"
+SYSTEM_BUILD = "2026-11-04-rev13"
+SYSTEM_COMMIT = "rev13-banner-urnas-faltantes-header-kpi"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1415,6 +1415,9 @@ def api_tse_reverso_status_banco():
         total_ufs_db = len(ufs_db)
         total_municipios = db.query(func.count(func.distinct(TseSecao.municipio_codigo))).scalar() or 0
         total_bu = db.query(func.count(TseApuracaoBU.id)).scalar() or 0
+        total_bu_1t = db.query(func.count(TseApuracaoBU.id)).filter(TseApuracaoBU.turno == 1).scalar() or 0
+        total_bu_2t = db.query(func.count(TseApuracaoBU.id)).filter(TseApuracaoBU.turno == 2).scalar() or 0
+        faltam_bu_2t = max(0, total_bu_1t - total_bu_2t)
         total_metricas = db.query(func.count(TseMetricasLog.id)).scalar() or 0
         total_votos = db.query(func.count(TseVotoCandidato.id)).scalar() or 0
         total_dossies = db.query(func.count(TseDossieSecao.id)).scalar() or 0
@@ -1431,6 +1434,9 @@ def api_tse_reverso_status_banco():
             "ufs_catalogo": sorted(ufs_db),
             "total_municipios": total_municipios,
             "total_apuracoes_bu": total_bu,
+            "total_bu_1t": total_bu_1t,
+            "total_bu_2t": total_bu_2t,
+            "faltam_bu_2t": faltam_bu_2t,
             "total_metricas_log": total_metricas,
             "total_registros_votos": total_votos,
             "total_dossies": total_dossies,
