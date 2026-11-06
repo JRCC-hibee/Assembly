@@ -24,6 +24,7 @@ from .database import (
     RegistroDigitalVoto,
     LogAuditoriaUrna,
     TseHistoricoUpload,
+    TseRelatorioOficialTse,
     criar_historico_upload,
     atualizar_historico_upload,
     finalizar_historico_upload,
@@ -67,10 +68,17 @@ from .tse_reverse_analyzer import (
     remover_zips_processados_vps,
     _CATALOGO_MEMORIA,
 )
+from .tse_pdf_relatorio_parser import (
+    extrair_relatorio_totalizacao_pdf,
+    extrair_relatorios_de_zip,
+    salvar_relatorio_no_banco,
+    executar_batimento_forense,
+    detectar_e_ingerir_relatorios_servidor,
+)
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-06-rev35"
-SYSTEM_COMMIT = "rev35-fix-voter-logs-and-bu-rendering"
+SYSTEM_BUILD = "2026-11-06-rev36"
+SYSTEM_COMMIT = "rev36-tse-sistot-pdf-audit-and-consistency-comparison"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1548,6 +1556,214 @@ def api_tse_reverso_status_banco():
         }
     finally:
         db.close()
+
+
+# ==============================================================================
+# AUDITORIA E BATIMENTO FORENSE DE RELATÓRIOS OFICIAIS DE TOTALIZAÇÃO (PDF SISTOT)
+# ==============================================================================
+
+@app.post("/api/tse-reverso/relatorios-pdf/upload")
+async def api_tse_reverso_relatorios_pdf_upload(
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Faz upload e ingestão pericial de relatórios oficiais do TSE em PDF (ex: 6258_PR_PARANÁ_2026_T2_PRESIDENTE.pdf)
+    ou arquivos .zip contendo múltiplos relatórios do estado.
+    Salva os dados no banco e executa o batimento pericial cruzado (SISTOT x PostgreSQL).
+    """
+    ingeridos = []
+    erros = []
+    for f in files:
+        try:
+            content = await f.read()
+            fname = f.filename or "relatorio.pdf"
+            if fname.lower().endswith(".zip"):
+                relatorios = extrair_relatorios_de_zip(content)
+            elif fname.lower().endswith(".pdf"):
+                relatorios = extrair_relatorio_totalizacao_pdf(content, nome_arquivo=fname)
+            else:
+                continue
+
+            for rel in relatorios:
+                rel_db = salvar_relatorio_no_banco(db, rel, auto_commit=True)
+                ingeridos.append({
+                    "id": rel_db.id,
+                    "uf": rel_db.uf,
+                    "turno": rel_db.turno,
+                    "cargo": rel_db.cargo,
+                    "nome_arquivo": rel_db.nome_arquivo,
+                    "status": rel_db.status_batimento,
+                    "comparecimento_pdf": rel_db.comparecimento,
+                    "comparecimento_banco": rel_db.comparecimento_banco,
+                    "votos_validos_pdf": rel_db.votos_validos,
+                    "votos_validos_banco": rel_db.votos_validos_banco,
+                    "delta_comparecimento": rel_db.delta_comparecimento,
+                    "delta_votos_validos": rel_db.delta_votos_validos,
+                })
+        except Exception as exc:
+            erros.append({"arquivo": f.filename, "erro": str(exc)})
+
+    return {
+        "status": "CONCLUIDO",
+        "total_enviados": len(files),
+        "total_ingeridos": len(ingeridos),
+        "relatorios": ingeridos,
+        "erros": erros,
+    }
+
+
+@app.post("/api/tse-reverso/relatorios-pdf/detectar-servidor")
+def api_tse_reverso_relatorios_pdf_detectar_servidor(db: Session = Depends(get_db)):
+    """
+    Varre pastas do servidor em busca de relatórios oficiais em .PDF ou .ZIP e realiza
+    a ingestão e batimento automático no PostgreSQL.
+    """
+    return detectar_e_ingerir_relatorios_servidor(db=db)
+
+
+@app.get("/api/tse-reverso/relatorios-pdf/listar")
+def api_tse_reverso_relatorios_pdf_listar(db: Session = Depends(get_db)):
+    """
+    Lista todos os relatórios oficiais de totalização TSE ingeridos com seus status de batimento e métricas periciais.
+    """
+    itens = db.query(TseRelatorioOficialTse).order_by(
+        TseRelatorioOficialTse.uf,
+        TseRelatorioOficialTse.turno.desc(),
+        TseRelatorioOficialTse.cargo,
+    ).all()
+
+    res = []
+    for it in itens:
+        cands = json.loads(it.candidatos_json or "[]")
+        agregs = json.loads(it.secoes_agregadas_json or "[]")
+        conts = json.loads(it.contingencias_urnas_json or "[]")
+        res.append({
+            "id": it.id,
+            "eleicao_codigo": it.eleicao_codigo,
+            "eleicao_nome": it.eleicao_nome,
+            "uf": it.uf,
+            "turno": it.turno,
+            "cargo": it.cargo,
+            "nome_arquivo": it.nome_arquivo,
+            "data_eleicao": it.data_eleicao,
+            "data_geracao_relatorio": it.data_geracao_relatorio,
+            "secoes_principais": it.secoes_principais,
+            "secoes_agregadas": it.secoes_agregadas,
+            "secoes_total": it.secoes_total,
+            "eleitorado_apto": it.eleitorado_apto,
+            "comparecimento_pdf": it.comparecimento,
+            "comparecimento_banco": it.comparecimento_banco,
+            "delta_comparecimento": it.delta_comparecimento,
+            "votos_validos_pdf": it.votos_validos,
+            "votos_validos_banco": it.votos_validos_banco,
+            "delta_votos_validos": it.delta_votos_validos,
+            "votos_nominais": it.votos_nominais,
+            "votos_brancos": it.votos_brancos,
+            "votos_nulos": it.votos_nulos,
+            "total_urnas_banco": it.total_urnas_banco,
+            "status_batimento": it.status_batimento,
+            "candidatos_count": len(cands),
+            "secoes_agregadas_count": len(agregs),
+            "contingencias_count": len(conts),
+            "updated_at": it.updated_at.isoformat() if it.updated_at else None,
+        })
+    return {"total": len(res), "relatorios": res}
+
+
+@app.get("/api/tse-reverso/relatorios-pdf/{relatorio_id}/comparativo")
+def api_tse_reverso_relatorios_pdf_comparativo(relatorio_id: int, db: Session = Depends(get_db)):
+    """
+    Retorna o dossiê comparativo pericial completo do relatório oficial:
+    - Resumo macro lado a lado (PDF x PostgreSQL)
+    - Batimento de candidatos com votos do PDF e votos somados do BU/RDV
+    - Lista de seções agregadas (Anexo I)
+    - Lista de urnas de contingência (Anexo V/XIII)
+    """
+    rel = db.query(TseRelatorioOficialTse).filter(TseRelatorioOficialTse.id == relatorio_id).first()
+    if not rel:
+        raise HTTPException(status_code=404, detail="Relatório não encontrado")
+
+    batimento = executar_batimento_forense(db, rel)
+    rel.status_batimento = batimento.get("status_geral", "PENDENTE")
+    rel.batimento_resultado_json = json.dumps(batimento, ensure_ascii=False)
+    rel.total_urnas_banco = batimento.get("urnas_no_banco", 0)
+    rel.comparecimento_banco = batimento.get("comparecimento_banco", 0)
+    rel.votos_validos_banco = batimento.get("votos_validos_banco", 0)
+    rel.delta_comparecimento = batimento.get("delta_comparecimento", 0)
+    rel.delta_votos_validos = batimento.get("delta_votos_validos", 0)
+    db.commit()
+
+    cands_pdf = json.loads(rel.candidatos_json or "[]")
+    secoes_agregadas = json.loads(rel.secoes_agregadas_json or "[]")
+    contingencias = json.loads(rel.contingencias_urnas_json or "[]")
+
+    return {
+        "relatorio": {
+            "id": rel.id,
+            "eleicao_codigo": rel.eleicao_codigo,
+            "eleicao_nome": rel.eleicao_nome,
+            "uf": rel.uf,
+            "turno": rel.turno,
+            "cargo": rel.cargo,
+            "nome_arquivo": rel.nome_arquivo,
+            "data_eleicao": rel.data_eleicao,
+            "data_geracao_relatorio": rel.data_geracao_relatorio,
+            "secoes_principais": rel.secoes_principais,
+            "secoes_agregadas": rel.secoes_agregadas,
+            "secoes_total": rel.secoes_total,
+            "eleitorado_apto": rel.eleitorado_apto,
+            "comparecimento": rel.comparecimento,
+            "abstencao": rel.abstencao,
+            "pct_comparecimento": rel.pct_comparecimento,
+            "pct_abstencao": rel.pct_abstencao,
+            "votos_nominais": rel.votos_nominais,
+            "votos_brancos": rel.votos_brancos,
+            "votos_nulos": rel.votos_nulos,
+            "votos_validos": rel.votos_validos,
+            "status_batimento": rel.status_batimento,
+        },
+        "batimento": batimento,
+        "candidatos": cands_pdf,
+        "secoes_agregadas": secoes_agregadas,
+        "contingencias": contingencias,
+    }
+
+
+@app.post("/api/tse-reverso/relatorios-pdf/{relatorio_id}/recalcular")
+def api_tse_reverso_relatorios_pdf_recalcular(relatorio_id: int, db: Session = Depends(get_db)):
+    """
+    Recalcula o batimento pericial deste relatório contra o estado atual do banco PostgreSQL.
+    """
+    rel = db.query(TseRelatorioOficialTse).filter(TseRelatorioOficialTse.id == relatorio_id).first()
+    if not rel:
+        raise HTTPException(status_code=404, detail="Relatório não encontrado")
+
+    batimento = executar_batimento_forense(db, rel)
+    rel.status_batimento = batimento.get("status_geral", "PENDENTE")
+    rel.batimento_resultado_json = json.dumps(batimento, ensure_ascii=False)
+    rel.total_urnas_banco = batimento.get("urnas_no_banco", 0)
+    rel.comparecimento_banco = batimento.get("comparecimento_banco", 0)
+    rel.votos_validos_banco = batimento.get("votos_validos_banco", 0)
+    rel.delta_comparecimento = batimento.get("delta_comparecimento", 0)
+    rel.delta_votos_validos = batimento.get("delta_votos_validos", 0)
+    db.commit()
+    db.refresh(rel)
+    return {"status": "SUCESSO", "batimento": batimento}
+
+
+@app.delete("/api/tse-reverso/relatorios-pdf/{relatorio_id}")
+def api_tse_reverso_relatorios_pdf_excluir(relatorio_id: int, db: Session = Depends(get_db)):
+    """
+    Remove um relatório oficial cadastrado.
+    """
+    rel = db.query(TseRelatorioOficialTse).filter(TseRelatorioOficialTse.id == relatorio_id).first()
+    if not rel:
+        raise HTTPException(status_code=404, detail="Relatório não encontrado")
+    db.delete(rel)
+    db.commit()
+    return {"status": "REMOVIDO", "id": relatorio_id}
+
 
 
 

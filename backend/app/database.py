@@ -319,6 +319,62 @@ class TseDossieSecao(Base):
     )
 
 
+class TseRelatorioOficialTse(Base):
+    """
+    Armazena Relatórios Oficiais de Totalização do TSE (SISTOT / PDF)
+    para atestar a consistência forense contra o banco de dados (BU x RDV).
+    """
+    __tablename__ = "tse_relatorios_oficiais"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uf = Column(String(2), index=True, nullable=False)
+    eleicao_codigo = Column(String(20), index=True, nullable=True)
+    eleicao_nome = Column(String(120), nullable=True)
+    turno = Column(SmallInteger, index=True, default=2, nullable=False)
+    cargo = Column(String(60), index=True, default="PRESIDENTE", nullable=False)
+    data_eleicao = Column(String(20), nullable=True)
+    data_geracao_relatorio = Column(String(60), nullable=True)
+    nome_arquivo = Column(String(255), nullable=False)
+    tamanho_bytes = Column(BigInteger, default=0)
+    hash_sha256 = Column(String(64), nullable=True)
+
+    # Indicadores Oficiais Gerais (do PDF)
+    secoes_principais = Column(Integer, default=0)
+    secoes_agregadas = Column(Integer, default=0)
+    secoes_total = Column(Integer, default=0)
+    eleitorado_apto = Column(BigInteger, default=0)
+    comparecimento = Column(BigInteger, default=0)
+    abstencao = Column(BigInteger, default=0)
+    pct_comparecimento = Column(Float, default=0.0)
+    pct_abstencao = Column(Float, default=0.0)
+    votos_nominais = Column(BigInteger, default=0)
+    votos_brancos = Column(BigInteger, default=0)
+    votos_nulos = Column(BigInteger, default=0)
+    votos_validos = Column(BigInteger, default=0)
+
+    # Dossiês JSON estruturados extraídos do PDF
+    candidatos_json = Column(Text, nullable=True)           # Lista oficial de candidatos e votos
+    secoes_agregadas_json = Column(Text, nullable=True)     # 194 seções agregadas do Anexo I
+    contingencias_urnas_json = Column(Text, nullable=True)  # Urnas substituídas do Anexo V
+    resumo_completo_json = Column(Text, nullable=True)
+
+    # Batimento Forense contra o Banco PostgreSQL
+    status_batimento = Column(String(30), default="PENDENTE")  # CONFERE_100%, DIVERGENCIA, PENDENTE
+    batimento_resultado_json = Column(Text, nullable=True)
+    total_urnas_banco = Column(Integer, default=0)
+    comparecimento_banco = Column(BigInteger, default=0)
+    votos_validos_banco = Column(BigInteger, default=0)
+    delta_comparecimento = Column(BigInteger, default=0)
+    delta_votos_validos = Column(BigInteger, default=0)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        Index("idx_tse_rel_uf_turno_cargo", "uf", "turno", "cargo"),
+        Index("idx_tse_rel_arquivo", "nome_arquivo"),
+    )
+
+
 # Mapeamento Oficial de Regiões do Brasil
 ESTADOS_E_REGIOES_BR = {
     "AC": {"nome": "Acre", "regiao": "NORTE"},

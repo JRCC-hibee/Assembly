@@ -2948,14 +2948,36 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     if m_sec_end:
                         try:
                             sec_candidate = int(m_sec_end.group(1))
-                            zona_candidate = int(zona)
-                            mun_candidate = str(mun).strip().zfill(5)
-                            secao_db = db.query(TseSecao).filter(
+                            m_z = re.search(r"\d+", str(zona))
+                            zona_candidate = int(m_z.group(0)) if m_z else int(zona)
+                            q_est1 = db.query(TseSecao).filter(
                                 func.upper(TseSecao.uf) == uf.strip().upper(),
-                                TseSecao.municipio_codigo == mun_candidate,
                                 TseSecao.zona == zona_candidate,
                                 TseSecao.secao == sec_candidate,
-                            ).first()
+                            )
+                            if str(mun).strip().isdigit():
+                                q_est1 = q_est1.filter(TseSecao.municipio_codigo == str(mun).strip().zfill(5))
+                            else:
+                                q_est1 = q_est1.filter(func.upper(TseSecao.municipio_nome) == str(mun).strip().upper())
+                            secao_db = q_est1.first()
+                        except Exception:
+                            pass
+
+                # Estratégia 1B: Se Zona e Seção foram informadas (mesmo sem Município ou com nome de cidade):
+                if not secao_db and zona and zona != "TODAS":
+                    m_sec_end = re.search(r"(\d{1,4})$", prefixo.strip())
+                    if m_sec_end:
+                        try:
+                            sec_candidate = int(m_sec_end.group(1))
+                            m_z = re.search(r"\d+", str(zona))
+                            zona_candidate = int(m_z.group(0)) if m_z else int(zona)
+                            q_zsec = db.query(TseSecao).filter(
+                                TseSecao.zona == zona_candidate,
+                                TseSecao.secao == sec_candidate,
+                            )
+                            if uf and uf != "TODAS":
+                                q_zsec = q_zsec.filter(func.upper(TseSecao.uf) == uf.strip().upper())
+                            secao_db = q_zsec.first()
                         except Exception:
                             pass
 
