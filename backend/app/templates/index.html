@@ -953,6 +953,21 @@ o Boletim de Urna (apos encerramento da votacao).
               <span>Visualizar Avanço (%)</span>
             </button>
 
+            <!-- Botão 3.1: Acompanhar ao Vivo (Modal de Lotes e Urnas) -->
+            <button
+              type="button"
+              id="btnAbrirModalLiveToolbar"
+              onclick="abrirModalLiveIngestaoTse()"
+              class="px-3.5 py-2.5 bg-indigo-950 hover:bg-indigo-900 border border-indigo-500/60 text-indigo-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-2 shadow shadow-indigo-950/50"
+              title="Abrir monitor ao vivo com animação do lote atual e exibição do número das urnas em tempo real"
+            >
+              <span class="relative flex h-2 w-2">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-cyan-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2 w-2 bg-cyan-500"></span>
+              </span>
+              <span>🛰️ Acompanhar ao Vivo</span>
+            </button>
+
             <!-- Botão 4: Sincronizar Base (Atualizar Dados Carregados / Parciais) -->
             <button
               id="btnSincronizarBancoTse"
@@ -1020,6 +1035,34 @@ o Boletim de Urna (apos encerramento da votacao).
             <span id="vpsIngestaoUrnas">0 de 0 urnas</span>
             <span class="text-emerald-400 font-bold" id="vpsIngestaoSpeed">⚡ Processamento direto na VPS</span>
           </div>
+
+          <!-- Controles de Pausa/Retomada e Acesso Rápido ao Monitor ao Vivo -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-900 text-[11px] font-mono">
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                id="btnPausarRetomarVps"
+                onclick="togglePausaIngestaoServidor()"
+                class="px-3 py-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-900 border border-amber-600/70 text-amber-300 font-extrabold text-[11px] transition inline-flex items-center gap-1.5 shadow"
+                title="Pausar ou retomar a ingestão no servidor"
+              >
+                <span id="iconPausaVps">⏸</span>
+                <span id="textPausaVps">Pausar Ingestão</span>
+              </button>
+              <button
+                type="button"
+                onclick="abrirModalLiveIngestaoTse()"
+                class="px-3 py-1.5 rounded-lg bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/60 text-indigo-300 font-extrabold text-[11px] transition inline-flex items-center gap-1.5 shadow"
+                title="Abrir painel detalhado com animação dos lotes e feed de urnas em tempo real"
+              >
+                <span>🛰️ Monitor ao Vivo</span>
+              </button>
+            </div>
+            <div class="flex items-center gap-2 text-slate-400">
+              <span id="vpsBatchPill" class="px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 text-[10px]">Lote: 0/50</span>
+              <span id="vpsEtaPill" class="text-cyan-400 font-bold">ETA: calculando...</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1031,6 +1074,14 @@ o Boletim de Urna (apos encerramento da votacao).
             <span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] font-extrabold mono uppercase">
               Árvore de Consolidação (5 Níveis)
             </span>
+            <!-- SINALIZAÇÃO VISUAL IMEDIATA DE CARREGAMENTO NO CLIQUE -->
+            <div id="tseTreeLoadingBadge" class="hidden items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/50 text-xs font-bold animate-pulse shadow-lg shadow-cyan-950/50">
+              <svg class="animate-spin h-3.5 w-3.5 text-cyan-400 shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+              </svg>
+              <span id="tseTreeLoadingText">⏳ Carregando dados da seleção... Por favor aguarde.</span>
+            </div>
             <div id="tseTreeBreadcrumb" class="flex flex-wrap items-center gap-1 text-xs mono"></div>
           </div>
           <div class="flex items-center gap-2">
@@ -2107,6 +2158,165 @@ o Boletim de Urna (apos encerramento da votacao).
               Fechar
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL DE MONITORAMENTO AO VIVO DA INGESTÃO (HUD FORENSE, ANIMAÇÃO DE LOTES E TICKER DE URNAS) -->
+    <div id="modalLiveIngestaoTse" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
+      <div class="bg-slate-900 border-2 border-indigo-500/80 rounded-2xl max-w-5xl w-full max-h-[92vh] flex flex-col shadow-2xl shadow-indigo-950/80 overflow-hidden">
+        <!-- Header -->
+        <div class="flex items-center justify-between p-4 sm:p-5 border-b border-slate-800 bg-slate-950/90">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/40 flex items-center justify-center text-xl font-bold relative">
+              <span>🛰️</span>
+              <span id="liveModalPulseDot" class="absolute -top-1 -right-1 flex h-3 w-3">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+            </div>
+            <div>
+              <h3 class="text-base font-extrabold text-white flex items-center gap-2">
+                <span>Monitor de Ingestão em Tempo Real</span>
+                <span id="liveModalStatusBadge" class="px-2 py-0.5 text-[10px] font-black uppercase rounded bg-emerald-950 text-emerald-300 border border-emerald-700 mono">
+                  🟢 Servidor Ativo
+                </span>
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">
+                Acompanhamento contínuo em segundo plano na VPS: streaming zero-disk raw, lotes PostgreSQL e inspeção urna a urna.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <!-- Botão Pausar / Retomar dentro do Modal -->
+            <button
+              type="button"
+              id="btnLiveModalPauseResume"
+              onclick="togglePausaIngestaoServidor()"
+              class="px-3.5 py-1.5 rounded-xl bg-amber-950/80 hover:bg-amber-900 border border-amber-600/70 text-amber-300 font-extrabold text-xs transition flex items-center gap-1.5 shadow cursor-pointer"
+              title="Pausar ou retomar a ingestão no servidor"
+            >
+              <span id="liveModalPauseIcon">⏸</span>
+              <span id="liveModalPauseText">Pausar Ingestão</span>
+            </button>
+            <!-- Botão Sincronizar Base -->
+            <button
+              type="button"
+              onclick="forcarSincronizacaoBancoTse()"
+              class="px-3 py-1.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 border border-emerald-600/60 text-emerald-300 font-bold text-xs transition flex items-center gap-1.5 shadow cursor-pointer"
+              title="Sincronizar base agora"
+            >
+              <span>🔁</span>
+              <span>Sincronizar</span>
+            </button>
+            <button
+              type="button"
+              onclick="fecharModalLiveIngestaoTse()"
+              class="w-8 h-8 rounded-xl bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 flex items-center justify-center font-bold text-base transition cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <!-- Conteúdo do Modal (Scrollável) -->
+        <div class="p-4 sm:p-5 overflow-y-auto space-y-4">
+          <!-- 4 KPIs de Avanço -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col justify-between">
+              <span class="text-[10px] font-extrabold uppercase mono text-slate-400">Progresso Geral</span>
+              <div class="flex items-baseline gap-2 mt-1">
+                <span id="liveKpiPct" class="text-2xl font-black text-cyan-400 mono">0%</span>
+                <span id="liveKpiUrnasCount" class="text-xs text-slate-400 mono">0 / 0</span>
+              </div>
+              <div class="w-full bg-slate-900 rounded-full h-1.5 mt-2 overflow-hidden border border-slate-800">
+                <div id="liveKpiBar" class="h-full bg-cyan-400 transition-all duration-300" style="width: 0%"></div>
+              </div>
+            </div>
+
+            <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col justify-between">
+              <span class="text-[10px] font-extrabold uppercase mono text-slate-400">Novas vs Existentes</span>
+              <div class="mt-1 flex items-baseline gap-2">
+                <span id="liveKpiNovas" class="text-lg font-black text-emerald-400 mono">0 novas</span>
+              </div>
+              <span id="liveKpiExistentes" class="text-[11px] text-slate-500 mono mt-1">0 já no banco</span>
+            </div>
+
+            <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col justify-between">
+              <span class="text-[10px] font-extrabold uppercase mono text-slate-400">Velocidade & Tempo</span>
+              <div class="mt-1 flex items-baseline gap-2">
+                <span id="liveKpiSpeed" class="text-lg font-black text-amber-400 mono">0.0 u/s</span>
+              </div>
+              <span id="liveKpiTime" class="text-[11px] text-slate-500 mono mt-1">0s decorridos</span>
+            </div>
+
+            <div class="bg-slate-950 border border-slate-800 p-3 rounded-xl flex flex-col justify-between">
+              <span class="text-[10px] font-extrabold uppercase mono text-slate-400">Previsão Restante (ETA)</span>
+              <div class="mt-1 flex items-baseline gap-2">
+                <span id="liveKpiEta" class="text-lg font-black text-indigo-300 mono">Calculando...</span>
+              </div>
+              <span id="liveKpiArquivo" class="text-[11px] text-slate-400 truncate mono mt-1" title="Arquivo sendo processado">Aguardando arquivo...</span>
+            </div>
+          </div>
+
+          <!-- ANIMAÇÃO DO LOTE ATUAL NO BUFFER DO POSTGRESQL -->
+          <div class="bg-slate-950 border-2 border-indigo-500/40 rounded-xl p-4 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-black mono uppercase text-indigo-400 flex items-center gap-1.5">
+                  <span class="animate-spin text-sm">⚙️</span>
+                  <span>Lote de Gravação no PostgreSQL (Buffer de 50 Urnas)</span>
+                </span>
+                <span id="liveBatchStatusText" class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-700 text-[10px] mono font-bold">
+                  0 de 50 urnas acumuladas
+                </span>
+              </div>
+              <span id="liveBatchFlash" class="text-[11px] text-slate-500 mono">Gravando em micro-lotes para performance e integridade transacional</span>
+            </div>
+
+            <!-- Grade visual interativa dos 50 slots do lote -->
+            <div id="liveBatchSlotsContainer" class="grid grid-cols-10 sm:grid-cols-25 gap-1 pt-1">
+              <!-- Renderizado dinamicamente com 50 slots -->
+            </div>
+          </div>
+
+          <!-- FEED EM TEMPO REAL DAS ÚLTIMAS URNAS PROCESSADAS -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800/80">
+              <div class="flex items-center gap-2">
+                <span class="text-xs font-black mono uppercase text-cyan-400 flex items-center gap-1.5">
+                  <span>🗳️</span>
+                  <span>Feed de Urnas em Tempo Real (Últimas 30 Urnas)</span>
+                </span>
+                <span class="px-2 py-0.5 rounded-full bg-slate-900 border border-slate-800 text-[10px] text-slate-400 mono" id="liveFeedCountBadge">0 urnas</span>
+              </div>
+              <div class="flex items-center gap-1.5 text-[11px] mono">
+                <span class="text-slate-500 text-[10px] mr-1">Filtrar feed:</span>
+                <button type="button" onclick="filtrarFeedLiveUrnas('TODAS')" id="btnFeedFiltroTodas" class="px-2 py-0.5 rounded bg-cyan-500 text-slate-950 font-extrabold text-[10px] cursor-pointer">Todas</button>
+                <button type="button" onclick="filtrarFeedLiveUrnas('NOVAS')" id="btnFeedFiltroNovas" class="px-2 py-0.5 rounded bg-slate-900 text-slate-300 hover:bg-slate-800 text-[10px] cursor-pointer">Novas</button>
+                <button type="button" onclick="filtrarFeedLiveUrnas('EXISTENTES')" id="btnFeedFiltroExistentes" class="px-2 py-0.5 rounded bg-slate-900 text-slate-300 hover:bg-slate-800 text-[10px] cursor-pointer">Existentes</button>
+              </div>
+            </div>
+
+            <!-- Lista animada das urnas -->
+            <div id="liveUrnasFeedList" class="max-h-72 overflow-y-auto space-y-1.5 pr-1 text-xs mono">
+              <div class="p-6 text-center text-slate-500 text-xs">
+                Aguardando início da transmissão de dados do motor de ingestão da VPS...
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rodapé do Modal -->
+        <div class="p-3 bg-slate-950/80 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400 mono">
+          <span id="liveModalRodapeMsg">Dica: Você pode fechar este modal a qualquer momento. A ingestão continuará normalmente no servidor.</span>
+          <button
+            type="button"
+            onclick="fecharModalLiveIngestaoTse()"
+            class="px-4 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition cursor-pointer"
+          >
+            Fechar Janela
+          </button>
         </div>
       </div>
     </div>
@@ -3970,6 +4180,185 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     let _pollIngestaoVpsTimer = null;
+    window._vpsIngestaoPausada = false;
+    window._filtroFeedLive = "TODAS";
+    window._ultimasUrnasCache = [];
+    window._ultimoLoteCommit = 0;
+
+    function formatarTempoSegundos(s) {
+      if (!s || s <= 0) return "0s";
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      if (h > 0) return `${h}h ${m}m ${sec}s`;
+      if (m > 0) return `${m}m ${sec}s`;
+      return `${sec}s`;
+    }
+
+    function abrirModalLiveIngestaoTse() {
+      const modal = document.getElementById("modalLiveIngestaoTse");
+      if (modal) {
+        modal.classList.remove("hidden");
+        atualizarProgressoIngestaoServidor(false);
+      }
+    }
+
+    function fecharModalLiveIngestaoTse() {
+      const modal = document.getElementById("modalLiveIngestaoTse");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    function filtrarFeedLiveUrnas(filtro) {
+      window._filtroFeedLive = filtro || "TODAS";
+      const btnTodas = document.getElementById("btnFeedFiltroTodas");
+      const btnNovas = document.getElementById("btnFeedFiltroNovas");
+      const btnExistentes = document.getElementById("btnFeedFiltroExistentes");
+
+      if (btnTodas) btnTodas.className = `px-2 py-0.5 rounded text-[10px] cursor-pointer ${filtro === 'TODAS' ? 'bg-cyan-500 text-slate-950 font-extrabold' : 'bg-slate-900 text-slate-300 hover:bg-slate-800'}`;
+      if (btnNovas) btnNovas.className = `px-2 py-0.5 rounded text-[10px] cursor-pointer ${filtro === 'NOVAS' ? 'bg-emerald-500 text-slate-950 font-extrabold' : 'bg-slate-900 text-slate-300 hover:bg-slate-800'}`;
+      if (btnExistentes) btnExistentes.className = `px-2 py-0.5 rounded text-[10px] cursor-pointer ${filtro === 'EXISTENTES' ? 'bg-purple-500 text-slate-950 font-extrabold' : 'bg-slate-900 text-slate-300 hover:bg-slate-800'}`;
+
+      renderizarFeedUrnasLive(window._ultimasUrnasCache);
+    }
+
+    function renderizarSlotsLoteLive(loteAtual, loteTamanho = 50, pausado = false) {
+      const cont = document.getElementById("liveBatchSlotsContainer");
+      const txt = document.getElementById("liveBatchStatusText");
+      const flash = document.getElementById("liveBatchFlash");
+      if (!cont) return;
+
+      const nSlots = loteTamanho || 50;
+      const preenchidos = Math.max(0, Math.min(nSlots, loteAtual || 0));
+
+      if (txt) {
+        txt.textContent = `${preenchidos} de ${nSlots} urnas no buffer do lote`;
+        txt.className = `px-2 py-0.5 rounded text-[10px] mono font-bold ${preenchidos >= 45 ? 'bg-emerald-950 text-emerald-300 border border-emerald-500' : 'bg-indigo-950 text-indigo-300 border border-indigo-700'}`;
+      }
+
+      if (flash) {
+        if (pausado) {
+          flash.innerHTML = `<span class="text-amber-400 font-bold">⏸ Ingestão pausada. Buffer retido no servidor sem perdas.</span>`;
+        } else if (preenchidos === 0 && window._ultimoLoteCommit > 0) {
+          flash.innerHTML = `<span class="text-emerald-400 font-bold animate-pulse">⚡ Commit atômico de ${nSlots} urnas gravado no PostgreSQL! Iniciando novo lote...</span>`;
+        } else {
+          flash.innerHTML = `<span class="text-slate-400">Gravando em micro-lotes de ${nSlots} seções com commit atômico no PostgreSQL.</span>`;
+        }
+      }
+      window._ultimoLoteCommit = preenchidos;
+
+      let html = "";
+      for (let i = 1; i <= nSlots; i++) {
+        if (i <= preenchidos) {
+          const isLatest = (i === preenchidos && !pausado);
+          html += `<div class="h-5 rounded flex items-center justify-center text-[9px] font-black mono ${isLatest ? 'bg-cyan-300 text-slate-950 ring-2 ring-cyan-400 shadow-md shadow-cyan-400/50 scale-105' : 'bg-cyan-500 text-slate-950'} transition-all" title="Urna ${i} acumulada no lote">${i}</div>`;
+        } else {
+          html += `<div class="h-5 rounded flex items-center justify-center text-[9px] mono bg-slate-900/90 border border-slate-800 text-slate-600">${i}</div>`;
+        }
+      }
+      cont.innerHTML = html;
+    }
+
+    function renderizarFeedUrnasLive(urnasList) {
+      window._ultimasUrnasCache = urnasList || [];
+      const cont = document.getElementById("liveUrnasFeedList");
+      const badge = document.getElementById("liveFeedCountBadge");
+      if (!cont) return;
+
+      const filtro = window._filtroFeedLive || "TODAS";
+      let filtradas = window._ultimasUrnasCache;
+      if (filtro === "NOVAS") {
+        filtradas = filtradas.filter(u => u.status === "NOVA");
+      } else if (filtro === "EXISTENTES") {
+        filtradas = filtradas.filter(u => u.status === "EXISTENTE");
+      }
+
+      if (badge) badge.textContent = `${filtradas.length} urnas`;
+
+      if (filtradas.length === 0) {
+        cont.innerHTML = `<div class="p-6 text-center text-slate-500 text-xs">Nenhuma urna no filtro selecionado (${filtro}). O motor VPS registrará aqui assim que o lote avançar.</div>`;
+        return;
+      }
+
+      let html = "";
+      filtradas.forEach((u, idx) => {
+        const isFirst = (idx === 0);
+        const isNova = (u.status === "NOVA");
+        const statusBadge = isNova
+          ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-950 text-emerald-300 border border-emerald-700/60 flex items-center gap-1">✨ Nova Urna Salva</span>`
+          : `<span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-slate-800 text-slate-400 border border-slate-700 flex items-center gap-1">🔁 Existente (Pulada)</span>`;
+
+        const turnoBadge = u.turno === 1
+          ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-800/60">1º Turno</span>`
+          : `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-purple-950 text-purple-300 border border-purple-800/60">2º Turno</span>`;
+
+        html += `
+          <div class="p-2.5 rounded-xl border ${isFirst ? 'border-cyan-400/80 bg-cyan-950/40 shadow-lg shadow-cyan-950/50' : 'border-slate-800/80 bg-slate-900/60'} flex items-center justify-between gap-3 transition-all duration-200">
+            <div class="flex items-center gap-2.5 min-w-0">
+              <div class="w-8 h-8 rounded-lg ${isNova ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-slate-800 text-slate-400'} flex items-center justify-center font-bold text-xs shrink-0">
+                🗳️
+              </div>
+              <div class="min-w-0">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <span class="font-extrabold text-white text-xs">Seção ${u.secao}</span>
+                  <span class="text-cyan-400 text-[11px]">Zona ${u.zona}</span>
+                  ${turnoBadge}
+                  <span class="text-[10px] text-slate-500">Lote #${u.lote || 1}/50</span>
+                </div>
+                <div class="text-[11px] text-slate-400 flex items-center gap-1.5 mt-0.5 truncate">
+                  <span class="truncate">🏛️ ${u.municipio_nome || 'Município ' + u.municipio} (${u.municipio})</span>
+                  <span>•</span>
+                  <span class="font-bold text-slate-300">${u.uf}</span>
+                  ${u.total_votos ? `<span>•</span><span class="text-emerald-400 font-bold">${u.total_votos.toLocaleString('pt-BR')} votos</span>` : ''}
+                </div>
+              </div>
+            </div>
+            <div class="text-right shrink-0">
+              ${statusBadge}
+              <div class="text-[10px] text-slate-500 mt-1 flex items-center justify-end gap-1">
+                <span>⏱️</span>
+                <span>${u.hora || ''}</span>
+              </div>
+            </div>
+          </div>
+        `;
+      });
+
+      cont.innerHTML = html;
+    }
+
+    async function togglePausaIngestaoServidor() {
+      const btnVps = document.getElementById("btnPausarRetomarVps");
+      const btnModal = document.getElementById("btnLiveModalPauseResume");
+
+      const estaPausado = window._vpsIngestaoPausada === true;
+      const endpoint = estaPausado ? "/api/tse-reverso/servidor/retomar" : "/api/tse-reverso/servidor/pausar";
+
+      if (btnVps) btnVps.disabled = true;
+      if (btnModal) btnModal.disabled = true;
+
+      try {
+        const res = await fetch(endpoint, { method: "POST" });
+        const data = await res.json();
+        if (res.ok && data.ok) {
+          window._vpsIngestaoPausada = !estaPausado;
+          playBeepBiometriaOk();
+          showSecurityAlert(
+            estaPausado
+              ? "▶ Ingestão retomada com sucesso no servidor VPS."
+              : "⏸ Ingestão pausada. O servidor manteve o ponto exato de processamento.",
+            false
+          );
+          await atualizarProgressoIngestaoServidor(false);
+        } else {
+          showSecurityAlert(`Aviso: ${data.mensagem || 'Falha ao alterar estado da ingestão'}`, true);
+        }
+      } catch (err) {
+        showSecurityAlert(`Erro ao comunicar pausa/retomada com VPS: ${err.message}`, true);
+      } finally {
+        if (btnVps) btnVps.disabled = false;
+        if (btnModal) btnModal.disabled = false;
+      }
+    }
 
     async function atualizarProgressoIngestaoServidor(forcarAlerta = false) {
       const pBox = document.getElementById("vpsIngestaoProgressBox");
@@ -3980,6 +4369,31 @@ o Boletim de Urna (apos encerramento da votacao).
       const pSpeed = document.getElementById("vpsIngestaoSpeed");
       const pPill = document.getElementById("vpsBackgroundPill");
 
+      // Botões de Pausa/Retomada
+      const iconPausaVps = document.getElementById("iconPausaVps");
+      const textPausaVps = document.getElementById("textPausaVps");
+      const btnPausaVps = document.getElementById("btnPausarRetomarVps");
+      const iconPausaModal = document.getElementById("liveModalPauseIcon");
+      const textPausaModal = document.getElementById("liveModalPauseText");
+      const btnPausaModal = document.getElementById("btnLiveModalPauseResume");
+
+      // Pílulas no painel principal
+      const batchPill = document.getElementById("vpsBatchPill");
+      const etaPill = document.getElementById("vpsEtaPill");
+
+      // Elementos do Modal Live
+      const liveModalBadge = document.getElementById("liveModalStatusBadge");
+      const liveModalDot = document.getElementById("liveModalPulseDot");
+      const liveKpiPct = document.getElementById("liveKpiPct");
+      const liveKpiUrnasCount = document.getElementById("liveKpiUrnasCount");
+      const liveKpiBar = document.getElementById("liveKpiBar");
+      const liveKpiNovas = document.getElementById("liveKpiNovas");
+      const liveKpiExistentes = document.getElementById("liveKpiExistentes");
+      const liveKpiSpeed = document.getElementById("liveKpiSpeed");
+      const liveKpiTime = document.getElementById("liveKpiTime");
+      const liveKpiEta = document.getElementById("liveKpiEta");
+      const liveKpiArquivo = document.getElementById("liveKpiArquivo");
+
       try {
         const rProg = await fetch("/api/tse-reverso/servidor/progresso-ingestao");
         if (!rProg.ok) {
@@ -3988,25 +4402,89 @@ o Boletim de Urna (apos encerramento da votacao).
         }
         const prog = await rProg.json();
 
+        window._vpsIngestaoPausada = Boolean(prog.pausado);
+
+        // Atualiza textos e estilos dos botões de Pausa/Retomada
+        if (prog.pausado) {
+          if (iconPausaVps) iconPausaVps.textContent = "▶";
+          if (textPausaVps) textPausaVps.textContent = "Retomar Ingestão";
+          if (btnPausaVps) btnPausaVps.className = "px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-[11px] transition inline-flex items-center gap-1.5 shadow cursor-pointer";
+
+          if (iconPausaModal) iconPausaModal.textContent = "▶";
+          if (textPausaModal) textPausaModal.textContent = "Retomar Ingestão";
+          if (btnPausaModal) btnPausaModal.className = "px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow cursor-pointer";
+
+          if (liveModalBadge) {
+            liveModalBadge.className = "px-2 py-0.5 text-[10px] font-black uppercase rounded bg-amber-950 text-amber-300 border border-amber-600 mono";
+            liveModalBadge.textContent = "⏸ Ingestão Pausada";
+          }
+          if (liveModalDot) {
+            liveModalDot.innerHTML = `<span class="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>`;
+          }
+        } else {
+          if (iconPausaVps) iconPausaVps.textContent = "⏸";
+          if (textPausaVps) textPausaVps.textContent = "Pausar Ingestão";
+          if (btnPausaVps) btnPausaVps.className = "px-3 py-1.5 rounded-lg bg-amber-950/80 hover:bg-amber-900 border border-amber-600/70 text-amber-300 font-extrabold text-[11px] transition inline-flex items-center gap-1.5 shadow cursor-pointer";
+
+          if (iconPausaModal) iconPausaModal.textContent = "⏸";
+          if (textPausaModal) textPausaModal.textContent = "Pausar Ingestão";
+          if (btnPausaModal) btnPausaModal.className = "px-3.5 py-1.5 rounded-xl bg-amber-950/80 hover:bg-amber-900 border border-amber-600/70 text-amber-300 font-extrabold text-xs transition flex items-center gap-1.5 shadow cursor-pointer";
+
+          if (liveModalBadge) {
+            liveModalBadge.className = "px-2 py-0.5 text-[10px] font-black uppercase rounded bg-emerald-950 text-emerald-300 border border-emerald-700 mono";
+            liveModalBadge.textContent = prog.ativo ? "🟢 Servidor Ativo" : (prog.finalizado ? "✅ Concluído" : "ℹ️ Aguardando");
+          }
+          if (liveModalDot) {
+            liveModalDot.innerHTML = `
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+            `;
+          }
+        }
+
+        const pct = Math.max(2, Math.min(100, prog.progresso_pct || 0));
+        const sp = prog.velocidade_urnas_s || (prog.tempo_decorrido_s > 0 ? (prog.urnas_processadas / prog.tempo_decorrido_s).toFixed(1) : 0);
+
+        // Atualiza elementos do Modal Live
+        if (liveKpiPct) liveKpiPct.textContent = `${pct}%`;
+        if (liveKpiUrnasCount) liveKpiUrnasCount.textContent = `${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} / ${(prog.total_urnas || 0).toLocaleString('pt-BR')}`;
+        if (liveKpiBar) liveKpiBar.style.width = `${pct}%`;
+        if (liveKpiNovas) liveKpiNovas.textContent = `${(prog.urnas_novas || 0).toLocaleString('pt-BR')} novas salvas`;
+        if (liveKpiExistentes) liveKpiExistentes.textContent = `${(prog.urnas_duplicadas || 0).toLocaleString('pt-BR')} já no banco (puladas)`;
+        if (liveKpiSpeed) liveKpiSpeed.textContent = `${sp} u/s`;
+        if (liveKpiTime) liveKpiTime.textContent = `${formatarTempoSegundos(prog.tempo_decorrido_s || 0)} decorridos`;
+        if (liveKpiEta) liveKpiEta.textContent = prog.eta_s > 0 ? `~${formatarTempoSegundos(prog.eta_s)} restantes` : (prog.finalizado ? "Concluído" : "Calculando...");
+        if (liveKpiArquivo) liveKpiArquivo.textContent = prog.arquivo_atual || "bu_imgbu_logjez_rdv_vscmr_2026_1t_PR.zip";
+
+        // Renderiza slots de lote e feed de urnas
+        renderizarSlotsLoteLive(prog.lote_atual || 0, prog.lote_tamanho || 50, prog.pausado);
+        renderizarFeedUrnasLive(prog.ultimas_urnas || []);
+
+        if (batchPill) batchPill.textContent = `Lote: ${prog.lote_atual || 0}/${prog.lote_tamanho || 50}`;
+        if (etaPill) etaPill.textContent = prog.eta_s > 0 ? `ETA: ~${formatarTempoSegundos(prog.eta_s)}` : (prog.finalizado ? "Concluído" : "ETA: calculando...");
+
         if (prog.ativo) {
           if (pBox) pBox.classList.remove("hidden");
-          const pct = Math.max(2, Math.min(100, prog.progresso_pct || 0));
           if (pBar) pBar.style.width = `${pct}%`;
           if (pPct) pPct.textContent = `${pct}%`;
           if (pMsg) pMsg.textContent = prog.mensagem || "Processando seções em segundo plano na VPS...";
           if (pUrnas) pUrnas.textContent = `${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} de ${(prog.total_urnas || 0).toLocaleString('pt-BR')} urnas (${(prog.urnas_novas || 0).toLocaleString('pt-BR')} novas salvas)`;
           if (pSpeed && prog.tempo_decorrido_s > 0) {
-            const sp = (prog.urnas_processadas / prog.tempo_decorrido_s).toFixed(1);
             pSpeed.textContent = `⚡ ${sp} urnas/segundo (${prog.tempo_decorrido_s}s decorridos)`;
           }
           if (pPill) {
             pPill.classList.remove("hidden");
-            pPill.className = "px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-extrabold";
-            pPill.innerHTML = `🟢 <span class="animate-pulse">Executando no Servidor</span> (pode fechar o navegador)`;
+            if (prog.pausado) {
+              pPill.className = "px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-extrabold";
+              pPill.innerHTML = `⏸ Ingestão Pausada (Servidor Aguardando)`;
+            } else {
+              pPill.className = "px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[10px] font-extrabold";
+              pPill.innerHTML = `🟢 <span class="animate-pulse">Executando no Servidor</span> (pode fechar o navegador)`;
+            }
           }
 
           if (!_pollIngestaoVpsTimer) {
-            _pollIngestaoVpsTimer = setInterval(() => atualizarProgressoIngestaoServidor(false), 1500);
+            _pollIngestaoVpsTimer = setInterval(() => atualizarProgressoIngestaoServidor(false), 1200);
           }
           if (forcarAlerta) {
             showSecurityAlert(`⚡ Status do Servidor: ${pct}% concluído (${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} de ${(prog.total_urnas || 0).toLocaleString('pt-BR')} urnas gravadas no PostgreSQL em segundo plano).`, false);
@@ -4447,31 +4925,126 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
-    async function selecionarNoArvoreTse(regiao, uf, municipio, zona, secao) {
+    window._tseCarregandoArvore = false;
+
+    function mostrarSinalizacaoCarregandoArvore(regiao, uf, municipio, zona, secao) {
+      const badge = document.getElementById("tseTreeLoadingBadge");
+      const txt = document.getElementById("tseTreeLoadingText");
+      const treeContainer = document.getElementById("tseFilterBarContainer");
+      const resContainer = document.getElementById("tseReversoResultContainer");
+
+      let rotulo = "dados da seleção";
       if (secao && secao !== "CONSOLIDADO") {
-        await garantirLogJezSobDemanda(secao);
+        rotulo = `Urna / Seção (${secao})`;
+      } else if (zona && zona !== "TODAS") {
+        rotulo = `Zona ${zona}`;
+      } else if (municipio && municipio !== "TODAS") {
+        const hier = window.arvoreTseState?.hierarquia;
+        const cid = (hier?.cidades || []).find(c => c.codigo === municipio);
+        rotulo = cid ? cid.nome : `Município ${municipio}`;
+      } else if (uf && uf !== "TODAS") {
+        rotulo = `Estado (${uf})`;
+      } else if (regiao && regiao !== "TODAS") {
+        rotulo = `Região ${regiao}`;
       }
-      window.arvoreTseState.regiao = regiao || "TODAS";
-      window.arvoreTseState.uf = uf || "TODAS";
-      window.arvoreTseState.municipio = municipio || "TODAS";
-      window.arvoreTseState.zona = zona || "TODAS";
-      window.arvoreTseState.secao = secao || "CONSOLIDADO";
-      await atualizarConsolidacaoTse(true);
+
+      if (txt) txt.innerHTML = `⏳ Carregando <strong>${rotulo}</strong>... Por favor aguarde.`;
+      if (badge) {
+        badge.classList.remove("hidden");
+        badge.classList.add("inline-flex");
+      }
+      if (treeContainer) {
+        treeContainer.classList.add("opacity-60", "pointer-events-none");
+      }
+      if (resContainer) {
+        resContainer.classList.add("opacity-60", "pointer-events-none");
+      }
+      document.body.classList.add("cursor-wait");
+    }
+
+    function ocultarSinalizacaoCarregandoArvore() {
+      const badge = document.getElementById("tseTreeLoadingBadge");
+      const treeContainer = document.getElementById("tseFilterBarContainer");
+      const resContainer = document.getElementById("tseReversoResultContainer");
+
+      if (badge) {
+        badge.classList.add("hidden");
+        badge.classList.remove("inline-flex");
+      }
+      if (treeContainer) {
+        treeContainer.classList.remove("opacity-60", "pointer-events-none");
+      }
+      if (resContainer) {
+        resContainer.classList.remove("opacity-60", "pointer-events-none");
+      }
+      document.body.classList.remove("cursor-wait");
+    }
+
+    async function selecionarNoArvoreTse(regiao, uf, municipio, zona, secao) {
+      if (window._tseCarregandoArvore) {
+        console.warn("[TSE-TREE] Clique bloqueado: consulta em andamento.");
+        return;
+      }
+      window._tseCarregandoArvore = true;
+      mostrarSinalizacaoCarregandoArvore(regiao, uf, municipio, zona, secao);
+
+      try {
+        if (secao && secao !== "CONSOLIDADO") {
+          await garantirLogJezSobDemanda(secao);
+        }
+        window.arvoreTseState.regiao = regiao || "TODAS";
+        window.arvoreTseState.uf = uf || "TODAS";
+        window.arvoreTseState.municipio = municipio || "TODAS";
+        window.arvoreTseState.zona = zona || "TODAS";
+        window.arvoreTseState.secao = secao || "CONSOLIDADO";
+        await atualizarConsolidacaoTse(true);
+      } catch (err) {
+        console.warn("[TSE-TREE] Erro ao carregar dados do nó:", err);
+      } finally {
+        ocultarSinalizacaoCarregandoArvore();
+        window._tseCarregandoArvore = false;
+      }
     }
 
     async function voltarParaConsolidacaoFiltro() {
-      window.arvoreTseState.secao = "CONSOLIDADO";
-      await atualizarConsolidacaoTse(true);
+      if (window._tseCarregandoArvore) return;
+      window._tseCarregandoArvore = true;
+      mostrarSinalizacaoCarregandoArvore(
+        window.arvoreTseState.regiao,
+        window.arvoreTseState.uf,
+        window.arvoreTseState.municipio,
+        window.arvoreTseState.zona,
+        "CONSOLIDADO"
+      );
+      try {
+        window.arvoreTseState.secao = "CONSOLIDADO";
+        await atualizarConsolidacaoTse(true);
+      } catch (err) {
+        console.warn("[TSE-TREE] Erro ao voltar para consolidado:", err);
+      } finally {
+        ocultarSinalizacaoCarregandoArvore();
+        window._tseCarregandoArvore = false;
+      }
     }
 
     async function inspecionarUrnaIndividualTse(prefixo, regiao = null, uf = null, mun = null, zona = null) {
-      await garantirLogJezSobDemanda(prefixo);
-      if (regiao) window.arvoreTseState.regiao = regiao;
-      if (uf) window.arvoreTseState.uf = uf;
-      if (mun) window.arvoreTseState.municipio = mun;
-      if (zona) window.arvoreTseState.zona = zona;
-      window.arvoreTseState.secao = prefixo;
-      await atualizarConsolidacaoTse(true);
+      if (window._tseCarregandoArvore) return;
+      window._tseCarregandoArvore = true;
+      mostrarSinalizacaoCarregandoArvore(regiao, uf, mun, zona, prefixo);
+      try {
+        await garantirLogJezSobDemanda(prefixo);
+        if (regiao) window.arvoreTseState.regiao = regiao;
+        if (uf) window.arvoreTseState.uf = uf;
+        if (mun) window.arvoreTseState.municipio = mun;
+        if (zona) window.arvoreTseState.zona = zona;
+        window.arvoreTseState.secao = prefixo;
+        await atualizarConsolidacaoTse(true);
+      } catch (err) {
+        console.warn("[TSE-TREE] Erro ao inspecionar urna individual:", err);
+      } finally {
+        ocultarSinalizacaoCarregandoArvore();
+        window._tseCarregandoArvore = false;
+      }
     }
 
     // =================================================================================
@@ -4691,126 +5264,132 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     async function atualizarConsolidacaoTse(mostrarAlertaSeVazio = false) {
-      const st = window.arvoreTseState;
-      const qs = new URLSearchParams({
-        regiao: st.regiao || "TODAS",
-        uf: st.uf || "TODAS",
-        municipio: st.municipio || "TODAS",
-        zona: st.zona || "TODAS",
-        secao: st.secao || "CONSOLIDADO",
-        filtro_forense: st.filtro_forense || "TODAS",
-        cargo: st.cargo || "PRESIDENTE",
-        turno: st.modo_visao || "COMPARATIVO"
-      });
+      try {
+        const st = window.arvoreTseState;
+        const qs = new URLSearchParams({
+          regiao: st.regiao || "TODAS",
+          uf: st.uf || "TODAS",
+          municipio: st.municipio || "TODAS",
+          zona: st.zona || "TODAS",
+          secao: st.secao || "CONSOLIDADO",
+          filtro_forense: st.filtro_forense || "TODAS",
+          cargo: st.cargo || "PRESIDENTE",
+          turno: st.modo_visao || "COMPARATIVO"
+        });
 
-      const res = await fetch(`/api/tse-reverso/consolidar?${qs.toString()}`);
-      if (!res.ok) return;
-      const payload = await res.json();
-      window.lastConsolidadoPayload = payload;
+        const res = await fetch(`/api/tse-reverso/consolidar?${qs.toString()}`);
+        if (!res.ok) return;
+        const payload = await res.json();
+        window.lastConsolidadoPayload = payload;
 
-      // Popula dinamicamente os cargos disponíveis retornados pelo banco mantendo a lista de cargos completa
-      const cargosLista = (Array.isArray(payload.cargos_disponiveis) && payload.cargos_disponiveis.length > 0)
-        ? payload.cargos_disponiveis
-        : ["PRESIDENTE", "GOVERNADOR", "SENADOR", "DEPUTADO FEDERAL", "DEPUTADO ESTADUAL"];
-      const selCargo = document.getElementById("selectCargoTse");
-      if (selCargo) {
-        const cargoAtual = st.cargo || "PRESIDENTE";
-        const rotulosCargos = {
-          "PRESIDENTE": "Presidente da República",
-          "GOVERNADOR": "Governador",
-          "SENADOR": "Senador",
-          "DEPUTADO FEDERAL": "Deputado Federal",
-          "DEPUTADO ESTADUAL": "Deputado Estadual",
-          "DEPUTADO DISTRITAL": "Deputado Distrital"
-        };
-        const opts = cargosLista.map(cg => {
-          const rotulo = rotulosCargos[cg] || (cg.charAt(0) + cg.slice(1).toLowerCase());
-          return `<option value="${cg}" ${cg === cargoAtual ? "selected" : ""}>${rotulo}</option>`;
-        }).join("");
-        selCargo.innerHTML = opts;
-      }
-
-      const hier = payload.hierarquia || {};
-      window.arvoreTseState.hierarquia = hier;
-      window.arvoreTseState.regiao = hier.regiao_selecionada || "TODAS";
-      window.arvoreTseState.uf = hier.uf_selecionada || "TODAS";
-      window.arvoreTseState.municipio = hier.municipio_selecionado || "TODAS";
-      window.arvoreTseState.zona = hier.zona_selecionada || "TODAS";
-      window.arvoreTseState.secao = hier.secao_selecionada || "CONSOLIDADO";
-      window.arvoreTseState.filtro_forense = hier.filtro_forense_selecionado || "TODAS";
-
-      const totalGeral = hier.total_geral_urnas || 0;
-      const cBadge = document.getElementById("tseCatalogCountBadge");
-      if (cBadge) {
-        cBadge.textContent = totalGeral > 0 ? `${totalGeral.toLocaleString("pt-BR")}` : "";
-        if (totalGeral > 0) {
-          cBadge.classList.remove("hidden");
-        } else {
-          cBadge.classList.add("hidden");
+        // Popula dinamicamente os cargos disponíveis retornados pelo banco mantendo a lista de cargos completa
+        const cargosLista = (Array.isArray(payload.cargos_disponiveis) && payload.cargos_disponiveis.length > 0)
+          ? payload.cargos_disponiveis
+          : ["PRESIDENTE", "GOVERNADOR", "SENADOR", "DEPUTADO FEDERAL", "DEPUTADO ESTADUAL"];
+        const selCargo = document.getElementById("selectCargoTse");
+        if (selCargo) {
+          const cargoAtual = st.cargo || "PRESIDENTE";
+          const rotulosCargos = {
+            "PRESIDENTE": "Presidente da República",
+            "GOVERNADOR": "Governador",
+            "SENADOR": "Senador",
+            "DEPUTADO FEDERAL": "Deputado Federal",
+            "DEPUTADO ESTADUAL": "Deputado Estadual",
+            "DEPUTADO DISTRITAL": "Deputado Distrital"
+          };
+          const opts = cargosLista.map(cg => {
+            const rotulo = rotulosCargos[cg] || (cg.charAt(0) + cg.slice(1).toLowerCase());
+            return `<option value="${cg}" ${cg === cargoAtual ? "selected" : ""}>${rotulo}</option>`;
+          }).join("");
+          selCargo.innerHTML = opts;
         }
-      }
 
-      if (totalGeral === 0) {
-        // Se a memória estava vazia/fria mas existem seções gravadas no PostgreSQL,
-        // sincroniza em lote com o banco e renderiza imediatamente a árvore de seções!
-        if (!window._tseAutoSyncTentado) {
-          window._tseAutoSyncTentado = true;
-          try {
-            const stRes = await fetch("/api/tse-reverso/status-banco");
-            if (stRes.ok) {
-              const stData = await stRes.json();
-              if (stData.total_secoes > 0) {
-                const syncRes = await fetch("/api/tse-reverso/sincronizar-banco", { method: "POST" });
-                if (syncRes.ok) {
-                  return atualizarConsolidacaoTse(mostrarAlertaSeVazio);
+        const hier = payload.hierarquia || {};
+        window.arvoreTseState.hierarquia = hier;
+        window.arvoreTseState.regiao = hier.regiao_selecionada || "TODAS";
+        window.arvoreTseState.uf = hier.uf_selecionada || "TODAS";
+        window.arvoreTseState.municipio = hier.municipio_selecionado || "TODAS";
+        window.arvoreTseState.zona = hier.zona_selecionada || "TODAS";
+        window.arvoreTseState.secao = hier.secao_selecionada || "CONSOLIDADO";
+        window.arvoreTseState.filtro_forense = hier.filtro_forense_selecionado || "TODAS";
+
+        const totalGeral = hier.total_geral_urnas || 0;
+        const cBadge = document.getElementById("tseCatalogCountBadge");
+        if (cBadge) {
+          cBadge.textContent = totalGeral > 0 ? `${totalGeral.toLocaleString("pt-BR")}` : "";
+          if (totalGeral > 0) {
+            cBadge.classList.remove("hidden");
+          } else {
+            cBadge.classList.add("hidden");
+          }
+        }
+
+        if (totalGeral === 0) {
+          // Se a memória estava vazia/fria mas existem seções gravadas no PostgreSQL,
+          // sincroniza em lote com o banco e renderiza imediatamente a árvore de seções!
+          if (!window._tseAutoSyncTentado) {
+            window._tseAutoSyncTentado = true;
+            try {
+              const stRes = await fetch("/api/tse-reverso/status-banco");
+              if (stRes.ok) {
+                const stData = await stRes.json();
+                if (stData.total_secoes > 0) {
+                  const syncRes = await fetch("/api/tse-reverso/sincronizar-banco", { method: "POST" });
+                  if (syncRes.ok) {
+                    return atualizarConsolidacaoTse(mostrarAlertaSeVazio);
+                  }
                 }
               }
+            } catch (e) {
+              console.warn("[TSE-SYNC] Erro ao sincronizar catalogo com PostgreSQL:", e);
             }
-          } catch (e) {
-            console.warn("[TSE-SYNC] Erro ao sincronizar catalogo com PostgreSQL:", e);
           }
+          window._tseAutoSyncTentado = false;
+
+          const fCont = document.getElementById("tseFilterBarContainer");
+          if (fCont) fCont.classList.add("hidden");
+          const rCont = document.getElementById("tseReversoResultContainer");
+          if (rCont) rCont.classList.add("hidden");
+          return;
         }
         window._tseAutoSyncTentado = false;
 
         const fCont = document.getElementById("tseFilterBarContainer");
-        if (fCont) fCont.classList.add("hidden");
+        if (fCont) fCont.classList.remove("hidden");
         const rCont = document.getElementById("tseReversoResultContainer");
-        if (rCont) rCont.classList.add("hidden");
-        return;
+        if (rCont) rCont.classList.remove("hidden");
+
+        popularSeletoresHierarquicosTse(hier);
+
+        if (payload.modo_visao === "SECAO_INDIVIDUAL" && payload.secao_individual) {
+          window.lastSecaoIndividualPayload = payload.secao_individual;
+          const btnV = document.getElementById("btnVoltarConsolidado");
+          if (btnV) btnV.classList.remove("hidden");
+          // Mantém os cards totalizadores por candidato e resumo de Brancos/Nulos/Faltosos SEMPRE visíveis também na urna individual!
+          const plBox = document.getElementById("tsePlacarConsolidadoBox");
+          if (plBox) plBox.classList.remove("hidden");
+          const lBox = document.getElementById("tseListaUrnasConsolidadaBox");
+          if (lBox) lBox.classList.add("hidden");
+          const iSec = document.getElementById("tseIndividualUrnaSection");
+          if (iSec) iSec.classList.remove("hidden");
+          renderizarLaudoTseReverso(payload.secao_individual);
+        } else if (payload.consolidado) {
+          window.lastSecaoIndividualPayload = null;
+          const btnV = document.getElementById("btnVoltarConsolidado");
+          if (btnV) btnV.classList.add("hidden");
+          const plBox = document.getElementById("tsePlacarConsolidadoBox");
+          if (plBox) plBox.classList.remove("hidden");
+          const lBox = document.getElementById("tseListaUrnasConsolidadaBox");
+          if (lBox) lBox.classList.remove("hidden");
+          const iSec = document.getElementById("tseIndividualUrnaSection");
+          if (iSec) iSec.classList.add("hidden");
+          renderizarVisaoConsolidadaTse(payload.consolidado, hier);
+        }
+      } finally {
+        ocultarSinalizacaoCarregandoArvore();
+        window._tseCarregandoArvore = false;
       }
-      window._tseAutoSyncTentado = false;
-
-      const fCont = document.getElementById("tseFilterBarContainer");
-      if (fCont) fCont.classList.remove("hidden");
-      const rCont = document.getElementById("tseReversoResultContainer");
-      if (rCont) rCont.classList.remove("hidden");
-
-      popularSeletoresHierarquicosTse(hier);
-
-      if (payload.modo_visao === "SECAO_INDIVIDUAL" && payload.secao_individual) {
-        window.lastSecaoIndividualPayload = payload.secao_individual;
-        const btnV = document.getElementById("btnVoltarConsolidado");
-        if (btnV) btnV.classList.remove("hidden");
-        // Mantém os cards totalizadores por candidato e resumo de Brancos/Nulos/Faltosos SEMPRE visíveis também na urna individual!
-        const plBox = document.getElementById("tsePlacarConsolidadoBox");
-        if (plBox) plBox.classList.remove("hidden");
-        const lBox = document.getElementById("tseListaUrnasConsolidadaBox");
-        if (lBox) lBox.classList.add("hidden");
-        const iSec = document.getElementById("tseIndividualUrnaSection");
-        if (iSec) iSec.classList.remove("hidden");
-        renderizarLaudoTseReverso(payload.secao_individual);
-      } else if (payload.consolidado) {
-        window.lastSecaoIndividualPayload = null;
-        const btnV = document.getElementById("btnVoltarConsolidado");
-        if (btnV) btnV.classList.add("hidden");
-        const plBox = document.getElementById("tsePlacarConsolidadoBox");
-        if (plBox) plBox.classList.remove("hidden");
-        const lBox = document.getElementById("tseListaUrnasConsolidadaBox");
-        if (lBox) lBox.classList.remove("hidden");
-        const iSec = document.getElementById("tseIndividualUrnaSection");
-        if (iSec) iSec.classList.add("hidden");
-        renderizarVisaoConsolidadaTse(payload.consolidado, hier);
-      }
+    }
     }
 
     function popularSeletoresHierarquicosTse(hier) {

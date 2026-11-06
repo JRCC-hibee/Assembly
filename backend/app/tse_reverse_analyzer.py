@@ -21,7 +21,7 @@ import hashlib
 import random
 import threading
 import tempfile
-from collections import Counter
+from collections import Counter, deque
 from datetime import datetime
 
 
@@ -4026,19 +4026,100 @@ def resetar_tudo_eleitoral(db=None) -> dict:
 
 _STATUS_INGESTAO_LOCAL = {
     "ativo": False,
+    "pausado": False,
     "progresso_pct": 0,
     "mensagem": "Nenhuma ingestão em andamento. Coloque os arquivos em /root/tse_import.",
     "total_urnas": 0,
     "urnas_processadas": 0,
     "urnas_novas": 0,
     "urnas_duplicadas": 0,
+    "lote_atual": 0,
+    "lote_tamanho": 50,
+    "arquivo_atual": "",
+    "ultimas_urnas": [],
     "tempo_decorrido_s": 0,
+    "velocidade_urnas_s": 0.0,
+    "eta_s": 0,
     "erros": [],
     "finalizado": False,
     "sucesso": False,
+    "ultimo_batimento": 0,
 }
 _LOCK_INGESTAO_LOCAL = threading.Lock()
 _THREAD_INGESTAO_LOCAL = None
+_PAUSAR_INGESTAO_LOCAL = False
+_ULTIMAS_URNAS_INGESTAO: deque[dict] = deque(maxlen=30)
+
+
+def pausar_ingestao_servidor() -> dict:
+    """Pausa o motor de ingestão local em background na VPS."""
+    global _PAUSAR_INGESTAO_LOCAL, _STATUS_INGESTAO_LOCAL
+    _PAUSAR_INGESTAO_LOCAL = True
+    _STATUS_INGESTAO_LOCAL["pausado"] = True
+    _STATUS_INGESTAO_LOCAL["ultimo_batimento"] = time.time()
+    return {
+        "ok": True,
+        "mensagem": "Comando de pausa enviado ao motor de ingestão na VPS.",
+        "pausado": True,
+        "status": obter_progresso_ingestao_servidor(),
+    }
+
+
+def retomar_ingestao_servidor() -> dict:
+    """Retoma o motor de ingestão local em background na VPS."""
+    global _PAUSAR_INGESTAO_LOCAL, _STATUS_INGESTAO_LOCAL
+    _PAUSAR_INGESTAO_LOCAL = False
+    _STATUS_INGESTAO_LOCAL["pausado"] = False
+    _STATUS_INGESTAO_LOCAL["ultimo_batimento"] = time.time()
+    return {
+        "ok": True,
+        "mensagem": "Ingestão retomada pelo usuário na VPS.",
+        "pausado": False,
+        "status": obter_progresso_ingestao_servidor(),
+    }
+
+
+def _verificar_pausa_ingestao(urnas_processadas: int = 0):
+    """Aguarda em pausa caso o usuário tenha clicado em Pausar Ingestão."""
+    global _PAUSAR_INGESTAO_LOCAL, _STATUS_INGESTAO_LOCAL
+    if not _PAUSAR_INGESTAO_LOCAL:
+        return
+    while _PAUSAR_INGESTAO_LOCAL and _STATUS_INGESTAO_LOCAL.get("ativo"):
+        _STATUS_INGESTAO_LOCAL["pausado"] = True
+        _STATUS_INGESTAO_LOCAL["ultimo_batimento"] = time.time()
+        _STATUS_INGESTAO_LOCAL["mensagem"] = (
+            f"⏸ Ingestão pausada pelo usuário ({urnas_processadas:,} urnas processadas até o momento). Clique em Retomar para continuar."
+        )
+        time.sleep(0.5)
+    _STATUS_INGESTAO_LOCAL["pausado"] = False
+
+
+def _registrar_urna_recente(info_dict: dict, status: str, lote: int, zip_nome: str):
+    """Registra a urna no buffer das últimas 30 urnas para alimentar o ticker e animação ao vivo."""
+    global _ULTIMAS_URNAS_INGESTAO, _STATUS_INGESTAO_LOCAL
+    try:
+        ch = info_dict.get("secao_chave") or f"{info_dict.get('uf')}_{info_dict.get('municipio')}_{info_dict.get('zona')}_{info_dict.get('secao')}"
+        item = {
+            "secao_chave": ch,
+            "uf": str(info_dict.get("uf") or "PR").upper(),
+            "municipio": str(info_dict.get("municipio") or "00000"),
+            "municipio_nome": str(info_dict.get("municipio_nome") or ""),
+            "zona": str(info_dict.get("zona") or "0000").zfill(4),
+            "secao": str(info_dict.get("secao") or "0000").zfill(4),
+            "turno": int(info_dict.get("turno") or 1),
+            "status": status,  # "NOVA" | "EXISTENTE"
+            "total_votos": int(info_dict.get("total_votos") or 0),
+            "modelo_urna": str(info_dict.get("modelo_urna") or ""),
+            "lote": lote,
+            "arquivo": zip_nome,
+            "hora": time.strftime("%H:%M:%S"),
+        }
+        _ULTIMAS_URNAS_INGESTAO.appendleft(item)
+        _STATUS_INGESTAO_LOCAL["ultimas_urnas"] = list(_ULTIMAS_URNAS_INGESTAO)
+        _STATUS_INGESTAO_LOCAL["lote_atual"] = lote
+        _STATUS_INGESTAO_LOCAL["arquivo_atual"] = zip_nome
+    except Exception:
+        pass
 
 
 def _get_tse_import_dir() -> str:
@@ -4126,7 +4207,9 @@ def obter_status_pasta_importacao_servidor() -> dict:
 
 def obter_progresso_ingestao_servidor() -> dict:
     """Retorna o progresso em tempo real da ingestão local que está rodando em background."""
-    return dict(_STATUS_INGESTAO_LOCAL)
+    res = dict(_STATUS_INGESTAO_LOCAL)
+    res["ultimas_urnas"] = list(_ULTIMAS_URNAS_INGESTAO)
+    return res
 
 
 def iniciar_ingestao_servidor_background(db_factory=None, forcar: bool = False) -> dict:
@@ -4134,7 +4217,7 @@ def iniciar_ingestao_servidor_background(db_factory=None, forcar: bool = False) 
     Dispara a ingestão local na VPS em uma thread daemon em background,
     permitindo que a interface web acompanhe o progresso sem risco de timeout.
     """
-    global _THREAD_INGESTAO_LOCAL
+    global _THREAD_INGESTAO_LOCAL, _PAUSAR_INGESTAO_LOCAL, _ULTIMAS_URNAS_INGESTAO
 
     with _LOCK_INGESTAO_LOCAL:
         agora = time.time()
@@ -4145,11 +4228,15 @@ def iniciar_ingestao_servidor_background(db_factory=None, forcar: bool = False) 
             return {
                 "ok": False,
                 "mensagem": "Já existe uma ingestão local em andamento no servidor.",
-                "status": _STATUS_INGESTAO_LOCAL,
+                "status": obter_progresso_ingestao_servidor(),
             }
+
+        _PAUSAR_INGESTAO_LOCAL = False
+        _ULTIMAS_URNAS_INGESTAO.clear()
 
         _STATUS_INGESTAO_LOCAL.update({
             "ativo": True,
+            "pausado": False,
             "finalizado": False,
             "sucesso": False,
             "progresso_pct": 2,
@@ -4158,7 +4245,13 @@ def iniciar_ingestao_servidor_background(db_factory=None, forcar: bool = False) 
             "urnas_processadas": 0,
             "urnas_novas": 0,
             "urnas_duplicadas": 0,
+            "lote_atual": 0,
+            "lote_tamanho": 50,
+            "arquivo_atual": "",
+            "ultimas_urnas": [],
             "tempo_decorrido_s": 0,
+            "velocidade_urnas_s": 0.0,
+            "eta_s": 0,
             "erros": [],
             "ultimo_batimento": agora,
         })
@@ -4306,6 +4399,7 @@ def _executar_ingestao_servidor_worker():
 
                     with zipfile.ZipFile(zip_path, "r") as zf:
                         for pref, arquivos_secao in grupos_prefixo_zip.items():
+                            _verificar_pausa_ingestao(urnas_processadas)
                             pref_clean = extrair_prefixo_seccao(pref)
                             info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
                             ch = None
@@ -4323,6 +4417,19 @@ def _executar_ingestao_servidor_worker():
                             if ch and (ch, turno_item) in apuracoes_existentes:
                                 urnas_duplicadas += 1
                                 urnas_processadas += 1
+                                _registrar_urna_recente(
+                                    {
+                                        "secao_chave": ch,
+                                        "uf": info.get("uf") if info else default_zip_uf,
+                                        "municipio": info.get("municipio_codigo") if info else "00000",
+                                        "zona": info.get("zona") if info else "0000",
+                                        "secao": info.get("secao") if info else "0000",
+                                        "turno": turno_item,
+                                    },
+                                    status="EXISTENTE",
+                                    lote=batch_count,
+                                    zip_nome=os.path.basename(zip_path),
+                                )
                                 continue
 
                             pacote = {}
@@ -4342,6 +4449,22 @@ def _executar_ingestao_servidor_worker():
                                 turno_salvo = int(resumo.get("turno_pacote") or turno_item)
                                 if ch:
                                     apuracoes_existentes.add((ch, turno_salvo))
+                                _registrar_urna_recente(
+                                    {
+                                        "secao_chave": ch,
+                                        "uf": resumo.get("uf") or (info.get("uf") if info else default_zip_uf),
+                                        "municipio": resumo.get("municipio") or (info.get("municipio_codigo") if info else "00000"),
+                                        "municipio_nome": resumo.get("municipio_nome") or "",
+                                        "zona": resumo.get("zona") or (info.get("zona") if info else "0000"),
+                                        "secao": resumo.get("secao") or (info.get("secao") if info else "0000"),
+                                        "turno": turno_salvo,
+                                        "total_votos": resumo.get("total_votos", 0),
+                                        "modelo_urna": resumo.get("modelo_urna") or "",
+                                    },
+                                    status="NOVA",
+                                    lote=batch_count + 1,
+                                    zip_nome=os.path.basename(zip_path),
+                                )
                             except Exception as e_sec:
                                 try:
                                     db.rollback()
@@ -4373,17 +4496,25 @@ def _executar_ingestao_servidor_worker():
                                     pass
                                 db = SessionLocal()
 
-                            if urnas_processadas % 25 == 0:
+                            if urnas_processadas % 10 == 0:
                                 tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
                                 pct = min(99, int((urnas_processadas / tot) * 98) + 2)
                                 delta_s = max(0.1, time.time() - t0)
                                 speed = urnas_processadas / delta_s
+                                restantes = max(0, tot - urnas_processadas)
+                                eta_s = int(restantes / speed) if speed > 0 else 0
                                 _STATUS_INGESTAO_LOCAL.update({
                                     "progresso_pct": pct,
                                     "urnas_processadas": urnas_processadas,
                                     "urnas_novas": urnas_novas,
                                     "urnas_duplicadas": urnas_duplicadas,
                                     "tempo_decorrido_s": int(delta_s),
+                                    "velocidade_urnas_s": round(speed, 1),
+                                    "eta_s": eta_s,
+                                    "lote_atual": batch_count,
+                                    "lote_tamanho": 50,
+                                    "arquivo_atual": os.path.basename(zip_path),
+                                    "ultimas_urnas": list(_ULTIMAS_URNAS_INGESTAO),
                                     "mensagem": f"Processando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} novas, {urnas_duplicadas:,} já existentes...",
                                     "ultimo_batimento": time.time(),
                                 })
@@ -4431,6 +4562,7 @@ def _executar_ingestao_servidor_worker():
 
                     batch_count = 0
                     for pref, arquivos_secao in grupos_prefixo.items():
+                        _verificar_pausa_ingestao(urnas_processadas)
                         pref_clean = extrair_prefixo_seccao(pref)
                         info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
                         ch = None
@@ -4448,6 +4580,19 @@ def _executar_ingestao_servidor_worker():
                         if ch and (ch, turno_item) in apuracoes_existentes:
                             urnas_duplicadas += 1
                             urnas_processadas += 1
+                            _registrar_urna_recente(
+                                {
+                                    "secao_chave": ch,
+                                    "uf": info.get("uf") if info else default_zip_uf,
+                                    "municipio": info.get("municipio_codigo") if info else "00000",
+                                    "zona": info.get("zona") if info else "0000",
+                                    "secao": info.get("secao") if info else "0000",
+                                    "turno": turno_item,
+                                },
+                                status="EXISTENTE",
+                                lote=batch_count,
+                                zip_nome=os.path.basename(zip_path),
+                            )
                             continue
 
                         pacote = {}
@@ -4468,6 +4613,22 @@ def _executar_ingestao_servidor_worker():
                             turno_salvo = int(resumo.get("turno_pacote") or turno_item)
                             if ch:
                                 apuracoes_existentes.add((ch, turno_salvo))
+                            _registrar_urna_recente(
+                                {
+                                    "secao_chave": ch,
+                                    "uf": resumo.get("uf") or (info.get("uf") if info else default_zip_uf),
+                                    "municipio": resumo.get("municipio") or (info.get("municipio_codigo") if info else "00000"),
+                                    "municipio_nome": resumo.get("municipio_nome") or "",
+                                    "zona": resumo.get("zona") or (info.get("zona") if info else "0000"),
+                                    "secao": resumo.get("secao") or (info.get("secao") if info else "0000"),
+                                    "turno": turno_salvo,
+                                    "total_votos": resumo.get("total_votos", 0),
+                                    "modelo_urna": resumo.get("modelo_urna") or "",
+                                },
+                                status="NOVA",
+                                lote=batch_count + 1,
+                                zip_nome=os.path.basename(zip_path),
+                            )
                         except Exception as e_sec:
                             try:
                                 db.rollback()
@@ -4499,17 +4660,25 @@ def _executar_ingestao_servidor_worker():
                                 pass
                             db = SessionLocal()
 
-                        if urnas_processadas % 25 == 0:
+                        if urnas_processadas % 10 == 0:
                             tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
                             pct = min(99, int((urnas_processadas / tot) * 98) + 2)
                             delta_s = max(0.1, time.time() - t0)
                             speed = urnas_processadas / delta_s
+                            restantes = max(0, tot - urnas_processadas)
+                            eta_s = int(restantes / speed) if speed > 0 else 0
                             _STATUS_INGESTAO_LOCAL.update({
                                 "progresso_pct": pct,
                                 "urnas_processadas": urnas_processadas,
                                 "urnas_novas": urnas_novas,
                                 "urnas_duplicadas": urnas_duplicadas,
                                 "tempo_decorrido_s": int(delta_s),
+                                "velocidade_urnas_s": round(speed, 1),
+                                "eta_s": eta_s,
+                                "lote_atual": batch_count,
+                                "lote_tamanho": 50,
+                                "arquivo_atual": os.path.basename(zip_path),
+                                "ultimas_urnas": list(_ULTIMAS_URNAS_INGESTAO),
                                 "mensagem": f"Processando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} novas, {urnas_duplicadas:,} já existentes...",
                                 "ultimo_batimento": time.time(),
                             })
@@ -4546,6 +4715,7 @@ def _executar_ingestao_servidor_worker():
             _STATUS_INGESTAO_LOCAL["total_urnas"] += len(grupos_soltos)
             batch_count = 0
             for pref, arquivos_map in grupos_soltos.items():
+                _verificar_pausa_ingestao(urnas_processadas)
                 pref_clean = extrair_prefixo_seccao(pref)
                 info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=uf_inicial)
                 ch = None
@@ -4563,6 +4733,19 @@ def _executar_ingestao_servidor_worker():
                 if ch and (ch, turno_item) in apuracoes_existentes:
                     urnas_duplicadas += 1
                     urnas_processadas += 1
+                    _registrar_urna_recente(
+                        {
+                            "secao_chave": ch,
+                            "uf": info.get("uf") if info else uf_inicial,
+                            "municipio": info.get("municipio_codigo") if info else "00000",
+                            "zona": info.get("zona") if info else "0000",
+                            "secao": info.get("secao") if info else "0000",
+                            "turno": turno_item,
+                        },
+                        status="EXISTENTE",
+                        lote=batch_count,
+                        zip_nome="arquivos_avulsos",
+                    )
                     continue
 
                 pacote = {}
@@ -4583,6 +4766,22 @@ def _executar_ingestao_servidor_worker():
                     turno_salvo = int(resumo.get("turno_pacote") or turno_item)
                     if ch:
                         apuracoes_existentes.add((ch, turno_salvo))
+                    _registrar_urna_recente(
+                        {
+                            "secao_chave": ch,
+                            "uf": resumo.get("uf") or (info.get("uf") if info else uf_inicial),
+                            "municipio": resumo.get("municipio") or (info.get("municipio_codigo") if info else "00000"),
+                            "municipio_nome": resumo.get("municipio_nome") or "",
+                            "zona": resumo.get("zona") or (info.get("zona") if info else "0000"),
+                            "secao": resumo.get("secao") or (info.get("secao") if info else "0000"),
+                            "turno": turno_salvo,
+                            "total_votos": resumo.get("total_votos", 0),
+                            "modelo_urna": resumo.get("modelo_urna") or "",
+                        },
+                        status="NOVA",
+                        lote=batch_count + 1,
+                        zip_nome="arquivos_avulsos",
+                    )
                 except Exception as e_solto:
                     try:
                         db.rollback()
@@ -4604,18 +4803,27 @@ def _executar_ingestao_servidor_worker():
                         _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit soltos ({pref}): {e_cmt}")
                     batch_count = 0
 
-                if urnas_processadas % 25 == 0:
+                if urnas_processadas % 10 == 0:
                     tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
                     pct = min(99, int((urnas_processadas / tot) * 98) + 2)
                     delta_s = max(0.1, time.time() - t0)
                     speed = urnas_processadas / delta_s
+                    restantes = max(0, tot - urnas_processadas)
+                    eta_s = int(restantes / speed) if speed > 0 else 0
                     _STATUS_INGESTAO_LOCAL.update({
                         "progresso_pct": pct,
                         "urnas_processadas": urnas_processadas,
                         "urnas_novas": urnas_novas,
                         "urnas_duplicadas": urnas_duplicadas,
                         "tempo_decorrido_s": int(delta_s),
+                        "velocidade_urnas_s": round(speed, 1),
+                        "eta_s": eta_s,
+                        "lote_atual": batch_count,
+                        "lote_tamanho": 50,
+                        "arquivo_atual": "arquivos_avulsos",
+                        "ultimas_urnas": list(_ULTIMAS_URNAS_INGESTAO),
                         "mensagem": f"Processando arquivos avulsos: {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s)...",
+                        "ultimo_batimento": time.time(),
                     })
 
             if batch_count > 0:
@@ -4652,6 +4860,7 @@ def _executar_ingestao_servidor_worker():
 
         _STATUS_INGESTAO_LOCAL.update({
             "ativo": False,
+            "pausado": False,
             "finalizado": True,
             "sucesso": sucesso_op,
             "progresso_pct": 100,
@@ -4659,15 +4868,22 @@ def _executar_ingestao_servidor_worker():
             "urnas_novas": urnas_novas,
             "urnas_duplicadas": urnas_duplicadas,
             "tempo_decorrido_s": duracao,
+            "velocidade_urnas_s": round(urnas_processadas / max(0.1, duracao), 1),
+            "eta_s": 0,
+            "lote_atual": 0,
+            "ultimas_urnas": list(_ULTIMAS_URNAS_INGESTAO),
             "mensagem": msg_final,
+            "ultimo_batimento": time.time(),
         })
 
     except Exception as exc:
         _STATUS_INGESTAO_LOCAL.update({
             "ativo": False,
+            "pausado": False,
             "finalizado": True,
             "sucesso": False,
             "mensagem": f"Erro crítico durante a ingestão local: {exc}",
+            "ultimo_batimento": time.time(),
         })
         _STATUS_INGESTAO_LOCAL["erros"].append(str(exc))
     finally:
@@ -4678,17 +4894,21 @@ def _executar_ingestao_servidor_worker():
 
 
 def iniciar_complementacao_servidor_background() -> dict:
-    global _STATUS_INGESTAO_LOCAL, _THREAD_INGESTAO_LOCAL
+    global _STATUS_INGESTAO_LOCAL, _THREAD_INGESTAO_LOCAL, _PAUSAR_INGESTAO_LOCAL, _ULTIMAS_URNAS_INGESTAO
     with _LOCK_INGESTAO_LOCAL:
         if _STATUS_INGESTAO_LOCAL.get("ativo") and _THREAD_INGESTAO_LOCAL and _THREAD_INGESTAO_LOCAL.is_alive():
             return {
                 "ok": False,
                 "mensagem": "Já existe um processo em andamento no servidor.",
-                "status": _STATUS_INGESTAO_LOCAL,
+                "status": obter_progresso_ingestao_servidor(),
             }
+
+        _PAUSAR_INGESTAO_LOCAL = False
+        _ULTIMAS_URNAS_INGESTAO.clear()
 
         _STATUS_INGESTAO_LOCAL.update({
             "ativo": True,
+            "pausado": False,
             "finalizado": False,
             "sucesso": False,
             "progresso_pct": 2,
@@ -4697,8 +4917,15 @@ def iniciar_complementacao_servidor_background() -> dict:
             "urnas_processadas": 0,
             "urnas_novas": 0,
             "urnas_duplicadas": 0,
+            "lote_atual": 0,
+            "lote_tamanho": 50,
+            "arquivo_atual": "",
+            "ultimas_urnas": [],
             "tempo_decorrido_s": 0,
+            "velocidade_urnas_s": 0.0,
+            "eta_s": 0,
             "erros": [],
+            "ultimo_batimento": time.time(),
         })
         _THREAD_INGESTAO_LOCAL = threading.Thread(target=_executar_complementacao_worker, daemon=True)
         _THREAD_INGESTAO_LOCAL.start()
@@ -4849,6 +5076,7 @@ def _executar_complementacao_worker():
 
                     with zipfile.ZipFile(zip_path, "r") as zf:
                         for pref, arquivos_secao in grupos_prefixo_zip.items():
+                            _verificar_pausa_ingestao(urnas_processadas)
                             pref_clean = extrair_prefixo_seccao(pref)
                             info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
                             ch = None
@@ -4869,6 +5097,19 @@ def _executar_complementacao_worker():
                             if tem_apuracao and tem_dossie:
                                 urnas_duplicadas += 1
                                 urnas_processadas += 1
+                                _registrar_urna_recente(
+                                    {
+                                        "secao_chave": ch,
+                                        "uf": info.get("uf") if info else default_zip_uf,
+                                        "municipio": info.get("municipio_codigo") if info else "00000",
+                                        "zona": info.get("zona") if info else "0000",
+                                        "secao": info.get("secao") if info else "0000",
+                                        "turno": turno_item,
+                                    },
+                                    status="EXISTENTE",
+                                    lote=batch_count,
+                                    zip_nome=os.path.basename(zip_path),
+                                )
                                 continue
 
                             pacote = {}
@@ -4889,6 +5130,22 @@ def _executar_complementacao_worker():
                                 if ch:
                                     apuracoes_existentes.add((ch, turno_salvo))
                                     dossies_existentes.add((ch, turno_salvo))
+                                _registrar_urna_recente(
+                                    {
+                                        "secao_chave": ch,
+                                        "uf": resumo.get("uf") or (info.get("uf") if info else default_zip_uf),
+                                        "municipio": resumo.get("municipio") or (info.get("municipio_codigo") if info else "00000"),
+                                        "municipio_nome": resumo.get("municipio_nome") or "",
+                                        "zona": resumo.get("zona") or (info.get("zona") if info else "0000"),
+                                        "secao": resumo.get("secao") or (info.get("secao") if info else "0000"),
+                                        "turno": turno_salvo,
+                                        "total_votos": resumo.get("total_votos", 0),
+                                        "modelo_urna": resumo.get("modelo_urna") or "",
+                                    },
+                                    status="NOVA",
+                                    lote=batch_count + 1,
+                                    zip_nome=os.path.basename(zip_path),
+                                )
                             except Exception as e_sec:
                                 try:
                                     db.rollback()
@@ -4920,17 +5177,25 @@ def _executar_complementacao_worker():
                                     pass
                                 db = SessionLocal()
 
-                            if urnas_processadas % 25 == 0:
+                            if urnas_processadas % 10 == 0:
                                 tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
                                 pct = min(99, int((urnas_processadas / tot) * 98) + 2)
                                 delta_s = max(0.1, time.time() - t0)
                                 speed = urnas_processadas / delta_s
+                                restantes = max(0, tot - urnas_processadas)
+                                eta_s = int(restantes / speed) if speed > 0 else 0
                                 _STATUS_INGESTAO_LOCAL.update({
                                     "progresso_pct": pct,
                                     "urnas_processadas": urnas_processadas,
                                     "urnas_novas": urnas_novas,
                                     "urnas_duplicadas": urnas_duplicadas,
                                     "tempo_decorrido_s": int(delta_s),
+                                    "velocidade_urnas_s": round(speed, 1),
+                                    "eta_s": eta_s,
+                                    "lote_atual": batch_count,
+                                    "lote_tamanho": 50,
+                                    "arquivo_atual": os.path.basename(zip_path),
+                                    "ultimas_urnas": list(_ULTIMAS_URNAS_INGESTAO),
                                     "mensagem": f"Complementando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} complementadas com 1ºT/dossiês...",
                                     "ultimo_batimento": time.time(),
                                 })
@@ -4973,6 +5238,7 @@ def _executar_complementacao_worker():
 
                     batch_count = 0
                     for pref, arquivos_secao in grupos_prefixo.items():
+                        _verificar_pausa_ingestao(urnas_processadas)
                         pref_clean = extrair_prefixo_seccao(pref)
                         info = extrair_identificacao_arquivo_tse(pref_clean, default_uf=default_zip_uf)
                         ch = None
@@ -4993,6 +5259,19 @@ def _executar_complementacao_worker():
                         if tem_apuracao and tem_dossie:
                             urnas_duplicadas += 1
                             urnas_processadas += 1
+                            _registrar_urna_recente(
+                                {
+                                    "secao_chave": ch,
+                                    "uf": info.get("uf") if info else default_zip_uf,
+                                    "municipio": info.get("municipio_codigo") if info else "00000",
+                                    "zona": info.get("zona") if info else "0000",
+                                    "secao": info.get("secao") if info else "0000",
+                                    "turno": turno_item,
+                                },
+                                status="EXISTENTE",
+                                lote=batch_count,
+                                zip_nome=os.path.basename(zip_path),
+                            )
                             continue
 
                         pacote = {}
@@ -5014,6 +5293,22 @@ def _executar_complementacao_worker():
                             if ch:
                                 apuracoes_existentes.add((ch, turno_salvo))
                                 dossies_existentes.add((ch, turno_salvo))
+                            _registrar_urna_recente(
+                                {
+                                    "secao_chave": ch,
+                                    "uf": resumo.get("uf") or (info.get("uf") if info else default_zip_uf),
+                                    "municipio": resumo.get("municipio") or (info.get("municipio_codigo") if info else "00000"),
+                                    "municipio_nome": resumo.get("municipio_nome") or "",
+                                    "zona": resumo.get("zona") or (info.get("zona") if info else "0000"),
+                                    "secao": resumo.get("secao") or (info.get("secao") if info else "0000"),
+                                    "turno": turno_salvo,
+                                    "total_votos": resumo.get("total_votos", 0),
+                                    "modelo_urna": resumo.get("modelo_urna") or "",
+                                },
+                                status="NOVA",
+                                lote=batch_count + 1,
+                                zip_nome=os.path.basename(zip_path),
+                            )
                         except Exception as e_sec:
                             try:
                                 db.rollback()
@@ -5045,17 +5340,25 @@ def _executar_complementacao_worker():
                                 pass
                             db = SessionLocal()
 
-                        if urnas_processadas % 25 == 0:
+                        if urnas_processadas % 10 == 0:
                             tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
                             pct = min(99, int((urnas_processadas / tot) * 98) + 2)
                             delta_s = max(0.1, time.time() - t0)
                             speed = urnas_processadas / delta_s
+                            restantes = max(0, tot - urnas_processadas)
+                            eta_s = int(restantes / speed) if speed > 0 else 0
                             _STATUS_INGESTAO_LOCAL.update({
                                 "progresso_pct": pct,
                                 "urnas_processadas": urnas_processadas,
                                 "urnas_novas": urnas_novas,
                                 "urnas_duplicadas": urnas_duplicadas,
                                 "tempo_decorrido_s": int(delta_s),
+                                "velocidade_urnas_s": round(speed, 1),
+                                "eta_s": eta_s,
+                                "lote_atual": batch_count,
+                                "lote_tamanho": 50,
+                                "arquivo_atual": os.path.basename(zip_path),
+                                "ultimas_urnas": list(_ULTIMAS_URNAS_INGESTAO),
                                 "mensagem": f"Complementando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} complementadas com 1ºT/dossiês...",
                                 "ultimo_batimento": time.time(),
                             })
@@ -5105,11 +5408,20 @@ def _executar_complementacao_worker():
 
         _STATUS_INGESTAO_LOCAL.update({
             "ativo": False,
+            "pausado": False,
             "finalizado": True,
             "sucesso": sucesso_comp,
             "progresso_pct": 100,
+            "urnas_processadas": urnas_processadas,
+            "urnas_novas": urnas_novas,
+            "urnas_duplicadas": urnas_duplicadas,
             "tempo_decorrido_s": int(delta_tot),
-            "mensagem": f"✅ Complementação concluída com sucesso! {urnas_novas:,} urnas enriquecidas com 1º Turno, dossiês e boletins no PostgreSQL." if sucesso_comp else "⚠️ Nenhuma urna complementada. Verifique os arquivos no diretório.",
+            "velocidade_urnas_s": round(urnas_processadas / delta_tot, 1),
+            "eta_s": 0,
+            "lote_atual": 0,
+            "ultimas_urnas": list(_ULTIMAS_URNAS_INGESTAO),
+            "mensagem": f"✅ Complementação concluída! {urnas_novas:,} urnas atualizadas com dados do 1º Turno/dossiês.",
+            "ultimo_batimento": time.time(),
         })
     except Exception as exc_all:
         db.rollback()

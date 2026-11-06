@@ -57,6 +57,8 @@ from .tse_reverse_analyzer import (
     iniciar_ingestao_servidor_background,
     iniciar_complementacao_servidor_background,
     obter_progresso_ingestao_servidor,
+    pausar_ingestao_servidor,
+    retomar_ingestao_servidor,
     obter_auditoria_secoes_faltantes_2t,
     extrair_prefixo_seccao,
     sincronizar_catalogo_com_banco,
@@ -64,8 +66,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-05-rev27"
-SYSTEM_COMMIT = "rev27-fix-database-lock-leak-and-heartbeat-resilience"
+SYSTEM_BUILD = "2026-11-06-rev28"
+SYSTEM_COMMIT = "rev28-live-batch-modal-pause-resume-and-tree-loading-indicator"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1387,6 +1389,18 @@ def api_tse_reverso_servidor_iniciar_complementacao():
 def api_tse_reverso_servidor_progresso_ingestao():
     """Retorna o progresso em tempo real da ingestão local que está rodando na VPS."""
     return obter_progresso_ingestao_servidor()
+
+
+@app.post("/api/tse-reverso/servidor/pausar")
+def api_tse_reverso_servidor_pausar():
+    """Pausa a ingestão local na VPS sem perder o progresso ou abortar a thread."""
+    return pausar_ingestao_servidor()
+
+
+@app.post("/api/tse-reverso/servidor/retomar")
+def api_tse_reverso_servidor_retomar():
+    """Retoma a ingestão local na VPS."""
+    return retomar_ingestao_servidor()
 
 
 @app.get("/api/tse-reverso/auditoria-faltantes-2t")
