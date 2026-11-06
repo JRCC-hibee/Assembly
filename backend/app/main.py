@@ -8,7 +8,7 @@ import uuid
 import tempfile
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, Request, UploadFile, File, BackgroundTasks, Body
 from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -66,8 +66,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-06-rev30"
-SYSTEM_COMMIT = "rev30-fix-single-section-data-and-voter-logs"
+SYSTEM_BUILD = "2026-11-06-rev31"
+SYSTEM_COMMIT = "rev31-selective-and-auto-filtered-vps-ingestion"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1366,13 +1366,24 @@ def api_tse_reverso_servidor_status_importacao():
     return obter_status_pasta_importacao_servidor()
 
 
+class IngestaoServidorRequest(BaseModel):
+    forcar: bool = False
+    arquivos_selecionados: Optional[list[str]] = None
+
+
 @app.post("/api/tse-reverso/servidor/iniciar-ingestao-local")
-def api_tse_reverso_servidor_iniciar_ingestao_local(forcar: bool = False):
+def api_tse_reverso_servidor_iniciar_ingestao_local(
+    payload: Optional[IngestaoServidorRequest] = Body(None),
+    forcar: bool = False,
+):
     """
     Dispara a ingestão direta de alta velocidade dos arquivos presentes na VPS
     em segundo plano (sem travamento de proxy/navegador).
+    Permite filtrar apenas os arquivos selecionados pelo usuário.
     """
-    return iniciar_ingestao_servidor_background(forcar=forcar)
+    forcar_flag = (payload.forcar if payload else False) or forcar
+    arquivos = payload.arquivos_selecionados if payload else None
+    return iniciar_ingestao_servidor_background(forcar=forcar_flag, arquivos_selecionados=arquivos)
 
 
 @app.post("/api/tse-reverso/servidor/iniciar-complementacao")

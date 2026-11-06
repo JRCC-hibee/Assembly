@@ -1006,12 +1006,12 @@ o Boletim de Urna (apos encerramento da votacao).
         </div>
 
         <!-- Status dos Arquivos Detectados na Pasta /root/tse_import -->
-        <div id="vpsImportStatusBox" class="p-3.5 bg-slate-950 border border-slate-800 rounded-xl text-xs flex flex-wrap items-center justify-between gap-2">
-          <div class="flex items-center gap-2 text-slate-300">
-            <span class="w-2.5 h-2.5 rounded-full bg-slate-500" id="vpsImportStatusDot"></span>
-            <span id="vpsImportStatusMsg">Clique em "Detectar Arquivos (.ZIP / .7Z)" após subir os pacotes no Termius SFTP para /root/tse_import.</span>
+        <div id="vpsImportStatusBox" class="p-3.5 bg-slate-950 border border-slate-800 rounded-xl text-xs flex flex-wrap items-center justify-between gap-2 shadow-inner">
+          <div class="flex items-start gap-2.5 text-slate-300 w-full">
+            <span class="w-2.5 h-2.5 rounded-full bg-slate-500 mt-1 flex-shrink-0" id="vpsImportStatusDot"></span>
+            <div id="vpsImportStatusMsg" class="w-full">Clique em "Detectar Arquivos (.ZIP / .7Z)" após subir os pacotes no Termius SFTP para /root/tse_import.</div>
           </div>
-          <div id="vpsImportStatsPills" class="flex items-center gap-2 hidden">
+          <div id="vpsImportStatsPills" class="flex items-center gap-2 hidden ml-auto">
             <span class="px-2.5 py-1 rounded bg-indigo-950 text-indigo-300 border border-indigo-800/50 font-mono text-[11px]" id="vpsZipsFound">0 zips</span>
             <span class="px-2.5 py-1 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/50 font-mono text-[11px]" id="vpsTotalMbFound">0 MB</span>
           </div>
@@ -2580,6 +2580,11 @@ o Boletim de Urna (apos encerramento da votacao).
         } catch (eProg) {
           console.warn("[AUDITORIA] Falha ao verificar progresso da VPS:", eProg);
         }
+        try {
+          verificarArquivosServidorTse();
+        } catch (eVps) {
+          console.warn("[AUDITORIA] Falha ao verificar arquivos da VPS:", eVps);
+        }
       } else {
         if (btnSimulador) btnSimulador.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition duration-150 bg-emerald-600 text-white shadow-md shadow-emerald-900/30";
         if (btnAuditoria) btnAuditoria.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-700/50";
@@ -4143,7 +4148,7 @@ o Boletim de Urna (apos encerramento da votacao).
 
       if (msgEl) msgEl.textContent = "🔍 Escaneando pasta /root/tse_import no servidor...";
       if (dotEl) {
-        dotEl.className = "w-2 h-2 rounded-full bg-amber-400 animate-ping";
+        dotEl.className = "w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping mt-1 flex-shrink-0";
       }
 
       try {
@@ -4151,32 +4156,159 @@ o Boletim de Urna (apos encerramento da votacao).
         const data = await res.json();
         if (res.ok && data.ok) {
           if (data.pronto_para_processar) {
-            if (dotEl) dotEl.className = "w-2 h-2 rounded-full bg-emerald-400";
-            let nomesZips = (data.zips || []).map(z => {
-              let icon = z.status === 'OK' ? '✅' : (z.status === 'TRUNCADO' ? '⚠️' : 'ℹ️');
-              let tag = z.status === 'TRUNCADO'
-                ? '<span class="text-amber-400 font-bold">[FIM INCOMPLETO - AUTO-RECUPERAÇÃO ATIVA]</span>'
-                : (z.formato === '7Z' ? '<span class="text-cyan-300 font-bold">[7-ZIP .7Z]</span>' : '<span class="text-emerald-400 font-bold">[ARQUIVO VÁLIDO]</span>');
-              return `<div>${icon} <strong>${z.nome}</strong> (${z.tamanho_mb} MB) ${tag}</div>`;
+            if (dotEl) dotEl.className = "w-2.5 h-2.5 rounded-full bg-emerald-400 mt-1 flex-shrink-0";
+            
+            const totalZips = (data.zips || []).length;
+            const pendentes = data.total_pendentes !== undefined ? data.total_pendentes : totalZips;
+            const ingeridos = data.total_ingeridos !== undefined ? data.total_ingeridos : 0;
+
+            let linhasZips = (data.zips || []).map(z => {
+              let icon = z.status === 'OK' ? '📦' : (z.status === 'TRUNCADO' ? '⚠️' : 'ℹ️');
+              
+              let badgeStatus = '';
+              if (z.ja_ingerido) {
+                const uStr = (z.urnas_salvas_no_banco || 0).toLocaleString('pt-BR');
+                const det = [z.uf, z.turno ? (z.turno + 'ºT') : ''].filter(Boolean).join(' ');
+                badgeStatus = `<span class="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-600/50" title="Pacote já processado anteriormente no banco de dados">✅ JÁ PROCESSADO (${uStr} urnas no banco${det ? ' — ' + det : ''})</span>`;
+              } else {
+                const det = [z.uf, z.turno ? (z.turno + 'ºT') : ''].filter(Boolean).join(' ');
+                badgeStatus = `<span class="px-2 py-0.5 rounded text-[10px] font-black bg-cyan-950 text-cyan-300 border border-cyan-500/60 animate-pulse" title="Pacote novo pronto para ingestão">⚡ NOVO / PENDENTE${det ? ' (' + det + ')' : ''}</span>`;
+              }
+
+              let tagExtra = '';
+              if (z.status === 'TRUNCADO') {
+                tagExtra = '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-950 text-amber-300 border border-amber-600/50">[FIM INCOMPLETO - AUTO-RECUPERAÇÃO ATIVA]</span>';
+              } else if (z.formato === '7Z') {
+                tagExtra = '<span class="px-1.5 py-0.5 rounded text-[9px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-700/50">[7-ZIP .7Z]</span>';
+              }
+
+              const isChecked = Boolean(z.selecionado_padrao);
+              const cardBg = z.ja_ingerido
+                ? 'bg-slate-900/60 border-slate-800/80 hover:bg-slate-900'
+                : 'bg-cyan-950/20 border-cyan-800/50 hover:bg-cyan-950/40';
+
+              return `
+                <label class="flex flex-wrap items-center justify-between gap-2 p-2 rounded-lg border transition cursor-pointer select-none ${cardBg}">
+                  <div class="flex items-center gap-2.5 min-w-0">
+                    <input
+                      type="checkbox"
+                      name="vpsZipCheck"
+                      value="${z.nome}"
+                      data-ingerido="${z.ja_ingerido ? 'true' : 'false'}"
+                      ${isChecked ? "checked" : ""}
+                      onchange="atualizarContagemZipsSelecionadosUI()"
+                      class="w-4 h-4 rounded text-cyan-500 bg-slate-900 border-slate-700 focus:ring-cyan-500 focus:ring-offset-0 cursor-pointer"
+                    >
+                    <div class="truncate">
+                      <span class="font-bold text-xs ${z.ja_ingerido ? 'text-slate-300' : 'text-cyan-200'}">${icon} ${z.nome}</span>
+                      <span class="text-[11px] text-slate-400 font-mono ml-1">(${z.tamanho_mb} MB)</span>
+                    </div>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    ${tagExtra}
+                    ${badgeStatus}
+                  </div>
+                </label>
+              `;
             }).join("");
+
             if (msgEl) {
-              msgEl.innerHTML = `✅ <strong class="text-emerald-300">${data.total_zips} pacote(s) detectado(s)</strong> em <code class="text-cyan-300 font-bold">${data.diretorio_host_recomendado}</code>:<br><div class="mt-1 pl-2 border-l-2 border-indigo-500/40 text-[11px] leading-relaxed">${nomesZips || (data.total_arquivos_soltos + ' arquivos avulsos')}</div>`;
+              msgEl.innerHTML = `
+                <div class="w-full space-y-2.5">
+                  <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                    <div class="flex items-center gap-2">
+                      <span class="text-sm font-extrabold text-white">📦 Pacotes em <code class="text-cyan-300 font-bold">${data.diretorio_host_recomendado}</code>:</span>
+                      <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-slate-900 text-slate-300 border border-slate-700">
+                        ${totalZips} pacote(s) &bull; <span class="text-cyan-300 font-black">${pendentes} novos</span> &bull; <span class="text-emerald-300 font-bold">${ingeridos} já no banco</span>
+                      </span>
+                    </div>
+                    <div class="flex items-center gap-1.5 text-[11px]">
+                      <span class="text-slate-400 font-semibold mr-1">Filtro rápido:</span>
+                      <button
+                        type="button"
+                        onclick="selecionarApenasZipsPendentesVps()"
+                        class="px-2.5 py-1 rounded-lg bg-cyan-950 hover:bg-cyan-900 border border-cyan-500/60 text-cyan-300 font-bold transition shadow-sm cursor-pointer"
+                        title="Marca apenas os arquivos novos ainda não gravados no banco"
+                      >
+                        🔘 Apenas Novos (${pendentes})
+                      </button>
+                      <button
+                        type="button"
+                        onclick="marcarTodosZipsVps(true)"
+                        class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-medium transition cursor-pointer"
+                        title="Marca todos os pacotes"
+                      >
+                        ☑️ Marcar Todos
+                      </button>
+                      <button
+                        type="button"
+                        onclick="marcarTodosZipsVps(false)"
+                        class="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-medium transition cursor-pointer"
+                        title="Desmarca todos os pacotes"
+                      >
+                        ⬜ Desmarcar Todos
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="space-y-1.5 max-h-56 overflow-y-auto pr-1">
+                    ${linhasZips || (data.total_arquivos_soltos + ' arquivos avulsos encontrados')}
+                  </div>
+                </div>
+              `;
             }
             if (pillsEl) pillsEl.classList.remove("hidden");
             if (zipsEl) zipsEl.textContent = `${data.total_zips} pacotes (${data.total_arquivos_soltos} avulsos)`;
             if (mbEl) mbEl.textContent = `${data.tamanho_total_mb} MB`;
+
+            atualizarContagemZipsSelecionadosUI();
           } else {
-            if (dotEl) dotEl.className = "w-2 h-2 rounded-full bg-amber-400";
+            if (dotEl) dotEl.className = "w-2.5 h-2.5 rounded-full bg-amber-400 mt-1 flex-shrink-0";
             if (msgEl) {
-              msgEl.innerHTML = `⚠️ Nenhum arquivo encontrado em <code class="text-amber-300">${data.diretorio_host_recomendado}</code>. Suba seu arquivo <strong class="text-cyan-300">sc.zip</strong> via SFTP no Termius para essa pasta e clique em Detectar novamente.`;
+              msgEl.innerHTML = `⚠️ Nenhum arquivo encontrado em <code class="text-amber-300">${data.diretorio_host_recomendado}</code>. Suba seus pacotes compactados via SFTP no Termius para essa pasta e clique em Detectar novamente.`;
             }
             if (pillsEl) pillsEl.classList.add("hidden");
           }
         }
       } catch (err) {
-        if (dotEl) dotEl.className = "w-2 h-2 rounded-full bg-rose-500";
+        if (dotEl) dotEl.className = "w-2.5 h-2.5 rounded-full bg-rose-500 mt-1 flex-shrink-0";
         if (msgEl) msgEl.textContent = `Erro ao verificar pasta na VPS: ${err.message}`;
       }
+    }
+
+    function atualizarContagemZipsSelecionadosUI() {
+      const checkboxes = document.querySelectorAll("input[name='vpsZipCheck']");
+      if (!checkboxes || checkboxes.length === 0) return;
+
+      const total = checkboxes.length;
+      const selecionados = Array.from(checkboxes).filter(cb => cb.checked).length;
+      const btn = document.getElementById("btnIniciarIngestaoVps");
+      if (btn) {
+        if (selecionados === 0) {
+          btn.innerHTML = `<span>⚠️</span><span>Selecione ao menos 1 pacote</span>`;
+          btn.className = "px-4 py-2.5 bg-slate-800 border border-amber-500/60 text-amber-300 font-bold text-xs rounded-xl shadow transition inline-flex items-center gap-2 cursor-pointer";
+        } else {
+          btn.innerHTML = `<span>⚡</span><span>Iniciar Ingestão (${selecionados} de ${total} pacotes)</span>`;
+          btn.className = "px-4 py-2.5 bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-400 hover:to-cyan-400 text-slate-950 font-black text-xs rounded-xl shadow transition inline-flex items-center gap-2 cursor-pointer";
+        }
+      }
+    }
+
+    function selecionarApenasZipsPendentesVps() {
+      const checkboxes = document.querySelectorAll("input[name='vpsZipCheck']");
+      checkboxes.forEach(cb => {
+        const jaIngerido = cb.getAttribute("data-ingerido") === "true";
+        cb.checked = !jaIngerido;
+      });
+      atualizarContagemZipsSelecionadosUI();
+    }
+
+    function marcarTodosZipsVps(marcar) {
+      const checkboxes = document.querySelectorAll("input[name='vpsZipCheck']");
+      checkboxes.forEach(cb => {
+        cb.checked = Boolean(marcar);
+      });
+      atualizarContagemZipsSelecionadosUI();
     }
 
     let _pollIngestaoVpsTimer = null;
@@ -4535,14 +4667,37 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     async function iniciarIngestaoDiretaVps() {
+      const checkboxes = document.querySelectorAll("input[name='vpsZipCheck']");
+      let arquivosSelecionados = null;
+      if (checkboxes && checkboxes.length > 0) {
+        const marcados = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+        if (marcados.length === 0) {
+          showSecurityAlert("Por favor, selecione pelo menos um pacote na lista acima para iniciar a ingestão.", true);
+          return;
+        }
+        arquivosSelecionados = marcados;
+      }
+
       const pBox = document.getElementById("vpsIngestaoProgressBox");
       const pMsg = document.getElementById("vpsIngestaoMsg");
 
       if (pBox) pBox.classList.remove("hidden");
-      if (pMsg) pMsg.textContent = "Disparando motor de ingestão na VPS em segundo plano...";
+      if (pMsg) {
+        pMsg.textContent = arquivosSelecionados
+          ? `Disparando ingestão de ${arquivosSelecionados.length} pacote(s) selecionado(s) na VPS em segundo plano...`
+          : "Disparando motor de ingestão na VPS em segundo plano...";
+      }
 
       try {
-        const res = await fetch("/api/tse-reverso/servidor/iniciar-ingestao-local?forcar=true", { method: "POST" });
+        const payload = {
+          forcar: true,
+          arquivos_selecionados: arquivosSelecionados,
+        };
+        const res = await fetch("/api/tse-reverso/servidor/iniciar-ingestao-local?forcar=true", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
         if (!res.ok) {
           const errText = await res.text();
           if (pMsg) pMsg.textContent = `Aviso do Servidor (${res.status}): ${errText}`;

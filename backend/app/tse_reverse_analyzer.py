@@ -4203,14 +4203,99 @@ def _get_temp_dir() -> str:
     return tempfile.gettempdir()
 
 
+def extrair_uf_turno_de_nome_arquivo(nome: str) -> tuple[str | None, int | None]:
+    """
+    Identifica de forma determinística a UF e o Turno a partir do nome do pacote compactado do TSE.
+    Exemplos:
+      - bu_imgbu_logjez_rdv_vscmr_2026_1t_PR.zip -> ('PR', 1)
+      - bu_imgbu_logjez_rdv_vscmr_2026_2t_PR (1).zip -> ('PR', 2)
+      - bu_imgbu_logjez_rdv_vscmr_2026_1t_SC.zip -> ('SC', 1)
+      - bu_imgbu_logjez_rdv_vscmr_2026_2t_SC.zip -> ('SC', 2)
+      - sc.zip -> ('SC', None)
+    """
+    ufs_validas = {
+        "AC", "AL", "AP", "AM", "BA", "CE", "DF", "ES", "GO", "MA",
+        "MT", "MS", "MG", "PA", "PB", "PR", "PE", "PI", "RJ", "RN",
+        "RS", "RO", "RR", "SC", "SP", "SE", "TO", "ZZ"
+    }
+    nome_norm = re.sub(r"\s*\(\d+\)", "", nome).strip()
+
+    turno = None
+    if re.search(r"[_\-]?1t[_\-\.]", nome_norm, re.IGNORECASE) or "1turno" in nome_norm.lower():
+        turno = 1
+    elif re.search(r"[_\-]?2t[_\-\.]", nome_norm, re.IGNORECASE) or "2turno" in nome_norm.lower():
+        turno = 2
+
+    uf = None
+    m_uf = re.search(r"[_\-]([A-Za-z]{2})\.(?:zip|7z|tar|gz|bz2)", nome_norm, re.IGNORECASE)
+    if m_uf and m_uf.group(1).upper() in ufs_validas:
+        uf = m_uf.group(1).upper()
+    else:
+        m_uf2 = re.search(r"(?:^|[_\-\s])([A-Za-z]{2})(?:$|[_\-\s\.])", nome_norm, re.IGNORECASE)
+        if m_uf2 and m_uf2.group(1).upper() in ufs_validas:
+            uf = m_uf2.group(1).upper()
+
+    return uf, turno
+
+
 def obter_status_pasta_importacao_servidor() -> dict:
-    """Escaneia a pasta de importação da VPS e retorna arquivos encontrados com diagnóstico forense."""
+    """Escaneia a pasta de importação da VPS e retorna arquivos encontrados com diagnóstico forense e filtro de status."""
     from .tse_archive_helper import diagnosticar_arquivo_compactado, EXTENSOES_COMPACTADAS_VALIDAS
 
     dir_import = _get_tse_import_dir()
     arquivos_zip = []
     total_arquivos_soltos = 0
     tamanho_total_bytes = 0
+
+    # Consulta estado atual do banco PostgreSQL para detecção automática de pacotes já processados
+    contagem_uf_turno: dict[tuple[str, int], int] = {}
+    contagem_uf_total: dict[str, int] = {}
+    uploads_concluidos: set[str] = set()
+
+    try:
+        from sqlalchemy import func
+        from .database import SessionLocal, TseSecao, TseApuracaoBU, TseHistoricoUpload
+
+        db = SessionLocal()
+        try:
+            # 1. Contagem por (UF, Turno)
+            rows = (
+                db.query(func.upper(TseSecao.uf), TseApuracaoBU.turno, func.count(TseApuracaoBU.id))
+                .join(TseApuracaoBU, TseApuracaoBU.secao_id == TseSecao.id)
+                .group_by(func.upper(TseSecao.uf), TseApuracaoBU.turno)
+                .all()
+            )
+            for uf_r, turno_r, cnt in rows:
+                if uf_r and turno_r:
+                    contagem_uf_turno[(uf_r.strip().upper(), int(turno_r))] = int(cnt)
+
+            # 2. Contagem total por UF
+            rows_uf = (
+                db.query(func.upper(TseSecao.uf), func.count(TseSecao.id))
+                .group_by(func.upper(TseSecao.uf))
+                .all()
+            )
+            for uf_r, cnt in rows_uf:
+                if uf_r:
+                    contagem_uf_total[uf_r.strip().upper()] = int(cnt)
+
+            # 3. Histórico de uploads concluídos com sucesso
+            hist_rows = (
+                db.query(TseHistoricoUpload.nome_origem, TseHistoricoUpload.detalhes_adicionais)
+                .filter(TseHistoricoUpload.status == "CONCLUIDO")
+                .all()
+            )
+            for nome_orig, det in hist_rows:
+                if nome_orig:
+                    uploads_concluidos.add(nome_orig.strip().lower())
+                if isinstance(det, dict) and "arquivos" in det:
+                    for arq in det.get("arquivos", []):
+                        if isinstance(arq, str):
+                            uploads_concluidos.add(arq.strip().lower())
+        finally:
+            db.close()
+    except Exception:
+        pass
 
     if os.path.isdir(dir_import):
         for root, _, files in os.walk(dir_import):
@@ -4224,6 +4309,16 @@ def obter_status_pasta_importacao_servidor() -> dict:
                     f_low = f.lower()
                     if any(f_low.endswith(ext) for ext in EXTENSOES_COMPACTADAS_VALIDAS):
                         diag = diagnosticar_arquivo_compactado(fpath)
+                        uf_det, turno_det = extrair_uf_turno_de_nome_arquivo(f)
+                        urnas_no_banco = 0
+                        if uf_det and turno_det:
+                            urnas_no_banco = contagem_uf_turno.get((uf_det, turno_det), 0)
+                        elif uf_det:
+                            urnas_no_banco = contagem_uf_total.get(uf_det, 0)
+
+                        ja_ingerido = (urnas_no_banco > 100) or (f_low in uploads_concluidos)
+                        selecionado_padrao = not ja_ingerido
+
                         arquivos_zip.append({
                             "nome": f,
                             "caminho_rel": os.path.relpath(fpath, dir_import),
@@ -4235,18 +4330,31 @@ def obter_status_pasta_importacao_servidor() -> dict:
                             "acao_recomendada": diag.get("acao_recomendada", ""),
                             "tem_7z": diag.get("tem_7z_sistema", False),
                             "tem_unzip": diag.get("tem_unzip_sistema", False),
+                            "uf": uf_det,
+                            "turno": turno_det,
+                            "urnas_salvas_no_banco": urnas_no_banco,
+                            "ja_ingerido": bool(ja_ingerido),
+                            "selecionado_padrao": bool(selecionado_padrao),
                         })
                     elif any(f_low.endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                         total_arquivos_soltos += 1
                 except Exception:
                     pass
 
+    total_pendentes = sum(1 for z in arquivos_zip if not z["ja_ingerido"])
+    total_ingeridos = sum(1 for z in arquivos_zip if z["ja_ingerido"])
+
+    # Ordena colocando os pendentes primeiro, e depois os já ingeridos
+    arquivos_zip.sort(key=lambda x: (1 if x["ja_ingerido"] else 0, x["nome"]))
+
     return {
         "ok": True,
         "diretorio_container": dir_import,
         "diretorio_host_recomendado": "/root/tse_import",
         "total_zips": len(arquivos_zip),
-        "zips": sorted(arquivos_zip, key=lambda x: x["nome"]),
+        "total_pendentes": total_pendentes,
+        "total_ingeridos": total_ingeridos,
+        "zips": arquivos_zip,
         "total_arquivos_soltos": total_arquivos_soltos,
         "tamanho_total_mb": round(tamanho_total_bytes / (1024 * 1024), 2),
         "pronto_para_processar": (len(arquivos_zip) > 0 or total_arquivos_soltos > 0),
@@ -4261,10 +4369,11 @@ def obter_progresso_ingestao_servidor() -> dict:
     return res
 
 
-def iniciar_ingestao_servidor_background(db_factory=None, forcar: bool = False) -> dict:
+def iniciar_ingestao_servidor_background(db_factory=None, forcar: bool = False, arquivos_selecionados: list[str] | None = None) -> dict:
     """
     Dispara a ingestão local na VPS em uma thread daemon em background,
     permitindo que a interface web acompanhe o progresso sem risco de timeout.
+    Suporta seleção manual de pacotes específicos.
     """
     global _THREAD_INGESTAO_LOCAL, _PAUSAR_INGESTAO_LOCAL, _ULTIMAS_URNAS_INGESTAO
 
@@ -4290,6 +4399,7 @@ def iniciar_ingestao_servidor_background(db_factory=None, forcar: bool = False) 
             "sucesso": False,
             "progresso_pct": 2,
             "mensagem": "Iniciando motor de ingestão na VPS em segundo plano...",
+            "arquivos_selecionados": list(arquivos_selecionados) if arquivos_selecionados else None,
             "total_urnas": 0,
             "urnas_processadas": 0,
             "urnas_novas": 0,
@@ -4305,7 +4415,11 @@ def iniciar_ingestao_servidor_background(db_factory=None, forcar: bool = False) 
             "ultimo_batimento": agora,
         })
 
-        _THREAD_INGESTAO_LOCAL = threading.Thread(target=_executar_ingestao_servidor_worker, daemon=True)
+        _THREAD_INGESTAO_LOCAL = threading.Thread(
+            target=_executar_ingestao_servidor_worker,
+            args=(arquivos_selecionados,),
+            daemon=True
+        )
         _THREAD_INGESTAO_LOCAL.start()
 
     return {
@@ -4314,7 +4428,7 @@ def iniciar_ingestao_servidor_background(db_factory=None, forcar: bool = False) 
     }
 
 
-def _executar_ingestao_servidor_worker():
+def _executar_ingestao_servidor_worker(arquivos_selecionados: list[str] | None = None):
     global _STATUS_INGESTAO_LOCAL
     from .database import (
         SessionLocal,
@@ -4360,16 +4474,35 @@ def _executar_ingestao_servidor_worker():
                 elif any(f_low.endswith(ext) for ext in EXTENSOES_TSE_VALIDAS):
                     arquivos_soltos.append(fpath)
 
+        # Filtro de seleção manual de pacotes / arquivos
+        if arquivos_selecionados:
+            nomes_filtro = set(os.path.basename(a).strip().lower() for a in arquivos_selecionados)
+            arquivos_zip = [z for z in arquivos_zip if os.path.basename(z).strip().lower() in nomes_filtro]
+            arquivos_soltos = [s for s in arquivos_soltos if os.path.basename(s).strip().lower() in nomes_filtro]
+
         if not arquivos_zip and not arquivos_soltos:
+            msg_vazio = (
+                f"Nenhum dos arquivos selecionados ({', '.join(arquivos_selecionados)}) foi localizado em {dir_import}."
+                if arquivos_selecionados
+                else f"Nenhum arquivo compactado ou arquivos TSE encontrados em {dir_import}."
+            )
             _STATUS_INGESTAO_LOCAL.update({
                 "ativo": False,
                 "finalizado": True,
                 "sucesso": False,
-                "mensagem": f"Nenhum arquivo compactado ou arquivos TSE encontrados em {dir_import}.",
+                "mensagem": msg_vazio,
             })
             return
 
-        origem_desc = f"VPS Local ({os.path.basename(arquivos_zip[0])})" if arquivos_zip else "VPS Local (Arquivos Avulsos)"
+        if arquivos_selecionados and arquivos_zip:
+            if len(arquivos_zip) == 1:
+                origem_desc = f"VPS Selecionado ({os.path.basename(arquivos_zip[0])})"
+            else:
+                origem_desc = f"VPS Selecionado ({len(arquivos_zip)} pacotes: {', '.join(os.path.basename(z) for z in arquivos_zip[:2])}...)"
+        elif arquivos_zip:
+            origem_desc = f"VPS Local ({os.path.basename(arquivos_zip[0])})"
+        else:
+            origem_desc = "VPS Local (Arquivos Avulsos)"
         uf_inicial = "DESCONHECIDO"
         if arquivos_zip:
             m_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(arquivos_zip[0]), re.IGNORECASE)
@@ -4905,6 +5038,10 @@ def _executar_ingestao_servidor_worker():
             urnas_novas=urnas_novas,
             urnas_duplicadas=urnas_duplicadas,
             uf=",".join(sorted(ufs_detectadas)) if ufs_detectadas else None,
+            detalhes_adicionais={
+                "arquivos": [os.path.basename(z) for z in arquivos_zip] if arquivos_zip else [os.path.basename(s) for s in arquivos_soltos[:20]],
+                "selecionados_manualmente": bool(arquivos_selecionados),
+            },
         )
 
         _STATUS_INGESTAO_LOCAL.update({
