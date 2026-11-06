@@ -2909,16 +2909,27 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                 pass
             return relatorio
 
-    # Se existir cache JSON em disco, só usa se tiver ciclos de eleitores E comparativo de turnos E sem JAIR BOLSONARO
+    # Se existir cache JSON em disco, só usa se estiver COMPLETO com 1T e 2T
     if os.path.exists(sec_json_path):
         try:
             with open(sec_json_path, "r", encoding="utf-8") as fp:
                 cached_data = json.load(fp)
             c_log = cached_data.get("log_jez") or {}
             c_cic = c_log.get("ciclos_eleitores") or []
+            c_cic_1t = c_log.get("ciclos_eleitores_1_turno") or []
+            c_imgbu = cached_data.get("imgbu") or {}
+            b1 = c_imgbu.get("espelho_bobina_1t") or cached_data.get("espelho_bobina_1t") or ""
+            b2 = c_imgbu.get("espelho_bobina_2t") or cached_data.get("espelho_bobina_2t") or ""
             c_comp = cached_data.get("comparativo_turnos")
             c_txt = json.dumps(cached_data)
-            if c_cic and len(c_cic) > 0 and c_comp is not None and "JAIR BOLSONARO" not in c_txt:
+            # Rejeita cache antigo se faltar bobina 1T/2T ou ciclos ou se contiver JAIR BOLSONARO
+            if (
+                c_cic and len(c_cic) > 0
+                and c_comp is not None
+                and len(b1.strip().splitlines()) >= 10
+                and len(b2.strip().splitlines()) >= 10
+                and "JAIR BOLSONARO" not in c_txt
+            ):
                 return cached_data
         except Exception:
             pass
@@ -3555,6 +3566,9 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "tem_rdv": len(cands) > 0,
                         "votos_por_hora": vph_db,
                         "votos_por_hora_t1": vph_1t_db,
+                        "espelho_bobina_1t": espelho_1t or "",
+                        "espelho_bobina_2t": espelho_2t or "",
+                        "espelho_bobina": espelho_2t or espelho_1t or "",
                         "cargos_bu": cargos_bu_unificado,
                         "cargos_bu_1t": cargos_bu_1t,
                         "cargos_bu_2t": cargos_bu_2t,
@@ -3572,6 +3586,9 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "anomalias_forenses": [],
                         "urna_pendente_2t": urna_pendente_2t,
                         "urna_pendente_1t": urna_pendente_1t,
+                        "espelho_bobina_1t": espelho_1t or "",
+                        "espelho_bobina_2t": espelho_2t or "",
+                        "espelho_bobina": espelho_2t or espelho_1t or "",
                         "log_jez": {
                             "metadados_urna": {
                                 "municipio": secao_db.municipio_codigo,

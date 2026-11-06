@@ -66,8 +66,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-06-rev32"
-SYSTEM_COMMIT = "rev32-fix-single-section-attribute-error-and-hide-comp-uploads"
+SYSTEM_BUILD = "2026-11-06-rev33"
+SYSTEM_COMMIT = "rev33-fix-bu-bobina-display-and-voter-logs-table"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
