@@ -62,12 +62,15 @@ from .tse_reverse_analyzer import (
     obter_auditoria_secoes_faltantes_2t,
     extrair_prefixo_seccao,
     sincronizar_catalogo_com_banco,
+    obter_status_disco_vps,
+    limpar_arquivos_temporarios_vps,
+    remover_zips_processados_vps,
     _CATALOGO_MEMORIA,
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-06-rev33"
-SYSTEM_COMMIT = "rev33-fix-bu-bobina-display-and-voter-logs-table"
+SYSTEM_BUILD = "2026-11-06-rev34"
+SYSTEM_COMMIT = "rev34-vps-disk-management-and-cleanup"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -127,6 +130,14 @@ def on_startup():
             db.close()
     except Exception as exc_db:
         print(f"[STARTUP] Erro geral ao obter sessao do banco: {exc_db}")
+
+    # Limpeza preventiva de arquivos temporários de extração anteriores
+    try:
+        res_clean = limpar_arquivos_temporarios_vps()
+        if res_clean.get("mb_liberados", 0) > 0:
+            print(f"[STARTUP] Limpeza de temporários concluída: {res_clean['mb_liberados']} MB liberados.")
+    except Exception as e_clean:
+        print(f"[STARTUP] Aviso na limpeza de temporários: {e_clean}")
 
 
 # ==============================================================================
@@ -1412,6 +1423,38 @@ def api_tse_reverso_servidor_pausar():
 def api_tse_reverso_servidor_retomar():
     """Retoma a ingestão local na VPS."""
     return retomar_ingestao_servidor()
+
+
+@app.get("/api/tse-reverso/disco-status")
+def api_tse_reverso_disco_status():
+    """
+    Retorna o diagnóstico completo de uso de disco da VPS:
+    partição geral, tamanho da pasta /root/tse_import, arquivos temporários de extração e PostgreSQL.
+    """
+    return obter_status_disco_vps()
+
+
+@app.post("/api/tse-reverso/limpar-temporarios")
+def api_tse_reverso_limpar_temporarios():
+    """
+    Executa limpeza imediata de arquivos e pastas temporárias de extração na VPS (.tmp_tse_extract, /tmp/tse_*).
+    Não afeta nenhum dado do banco PostgreSQL nem os arquivos originais.
+    """
+    return limpar_arquivos_temporarios_vps()
+
+
+class RemoverZipsRequest(BaseModel):
+    nomes_arquivos: Optional[list[str]] = None
+
+
+@app.post("/api/tse-reverso/remover-zips-ingeridos")
+def api_tse_reverso_remover_zips_ingeridos(payload: Optional[RemoverZipsRequest] = Body(None)):
+    """
+    Remove da pasta /root/tse_import da VPS os arquivos .zip que já foram 100% processados no PostgreSQL
+    (ou os arquivos informados no payload), liberando dezenas de gigabytes de disco instantaneamente.
+    """
+    nomes = payload.nomes_arquivos if payload else None
+    return remover_zips_processados_vps(nomes_arquivos=nomes)
 
 
 @app.get("/api/tse-reverso/auditoria-faltantes-2t")

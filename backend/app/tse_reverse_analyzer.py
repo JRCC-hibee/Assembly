@@ -4446,6 +4446,258 @@ def obter_status_pasta_importacao_servidor() -> dict:
     }
 
 
+def _calcular_tamanho_caminho(caminho: str) -> tuple[int, int]:
+    """Retorna (tamanho_bytes, total_arquivos) de um arquivo ou diretório recursivamente."""
+    if not os.path.exists(caminho):
+        return 0, 0
+    if os.path.isfile(caminho):
+        try:
+            return os.path.getsize(caminho), 1
+        except Exception:
+            return 0, 0
+    total_bytes = 0
+    total_files = 0
+    try:
+        for root, dirs, files in os.walk(caminho):
+            for f in files:
+                fp = os.path.join(root, f)
+                try:
+                    total_bytes += os.path.getsize(fp)
+                    total_files += 1
+                except Exception:
+                    pass
+    except Exception:
+        pass
+    return total_bytes, total_files
+
+
+def obter_status_disco_vps() -> dict:
+    """
+    Retorna o status detalhado de uso de disco da VPS:
+    - Total, Usado, Livre e % da partição raiz ou volume da aplicação.
+    - Tamanho e lista de arquivos na pasta de importação (/root/tse_import).
+    - Tamanho dos diretórios temporários de extração (.tmp_tse_extract, /tmp/tse_*).
+    - Tamanho físico do banco de dados PostgreSQL (via pg_database_size).
+    """
+    import shutil
+    import glob
+
+    caminho_ref = "/"
+    for cand in ["/app/data", "/root/tse_import", "/app", "/"]:
+        if os.path.exists(cand):
+            caminho_ref = cand
+            break
+
+    try:
+        du = shutil.disk_usage(caminho_ref)
+        total_gb = round(du.total / (1024**3), 2)
+        usado_gb = round(du.used / (1024**3), 2)
+        livre_gb = round(du.free / (1024**3), 2)
+        pct_usado = round((du.used / du.total) * 100, 1) if du.total > 0 else 0
+    except Exception:
+        total_gb, usado_gb, livre_gb, pct_usado = 100.0, 0.0, 100.0, 0.0
+
+    dir_import = _get_tse_import_dir()
+    import_bytes, import_files_count = _calcular_tamanho_caminho(dir_import)
+    import_gb = round(import_bytes / (1024**3), 2)
+    import_mb = round(import_bytes / (1024**2), 2)
+
+    status_pasta = obter_status_pasta_importacao_servidor()
+    zips_info = status_pasta.get("zips", [])
+
+    temp_bytes = 0
+    temp_files_count = 0
+    temp_pastas_encontradas = []
+
+    candidatos_temp = [
+        "/app/data/.tmp_tse_extract",
+        "/app/.tmp_tse_extract",
+        "/app/tse_import/.tmp_tse_extract",
+        os.path.join(tempfile.gettempdir(), ".tmp_tse_extract"),
+    ]
+    for pattern in ["/tmp/tse_ingest_*", "/tmp/tse_comp_*", "/tmp/tse_*", "/tmp/.tmp_tse_*"]:
+        for m in glob.glob(pattern):
+            if m not in candidatos_temp:
+                candidatos_temp.append(m)
+
+    for p in candidatos_temp:
+        if os.path.exists(p):
+            b, f_count = _calcular_tamanho_caminho(p)
+            if b > 0 or f_count > 0:
+                temp_bytes += b
+                temp_files_count += f_count
+                temp_pastas_encontradas.append({
+                    "caminho": p,
+                    "tamanho_mb": round(b / (1024**2), 2),
+                    "total_arquivos": f_count
+                })
+
+    temp_mb = round(temp_bytes / (1024**2), 2)
+    temp_gb = round(temp_bytes / (1024**3), 2)
+
+    db_size_bytes = 0
+    db_size_pretty = "N/A"
+    try:
+        from .database import SessionLocal
+        from sqlalchemy import text
+        db = SessionLocal()
+        try:
+            res_db = db.execute(text("SELECT pg_database_size(current_database()), pg_size_pretty(pg_database_size(current_database()))")).fetchone()
+            if res_db:
+                db_size_bytes = res_db[0] or 0
+                db_size_pretty = res_db[1] or "N/A"
+        except Exception:
+            pass
+        finally:
+            db.close()
+    except Exception:
+        pass
+
+    return {
+        "ok": True,
+        "disco_total_gb": total_gb,
+        "disco_usado_gb": usado_gb,
+        "disco_livre_gb": livre_gb,
+        "disco_pct_usado": pct_usado,
+        "pasta_importacao": {
+            "caminho": dir_import,
+            "tamanho_mb": import_mb,
+            "tamanho_gb": import_gb,
+            "total_arquivos": len(zips_info),
+            "arquivos": zips_info,
+        },
+        "temporarios": {
+            "tamanho_mb": temp_mb,
+            "tamanho_gb": temp_gb,
+            "total_arquivos": temp_files_count,
+            "pastas": temp_pastas_encontradas,
+        },
+        "banco_dados": {
+            "tamanho_bytes": db_size_bytes,
+            "tamanho_mb": round(db_size_bytes / (1024**2), 2) if db_size_bytes else 0,
+            "tamanho_formatado": db_size_pretty,
+        },
+    }
+
+
+def limpar_arquivos_temporarios_vps() -> dict:
+    """
+    Remove recursivamente todos os diretórios e arquivos temporários de extração
+    (.tmp_tse_extract, /tmp/tse_ingest_*, /tmp/tse_comp_*, etc.)
+    sem tocar no PostgreSQL nem nos arquivos originais em /root/tse_import.
+    """
+    import glob
+    import shutil
+
+    bytes_liberados = 0
+    itens_removidos = 0
+    erros = []
+
+    candidatos = [
+        "/app/data/.tmp_tse_extract",
+        "/app/.tmp_tse_extract",
+        "/app/tse_import/.tmp_tse_extract",
+        os.path.join(tempfile.gettempdir(), ".tmp_tse_extract"),
+    ]
+    for pattern in ["/tmp/tse_ingest_*", "/tmp/tse_comp_*", "/tmp/tse_*", "/tmp/.tmp_tse_*"]:
+        for m in glob.glob(pattern):
+            if m not in candidatos:
+                candidatos.append(m)
+
+    for item in candidatos:
+        if not os.path.exists(item):
+            continue
+        try:
+            sz, f_cnt = _calcular_tamanho_caminho(item)
+            if os.path.isdir(item):
+                shutil.rmtree(item, ignore_errors=True)
+            else:
+                os.remove(item)
+            bytes_liberados += sz
+            itens_removidos += (f_cnt or 1)
+        except Exception as e_rm:
+            erros.append(f"Erro ao remover {item}: {e_rm}")
+
+    # Recria as pastas base limpas
+    for c in ["/app/data", "/app/tse_import", "/app"]:
+        if os.path.isdir(c):
+            t = os.path.join(c, ".tmp_tse_extract")
+            try:
+                os.makedirs(t, exist_ok=True)
+            except Exception:
+                pass
+
+    return {
+        "ok": True,
+        "bytes_liberados": bytes_liberados,
+        "mb_liberados": round(bytes_liberados / (1024**2), 2),
+        "gb_liberados": round(bytes_liberados / (1024**3), 2),
+        "itens_removidos": itens_removidos,
+        "erros": erros,
+    }
+
+
+def remover_zips_processados_vps(nomes_arquivos: list[str] | None = None) -> dict:
+    """
+    Remove com segurança os arquivos compactados da pasta de importação da VPS
+    que já foram processados no PostgreSQL ou explicitamente solicitados pelo usuário.
+    Garante que nenhum caminho fora de dir_import possa ser acessado ou excluído.
+    """
+    dir_import = _get_tse_import_dir()
+    if not os.path.isdir(dir_import):
+        return {"ok": False, "mensagem": f"Diretório de importação {dir_import} não existe."}
+
+    status_pasta = obter_status_pasta_importacao_servidor()
+    zips_disponiveis = {z["nome"]: z for z in status_pasta.get("zips", [])}
+
+    alvos = []
+    if nomes_arquivos:
+        for n in nomes_arquivos:
+            nome_limpo = os.path.basename(n.strip())
+            if nome_limpo in zips_disponiveis:
+                alvos.append(nome_limpo)
+    else:
+        for z in status_pasta.get("zips", []):
+            if z.get("ja_ingerido"):
+                alvos.append(z["nome"])
+
+    if not alvos:
+        return {
+            "ok": True,
+            "mensagem": "Nenhum arquivo elegível para remoção encontrado (todos os arquivos ainda têm seções pendentes ou a lista está vazia).",
+            "removidos": [],
+            "mb_liberados": 0,
+            "gb_liberados": 0,
+        }
+
+    removidos = []
+    bytes_liberados = 0
+    erros = []
+
+    for nome in alvos:
+        caminho = os.path.join(dir_import, nome)
+        if not os.path.abspath(caminho).startswith(os.path.abspath(dir_import)):
+            continue
+        if os.path.isfile(caminho):
+            try:
+                sz = os.path.getsize(caminho)
+                os.remove(caminho)
+                bytes_liberados += sz
+                removidos.append({"nome": nome, "mb": round(sz / (1024**2), 2)})
+            except Exception as e_del:
+                erros.append(f"Erro ao remover {nome}: {e_del}")
+
+    return {
+        "ok": True,
+        "mensagem": f"{len(removidos)} pacote(s) removido(s) com sucesso. Espaço liberado: {round(bytes_liberados / (1024**3), 2)} GB ({round(bytes_liberados / (1024**2), 2)} MB).",
+        "removidos": removidos,
+        "bytes_liberados": bytes_liberados,
+        "mb_liberados": round(bytes_liberados / (1024**2), 2),
+        "gb_liberados": round(bytes_liberados / (1024**3), 2),
+        "erros": erros,
+    }
+
+
 def obter_progresso_ingestao_servidor() -> dict:
     """Retorna o progresso em tempo real da ingestão local que está rodando em background."""
     res = dict(_STATUS_INGESTAO_LOCAL)
@@ -5158,6 +5410,10 @@ def _executar_ingestao_servidor_worker(arquivos_selecionados: list[str] | None =
         _STATUS_INGESTAO_LOCAL["erros"].append(str(exc))
     finally:
         try:
+            limpar_arquivos_temporarios_vps()
+        except Exception:
+            pass
+        try:
             db.close()
         except Exception:
             pass
@@ -5702,6 +5958,10 @@ def _executar_complementacao_worker():
             "mensagem": f"Falha na complementação: {exc_all}",
         })
     finally:
+        try:
+            limpar_arquivos_temporarios_vps()
+        except Exception:
+            pass
         try:
             db.close()
         except Exception:

@@ -1017,6 +1017,84 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
 
+        <!-- Painel de Gerenciamento de Armazenamento e Limpeza da VPS -->
+        <div id="vpsStorageBox" class="p-4 bg-slate-950/95 border border-slate-800 rounded-xl space-y-3 shadow-inner">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <span class="text-sm">💾</span>
+              <span class="text-xs font-black uppercase text-slate-200 tracking-wider">Armazenamento & Recursos da VPS</span>
+              <span id="vpsDiskPctBadge" class="px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black bg-slate-800 text-slate-300 border border-slate-700">Calculando...</span>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onclick="atualizarDiagnosticoDiscoVps(true)"
+                class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition inline-flex items-center gap-1 shadow-sm cursor-pointer"
+                title="Recalcular espaço em disco e uso das pastas"
+              >
+                <span>🔄</span>
+                <span>Atualizar</span>
+              </button>
+              <button
+                type="button"
+                id="btnLimparTemporariosVps"
+                onclick="executarLimpezaTemporariosVps()"
+                class="px-3 py-1 text-[11px] font-extrabold rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-700/60 transition inline-flex items-center gap-1 shadow shadow-indigo-950/50 cursor-pointer"
+                title="Remove pastas temporárias órfãs de extração sem tocar no banco ou nos arquivos brutos"
+              >
+                <span>🧹</span>
+                <span>Limpar Temporários</span>
+              </button>
+              <button
+                type="button"
+                id="btnRemoverZipsIngeridosVps"
+                onclick="confirmarRemoverZipsIngeridosVps()"
+                class="px-3 py-1 text-[11px] font-extrabold rounded-lg bg-rose-950/70 hover:bg-rose-900 text-rose-300 border border-rose-700/60 transition inline-flex items-center gap-1 shadow shadow-rose-950/50 cursor-pointer"
+                title="Remove arquivos .zip de /root/tse_import que já foram gravados 100% no PostgreSQL"
+              >
+                <span>🗑️</span>
+                <span>Liberar Espaço dos ZIPs Ingeridos</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Barra de ocupação do disco -->
+          <div class="space-y-1">
+            <div class="flex items-center justify-between text-[11px] font-mono text-slate-400">
+              <span>Uso do Disco Host: <strong id="vpsDiskUsedText" class="text-slate-200 font-bold">-- GB</strong> de <span id="vpsDiskTotalText">-- GB</span></span>
+              <span>Livre: <strong id="vpsDiskFreeText" class="text-emerald-400 font-bold">-- GB</strong></span>
+            </div>
+            <div class="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
+              <div id="vpsDiskBar" class="h-full bg-emerald-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+
+          <!-- Breakdown em 3 cards compactos -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1 text-xs">
+            <div class="p-2.5 bg-slate-900/80 border border-slate-800/80 rounded-lg flex items-center justify-between">
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase font-bold">Pacotes ZIP (/root/tse_import)</div>
+                <div class="text-sm font-black text-cyan-300 font-mono mt-0.5" id="vpsStorageZipsSize">-- MB</div>
+              </div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800/60 font-mono font-bold" id="vpsStorageZipsCount">0 arq</span>
+            </div>
+            <div class="p-2.5 bg-slate-900/80 border border-slate-800/80 rounded-lg flex items-center justify-between">
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase font-bold">Temporários de Extração</div>
+                <div class="text-sm font-black text-amber-300 font-mono mt-0.5" id="vpsStorageTempSize">-- MB</div>
+              </div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800/60 font-mono font-bold" id="vpsStorageTempCount">0 arq</span>
+            </div>
+            <div class="p-2.5 bg-slate-900/80 border border-slate-800/80 rounded-lg flex items-center justify-between">
+              <div>
+                <div class="text-[10px] text-slate-400 uppercase font-bold">Banco PostgreSQL (Zero-Disk)</div>
+                <div class="text-sm font-black text-emerald-300 font-mono mt-0.5" id="vpsStorageDbSize">-- MB</div>
+              </div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800/60 font-mono font-bold" id="vpsStorageDbUrnas">-- urnas</span>
+            </div>
+          </div>
+        </div>
+
         <!-- Barra de Progresso da Ingestão na VPS (Execução em Segundo Plano) -->
         <div id="vpsIngestaoProgressBox" class="hidden p-4 bg-slate-950 border-2 border-indigo-500/60 rounded-xl space-y-2.5 shadow-xl">
           <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
@@ -2585,6 +2663,9 @@ o Boletim de Urna (apos encerramento da votacao).
         } catch (eVps) {
           console.warn("[AUDITORIA] Falha ao verificar arquivos da VPS:", eVps);
         }
+        try {
+          atualizarDiagnosticoDiscoVps(false);
+        } catch (eDsk) {}
       } else {
         if (btnSimulador) btnSimulador.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition duration-150 bg-emerald-600 text-white shadow-md shadow-emerald-900/30";
         if (btnAuditoria) btnAuditoria.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-700/50";
@@ -4139,6 +4220,171 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
+    async function atualizarDiagnosticoDiscoVps(notificar = false) {
+      try {
+        const res = await fetch("/api/tse-reverso/disco-status");
+        if (!res.ok) return;
+        const d = await res.json();
+        if (!d || !d.ok) return;
+
+        const usedEl = document.getElementById("vpsDiskUsedText");
+        const totEl = document.getElementById("vpsDiskTotalText");
+        const freeEl = document.getElementById("vpsDiskFreeText");
+        const barEl = document.getElementById("vpsDiskBar");
+        const badgeEl = document.getElementById("vpsDiskPctBadge");
+        const zipsSizeEl = document.getElementById("vpsStorageZipsSize");
+        const zipsCountEl = document.getElementById("vpsStorageZipsCount");
+        const tempSizeEl = document.getElementById("vpsStorageTempSize");
+        const tempCountEl = document.getElementById("vpsStorageTempCount");
+        const dbSizeEl = document.getElementById("vpsStorageDbSize");
+        const dbUrnasEl = document.getElementById("vpsStorageDbUrnas");
+
+        const pct = d.disco_pct_usado || 0;
+        if (usedEl) usedEl.textContent = `${d.disco_usado_gb} GB (${pct}%)`;
+        if (totEl) totEl.textContent = `${d.disco_total_gb} GB`;
+        if (freeEl) freeEl.textContent = `${d.disco_livre_gb} GB`;
+
+        if (barEl) {
+          barEl.style.width = `${Math.min(100, Math.max(2, pct))}%`;
+          if (pct >= 85) {
+            barEl.className = "h-full bg-rose-500 transition-all duration-300";
+          } else if (pct >= 70) {
+            barEl.className = "h-full bg-amber-500 transition-all duration-300";
+          } else {
+            barEl.className = "h-full bg-emerald-500 transition-all duration-300";
+          }
+        }
+
+        if (badgeEl) {
+          badgeEl.textContent = `${pct}% Usado (${d.disco_usado_gb} / ${d.disco_total_gb} GB)`;
+          if (pct >= 85) {
+            badgeEl.className = "px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black bg-rose-950 text-rose-300 border border-rose-600 animate-pulse";
+          } else if (pct >= 70) {
+            badgeEl.className = "px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black bg-amber-950 text-amber-300 border border-amber-600";
+          } else {
+            badgeEl.className = "px-2.5 py-0.5 rounded-full text-[10px] font-mono font-black bg-emerald-950 text-emerald-300 border border-emerald-600";
+          }
+        }
+
+        if (zipsSizeEl && d.pasta_importacao) {
+          const zgb = d.pasta_importacao.tamanho_gb || 0;
+          const zmb = d.pasta_importacao.tamanho_mb || 0;
+          zipsSizeEl.textContent = zgb > 0.05 ? `${zgb} GB` : `${zmb} MB`;
+        }
+        if (zipsCountEl && d.pasta_importacao) {
+          zipsCountEl.textContent = `${d.pasta_importacao.total_arquivos} pacote(s)`;
+        }
+
+        if (tempSizeEl && d.temporarios) {
+          const tgb = d.temporarios.tamanho_gb || 0;
+          const tmb = d.temporarios.tamanho_mb || 0;
+          tempSizeEl.textContent = tgb > 0.05 ? `${tgb} GB` : `${tmb} MB`;
+        }
+        if (tempCountEl && d.temporarios) {
+          tempCountEl.textContent = `${d.temporarios.total_arquivos} arquivo(s)`;
+        }
+
+        if (dbSizeEl && d.banco_dados) {
+          dbSizeEl.textContent = d.banco_dados.tamanho_formatado !== "N/A"
+            ? d.banco_dados.tamanho_formatado
+            : `${d.banco_dados.tamanho_mb} MB`;
+        }
+        if (dbUrnasEl) {
+          const badgeCount = document.getElementById("tseCatalogCountBadge");
+          const totalUrnasTxt = badgeCount ? badgeCount.textContent : "";
+          if (totalUrnasTxt) {
+            dbUrnasEl.textContent = `${totalUrnasTxt} urnas`;
+          }
+        }
+
+        if (notificar) {
+          alert(`📊 Diagnóstico de Armazenamento Atualizado:\n\n• Disco Usado: ${d.disco_usado_gb} GB de ${d.disco_total_gb} GB (${pct}%)\n• Espaço Livre: ${d.disco_livre_gb} GB\n• Pacotes em /root/tse_import: ${d.pasta_importacao.tamanho_gb} GB\n• Arquivos Temporários: ${d.temporarios.tamanho_mb} MB\n• Banco PostgreSQL: ${d.banco_dados.tamanho_formatado}`);
+        }
+      } catch (e) {
+        console.warn("[STORAGE] Falha ao consultar disco da VPS:", e);
+      }
+    }
+
+    async function executarLimpezaTemporariosVps() {
+      const btn = document.getElementById("btnLimparTemporariosVps");
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = `<span>⏳</span><span>Limpando...</span>`;
+      }
+      try {
+        const res = await fetch("/api/tse-reverso/limpar-temporarios", { method: "POST" });
+        const d = await res.json();
+        if (res.ok && d.ok) {
+          alert(`🧹 Limpeza de Temporários Concluída com Sucesso!\n\n• Espaço Liberado: ${d.mb_liberados} MB (${d.gb_liberados} GB)\n• Itens Removidos: ${d.itens_removidos} arquivos/pastas órfãs.\n\nNenhum dado do banco de dados ou pacote de importação foi alterado.`);
+        } else {
+          alert(`Aviso na limpeza: ${d.mensagem || 'Falha ao executar limpeza.'}`);
+        }
+      } catch (e) {
+        alert(`Erro de conexão ao solicitar limpeza: ${e.message}`);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<span>🧹</span><span>Limpar Temporários</span>`;
+        }
+        atualizarDiagnosticoDiscoVps(false);
+      }
+    }
+
+    async function confirmarRemoverZipsIngeridosVps() {
+      try {
+        const stRes = await fetch("/api/tse-reverso/servidor/status-importacao");
+        const stData = await stRes.json();
+        const ingeridos = (stData.zips || []).filter(z => z.ja_ingerido);
+
+        if (!ingeridos || ingeridos.length === 0) {
+          alert("ℹ️ Nenhum pacote .zip com status 'JÁ PROCESSADO' foi detectado em /root/tse_import.\n\nSeus pacotes ainda não foram totalmente ingeridos ou a pasta já está vazia.");
+          return;
+        }
+
+        const nomesTxt = ingeridos.map(z => `• ${z.nome} (${z.tamanho_mb} MB)`).join("\n");
+        const totMb = ingeridos.reduce((acc, z) => acc + (z.tamanho_mb || 0), 0);
+        const totGb = (totMb / 1024).toFixed(2);
+
+        const msg = `⚠️ DESEJA LIBERAR ESPAÇO EXCLUINDO OS ZIPS JÁ INGERIDOS?\n\n` +
+          `Os seguintes ${ingeridos.length} pacote(s) já foram 100% lidos e suas seções estão todas gravadas no banco de dados PostgreSQL:\n\n` +
+          `${nomesTxt}\n\n` +
+          `Total a ser liberado imediatamente: ~${totGb} GB (${totMb.toFixed(0)} MB).\n\n` +
+          `Essa ação removerá apenas os arquivos .zip brutos de /root/tse_import. Todos os seus dados, votos e gráficos continuarão disponíveis na plataforma normalmente.\n\n` +
+          `Deseja confirmar a exclusão?`;
+
+        if (!confirm(msg)) return;
+
+        const btn = document.getElementById("btnRemoverZipsIngeridosVps");
+        if (btn) {
+          btn.disabled = true;
+          btn.innerHTML = `<span>⏳</span><span>Liberando...</span>`;
+        }
+
+        const delRes = await fetch("/api/tse-reverso/remover-zips-ingeridos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ nomes_arquivos: ingeridos.map(z => z.nome) })
+        });
+        const delData = await delRes.json();
+
+        if (delRes.ok && delData.ok) {
+          alert(`✅ Espaço Liberado com Sucesso!\n\n${delData.mensagem}\n\nO disco da VPS foi liberado.`);
+        } else {
+          alert(`Aviso: ${delData.mensagem || 'Falha ao remover arquivos.'}`);
+        }
+
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<span>🗑️</span><span>Liberar Espaço dos ZIPs Ingeridos</span>`;
+        }
+
+        atualizarDiagnosticoDiscoVps(false);
+        verificarArquivosServidorTse();
+      } catch (e) {
+        alert(`Erro de conexão ao remover arquivos: ${e.message}`);
+      }
+    }
+
     async function verificarArquivosServidorTse() {
       const msgEl = document.getElementById("vpsImportStatusMsg");
       const dotEl = document.getElementById("vpsImportStatusDot");
@@ -4262,6 +4508,9 @@ o Boletim de Urna (apos encerramento da votacao).
             if (mbEl) mbEl.textContent = `${data.tamanho_total_mb} MB`;
 
             atualizarContagemZipsSelecionadosUI();
+            try {
+              atualizarDiagnosticoDiscoVps(false);
+            } catch (_) {}
           } else {
             if (dotEl) dotEl.className = "w-2.5 h-2.5 rounded-full bg-amber-400 mt-1 flex-shrink-0";
             if (msgEl) {
@@ -4623,12 +4872,14 @@ o Boletim de Urna (apos encerramento da votacao).
             try {
               atualizarStatusBancoAuditoria();
               atualizarConsolidacaoTse(false);
+              atualizarDiagnosticoDiscoVps(false);
             } catch (_) {}
           } else if (prog.urnas_processadas && prog.urnas_processadas % 2500 === 0 && window._lastUrnasPollSync !== prog.urnas_processadas) {
             window._lastUrnasPollSync = prog.urnas_processadas;
             try {
               atualizarStatusBancoAuditoria();
               atualizarConsolidacaoTse(false);
+              atualizarDiagnosticoDiscoVps(false);
             } catch (_) {}
           }
         } else {
@@ -4650,6 +4901,7 @@ o Boletim de Urna (apos encerramento da votacao).
             try {
               atualizarStatusBancoAuditoria();
               atualizarConsolidacaoTse(false);
+              atualizarDiagnosticoDiscoVps(false);
             } catch (_) {}
             if (forcarAlerta) {
               showSecurityAlert(prog.mensagem || "Ingestão local concluída com sucesso!", !prog.sucesso);
