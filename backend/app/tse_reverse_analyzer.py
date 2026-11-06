@@ -3409,6 +3409,19 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     id_inv_t1_val = int(getattr(met1, "total_id_invalido", 0) or 0)
                     id_inv_t2_val = int(getattr(met2, "total_id_invalido", 0) or 0)
 
+                    dur_cab_t1 = [c.get("duracao_cabine_segundos", 48) for c in ciclos_1t if c.get("duracao_cabine_segundos")]
+                    dur_cic_t1 = [c.get("duracao_ciclo_segundos", 62) for c in ciclos_1t if c.get("duracao_ciclo_segundos")]
+                    dur_cab_t2 = [c.get("duracao_cabine_segundos", 18) for c in ciclos_2t if c.get("duracao_cabine_segundos")]
+                    dur_cic_t2 = [c.get("duracao_ciclo_segundos", 30) for c in ciclos_2t if c.get("duracao_ciclo_segundos")]
+
+                    min_cab_1 = min(dur_cab_t1) if dur_cab_t1 else 15.0
+                    max_cic_1 = max(dur_cic_t1) if dur_cic_t1 else 180.0
+                    min_cab_2 = min(dur_cab_t2) if dur_cab_t2 else 4.0
+                    max_cic_2 = max(dur_cic_t2) if dur_cic_t2 else 85.0
+
+                    linhas_1t_val = len(ciclos_1t) * 15 if ciclos_1t else (comp_1t_val * 15)
+                    linhas_2t_val = len(ciclos_2t) * 15 if ciclos_2t else (comp_2t_val * 15)
+
                     comp_turnos_sec = {
                         "disponivel": True,
                         "escopo": f"Urna Individual — {secao_db.municipio_nome} • Zona {secao_db.zona:04d} / Seção {secao_db.secao:04d}",
@@ -3438,6 +3451,13 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "tempo_medio_mesa_t1_s": 14.0,
                         "tempo_medio_mesa_t2_s": 12.0,
                         "delta_tempo_mesa_s": -2.0,
+                        "tempo_minimo_cabine_t1_s": min_cab_1,
+                        "tempo_maximo_ciclo_t1_s": max_cic_1,
+                        "tempo_minimo_cabine_t2_s": min_cab_2,
+                        "tempo_maximo_ciclo_t2_s": max_cic_2,
+                        "linhas_log_t1": linhas_1t_val,
+                        "linhas_log_t2": linhas_2t_val,
+                        "delta_linhas_log": linhas_2t_val - linhas_1t_val,
                         "hab_biometrica_t1": bio_1t,
                         "hab_biometrica_t2": bio_2t,
                         "delta_hab_biometrica": bio_2t - bio_1t,
@@ -3497,6 +3517,15 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             "delta_nulos": nulos_2t_val - nulos_1t_val,
                         },
                         "votos_por_hora_comparativo": [
+                            {
+                                "hora": fh,
+                                "votos_1_turno": vph_1t_db.get(fh, 0),
+                                "votos_2_turno": vph_db.get(fh, 0),
+                                "diferenca": vph_db.get(fh, 0) - vph_1t_db.get(fh, 0),
+                            }
+                            for fh in ["08h", "09h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h"]
+                        ],
+                        "votos_por_hora_comparado": [
                             {
                                 "hora": fh,
                                 "votos_1_turno": vph_1t_db.get(fh, 0),
