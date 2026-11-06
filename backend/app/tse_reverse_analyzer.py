@@ -3123,14 +3123,37 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         biog_1t = int(round(comp_1t_val * 0.062))
                         sem_1t = max(0, comp_1t_val - bio_1t - biog_1t)
 
-                    ciclos_2t = json.loads(dossie_2t_db.ciclos_eleitores_json) if (dossie_2t_db and dossie_2t_db.ciclos_eleitores_json) else []
-                    ciclos_1t = json.loads(dossie_1t_db.ciclos_eleitores_json) if (dossie_1t_db and dossie_1t_db.ciclos_eleitores_json) else (
-                        json.loads(dossie_2t_db.ciclos_eleitores_1t_json) if (dossie_2t_db and dossie_2t_db.ciclos_eleitores_1t_json) else []
-                    )
+                    ciclos_2t = []
+                    if dossie_2t_db and dossie_2t_db.ciclos_eleitores_json:
+                        try:
+                            ciclos_2t = json.loads(dossie_2t_db.ciclos_eleitores_json)
+                        except Exception:
+                            ciclos_2t = []
 
-                    vph_db = json.loads(dossie_2t_db.vazao_horaria_json) if (dossie_2t_db and dossie_2t_db.vazao_horaria_json) else (
-                        json.loads(met2.vazao_horaria_json) if (met2 and met2.vazao_horaria_json) else {}
-                    )
+                    ciclos_1t = []
+                    if dossie_1t_db and dossie_1t_db.ciclos_eleitores_json:
+                        try:
+                            ciclos_1t = json.loads(dossie_1t_db.ciclos_eleitores_json)
+                        except Exception:
+                            ciclos_1t = []
+                    elif dossie_2t_db and getattr(dossie_2t_db, "ciclos_eleitores_1t_json", None):
+                        try:
+                            ciclos_1t = json.loads(dossie_2t_db.ciclos_eleitores_1t_json)
+                        except Exception:
+                            ciclos_1t = []
+
+                    vph_db = {}
+                    if dossie_2t_db and dossie_2t_db.vazao_horaria_json:
+                        try:
+                            vph_db = json.loads(dossie_2t_db.vazao_horaria_json)
+                        except Exception:
+                            vph_db = {}
+                    elif met2 and getattr(met2, "vazao_horaria_json", None):
+                        try:
+                            vph_db = json.loads(met2.vazao_horaria_json)
+                        except Exception:
+                            vph_db = {}
+
                     if not vph_db and ciclos_2t:
                         vph_c2 = Counter()
                         for c in ciclos_2t:
@@ -3144,8 +3167,8 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         try:
                             vph_1t_db = json.loads(dossie_1t_db.vazao_horaria_json)
                         except Exception:
-                            pass
-                    if not vph_1t_db and met1 and met1.vazao_horaria_json:
+                            vph_1t_db = {}
+                    if not vph_1t_db and met1 and getattr(met1, "vazao_horaria_json", None):
                         try:
                             vph_1t_db = json.loads(met1.vazao_horaria_json)
                         except Exception:
@@ -3167,9 +3190,9 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             hab_bio=bio_2t,
                             hab_biog=biog_2t,
                             hab_sem=sem_2t,
-                            teclas_pres=int(met2.teclas_indevidas_pres if met2 else 0),
-                            teclas_total=int(met2.teclas_indevidas_total if met2 else 0),
-                            tempo_medio_cabine=float(met2.tempo_medio_voto_segundos if met2 else 18.5),
+                            teclas_pres=int(getattr(met2, "teclas_indevidas_pres", 0) or 0),
+                            teclas_total=int(getattr(met2, "teclas_indevidas_total", 0) or 0),
+                            tempo_medio_cabine=float(getattr(met2, "tempo_medio_voto_segundos", 18.5) or 18.5),
                             vazao_horaria=vph_db,
                             turno=2,
                             data_eleicao="25/10/2026",
@@ -3185,9 +3208,9 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             hab_bio=bio_1t,
                             hab_biog=biog_1t,
                             hab_sem=sem_1t,
-                            teclas_pres=int(met1.teclas_indevidas_pres if met1 else 0),
-                            teclas_total=int(met1.teclas_indevidas_total if met1 else 0),
-                            tempo_medio_cabine=float(met1.tempo_medio_voto_segundos if met1 else 48.0),
+                            teclas_pres=int(getattr(met1, "teclas_indevidas_pres", 0) or 0),
+                            teclas_total=int(getattr(met1, "teclas_indevidas_total", 0) or 0),
+                            tempo_medio_cabine=float(getattr(met1, "tempo_medio_voto_segundos", 48.0) or 48.0),
                             vazao_horaria=vph_1t_db,
                             turno=1,
                             data_eleicao="04/10/2026",
@@ -3316,12 +3339,12 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
 
                     # Teclas Indevidas
                     cic_tec_2t = extrair_teclas_de_ciclos(ciclos_2t)
-                    teclas_t2_val = int(met2.teclas_indevidas_total if met2 else 0) or cic_tec_2t["teclas_total"]
-                    teclas_pres_t2_val = int(met2.teclas_indevidas_pres if met2 else 0) or cic_tec_2t["teclas_pres"] or teclas_t2_val
+                    teclas_t2_val = int(getattr(met2, "teclas_indevidas_total", 0) or 0) or cic_tec_2t["teclas_total"]
+                    teclas_pres_t2_val = int(getattr(met2, "teclas_indevidas_pres", 0) or 0) or cic_tec_2t["teclas_pres"] or teclas_t2_val
 
                     cic_tec_1t = extrair_teclas_de_ciclos(ciclos_1t)
-                    teclas_t1_val = int(met1.teclas_indevidas_total if met1 else 0) or cic_tec_1t["teclas_total"]
-                    teclas_pres_t1_val = int(met1.teclas_indevidas_pres if met1 else 0) or cic_tec_1t["teclas_pres"]
+                    teclas_t1_val = int(getattr(met1, "teclas_indevidas_total", 0) or 0) or cic_tec_1t["teclas_total"]
+                    teclas_pres_t1_val = int(getattr(met1, "teclas_indevidas_pres", 0) or 0) or cic_tec_1t["teclas_pres"]
 
                     batimentos = [
                         {
@@ -3362,10 +3385,29 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     ]
 
                     # Constrói o bloco de comparativo de turnos completo para a seção
+                    t_cab_1 = float(getattr(met1, "tempo_medio_voto_segundos", 48.0) or 48.0)
+                    t_cab_2 = float(getattr(met2, "tempo_medio_voto_segundos", 18.5) or 18.5)
+                    delta_cab = round(t_cab_2 - t_cab_1, 1)
+                    delta_cab_pct = round((delta_cab / max(t_cab_1, 1.0)) * 100.0, 1)
+
+                    t_cic_1 = round(t_cab_1 + 14.0, 1)
+                    t_cic_2 = round(t_cab_2 + 12.0, 1)
+                    delta_cic = round(t_cic_2 - t_cic_1, 1)
+                    delta_cic_pct = round((delta_cic / max(t_cic_1, 1.0)) * 100.0, 1)
+
+                    id_inv_t1_val = int(getattr(met1, "total_id_invalido", 0) or 0)
+                    id_inv_t2_val = int(getattr(met2, "total_id_invalido", 0) or 0)
+
                     comp_turnos_sec = {
+                        "disponivel": True,
+                        "escopo": f"Urna Individual — {secao_db.municipio_nome} • Zona {secao_db.zona:04d} / Seção {secao_db.secao:04d}",
+                        "urnas_no_escopo": 1,
                         "urnas_com_comparativo_log": 1 if (tem_bu_1t and tem_bu_2t) else (1 if (tem_bu_1t or tem_bu_2t) else 0),
+                        "urnas_com_bu_1_turno": 1 if tem_bu_1t else 0,
+                        "urnas_com_bu_2_turno": 1 if tem_bu_2t else 0,
                         "data_1_turno": "04/10/2026",
                         "data_2_turno": "25/10/2026",
+                        "eleitores_aptos_comparados": aptos_val,
                         "comparecimento_t1": comp_1t_val,
                         "comparecimento_t2": comp_2t_val,
                         "delta_comparecimento": comp_2t_val - comp_1t_val,
@@ -3374,14 +3416,14 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "faltosos_t2": falt_2t_val,
                         "delta_faltosos": falt_2t_val - falt_1t_val,
                         "delta_faltosos_pct": round(((falt_2t_val - falt_1t_val) / max(falt_1t_val, 1)) * 100.0, 1) if falt_1t_val else 0.0,
-                        "tempo_medio_cabine_t1_s": float(met1.tempo_medio_voto_segundos if met1 else 48.0),
-                        "tempo_medio_cabine_t2_s": float(met2.tempo_medio_voto_segundos if met2 else 18.5),
-                        "delta_tempo_cabine_s": round(float(met2.tempo_medio_voto_segundos if met2 else 18.5) - float(met1.tempo_medio_voto_segundos if met1 else 48.0), 1),
-                        "delta_tempo_cabine_pct": round(((float(met2.tempo_medio_voto_segundos if met2 else 18.5) - float(met1.tempo_medio_voto_segundos if met1 else 48.0)) / max(float(met1.tempo_medio_voto_segundos if met1 else 48.0), 1.0)) * 100.0, 1),
-                        "tempo_medio_ciclo_t1_s": round(float(met1.tempo_medio_voto_segundos if met1 else 48.0) + 14.0, 1),
-                        "tempo_medio_ciclo_t2_s": round(float(met2.tempo_medio_voto_segundos if met2 else 18.5) + 12.0, 1),
-                        "delta_tempo_ciclo_s": round((float(met2.tempo_medio_voto_segundos if met2 else 18.5) + 12.0) - (float(met1.tempo_medio_voto_segundos if met1 else 48.0) + 14.0), 1),
-                        "delta_tempo_ciclo_pct": round((((float(met2.tempo_medio_voto_segundos if met2 else 18.5) + 12.0) - (float(met1.tempo_medio_voto_segundos if met1 else 48.0) + 14.0)) / max(float(met1.tempo_medio_voto_segundos if met1 else 48.0) + 14.0, 1.0)) * 100.0, 1),
+                        "tempo_medio_cabine_t1_s": t_cab_1,
+                        "tempo_medio_cabine_t2_s": t_cab_2,
+                        "delta_tempo_cabine_s": delta_cab,
+                        "delta_tempo_cabine_pct": delta_cab_pct,
+                        "tempo_medio_ciclo_t1_s": t_cic_1,
+                        "tempo_medio_ciclo_t2_s": t_cic_2,
+                        "delta_tempo_ciclo_s": delta_cic,
+                        "delta_tempo_ciclo_pct": delta_cic_pct,
                         "tempo_medio_mesa_t1_s": 14.0,
                         "tempo_medio_mesa_t2_s": 12.0,
                         "delta_tempo_mesa_s": -2.0,
@@ -3403,31 +3445,43 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "delta_teclas_presidente_pct": round(((teclas_pres_t2_val - teclas_pres_t1_val) / max(teclas_pres_t1_val, 1)) * 100.0, 1) if teclas_pres_t1_val else "0.0",
                         "teclas_outros_t1": max(0, teclas_t1_val - teclas_pres_t1_val),
                         "teclas_outros_t2": max(0, teclas_t2_val - teclas_pres_t2_val),
-                        "id_invalido_t1": int(met1.total_id_invalido if met1 else 0),
-                        "id_invalido_t2": int(met2.total_id_invalido if met2 else 0),
+                        "id_invalido_t1": id_inv_t1_val,
+                        "id_invalido_t2": id_inv_t2_val,
+                        "delta_id_invalido": id_inv_t2_val - id_inv_t1_val,
                         "cargos_votados_t1": ["DEPUTADO FEDERAL", "DEPUTADO ESTADUAL", "SENADOR", "GOVERNADOR", "PRESIDENTE"],
                         "cargos_votados_t2": ["PRESIDENTE"],
                         "comparativo_candidatos": {
+                            "tem_bu_1_turno": tem_bu_1t,
+                            "urnas_pareadas_bu_1t": 1 if tem_bu_1t else 0,
+                            "urnas_pareadas_bu_2t": 1 if tem_bu_2t else 0,
                             "candidatos": [
                                 {
                                     "numero": "22",
                                     "nome": "FLÁVIO BOLSONARO",
+                                    "votos_t1": next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "22"), 0),
                                     "votos_1_turno": next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "22"), 0),
+                                    "votos_t2": next((c["votos"] for c in cands if str(c["numero"]) == "22"), 0),
                                     "votos_2_turno": next((c["votos"] for c in cands if str(c["numero"]) == "22"), 0),
                                     "diferenca": next((c["votos"] for c in cands if str(c["numero"]) == "22"), 0) - next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "22"), 0),
                                 },
                                 {
                                     "numero": "13",
                                     "nome": "LULA",
+                                    "votos_t1": next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "13"), 0),
                                     "votos_1_turno": next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "13"), 0),
+                                    "votos_t2": next((c["votos"] for c in cands if str(c["numero"]) == "13"), 0),
                                     "votos_2_turno": next((c["votos"] for c in cands if str(c["numero"]) == "13"), 0),
                                     "diferenca": next((c["votos"] for c in cands if str(c["numero"]) == "13"), 0) - next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "13"), 0),
                                 },
                             ],
+                            "brancos_t1": brancos_1t_val,
                             "brancos_1_turno": brancos_1t_val,
+                            "brancos_t2": brancos_2t_val,
                             "brancos_2_turno": brancos_2t_val,
                             "delta_brancos": brancos_2t_val - brancos_1t_val,
+                            "nulos_t1": nulos_1t_val,
                             "nulos_1_turno": nulos_1t_val,
+                            "nulos_t2": nulos_2t_val,
                             "nulos_2_turno": nulos_2t_val,
                             "delta_nulos": nulos_2t_val - nulos_1t_val,
                         },
@@ -3463,7 +3517,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "faltosos": faltosos_val,
                         "comparecimento_efetivo": comp_efetivo,
                         "comparecimento_bu": comp_efetivo,
-                        "comparecimento_log": met2.total_votos_computados if met2 else comp_efetivo,
+                        "comparecimento_log": getattr(met2, "total_votos_computados", None) or comp_efetivo,
                         "comparecimento_log_t1": len(ciclos_1t) or (bu1.comparecimento if bu1 else 0),
                         "brancos_bu": brancos_val,
                         "nulos_bu": nulos_val,
@@ -3490,9 +3544,12 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "total_teclas_indevidas_presidente_t2": teclas_pres_t2_val,
                         "total_teclas_indevidas_presidente_t1": teclas_pres_t1_val,
                         "total_teclas_indevidas_t1": teclas_t1_val,
+                        "total_id_invalido": id_inv_t2_val,
+                        "total_id_invalido_t2": id_inv_t2_val,
+                        "total_id_invalido_t1": id_inv_t1_val,
                         "tem_comparativo_1t_log": met1 is not None or len(ciclos_1t) > 0,
-                        "tempo_medio_cabine_s": float(met2.tempo_medio_voto_segundos) if met2 else 0.0,
-                        "tempo_medio_cabine_t1_s": float(met1.tempo_medio_voto_segundos) if met1 else 0.0,
+                        "tempo_medio_cabine_s": float(getattr(met2, "tempo_medio_voto_segundos", 0.0) or 0.0),
+                        "tempo_medio_cabine_t1_s": float(getattr(met1, "tempo_medio_voto_segundos", 0.0) or 0.0),
                         "tem_log_jez": met2 is not None or len(ciclos_2t) > 0,
                         "tem_imgbu": bu2 is not None or espelho_2t is not None or espelho_1t is not None,
                         "tem_rdv": len(cands) > 0,
@@ -3524,12 +3581,20 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                                 "versao_aplicacao": "Oficial TSE (Lacrada)",
                             },
                             "resumo_votacao_log": {
-                                "total_votos_computados": met2.total_votos_computados if met2 else comp_efetivo,
-                                "tempo_medio_cabine_segundos": float(met2.tempo_medio_voto_segundos) if met2 else 0.0,
-                                "tempo_medio_cabine_s": float(met2.tempo_medio_voto_segundos) if met2 else 0.0,
-                                "tempo_medio_ciclo_s": float(met2.tempo_medio_voto_segundos) if met2 else 0.0,
+                                "total_votos_computados": getattr(met2, "total_votos_computados", None) or comp_efetivo,
+                                "tempo_medio_cabine_segundos": float(getattr(met2, "tempo_medio_voto_segundos", 0.0) or 0.0),
+                                "tempo_medio_cabine_s": float(getattr(met2, "tempo_medio_voto_segundos", 0.0) or 0.0),
+                                "tempo_medio_ciclo_s": float(getattr(met2, "tempo_medio_voto_segundos", 0.0) or 0.0),
+                                "total_teclas_indevidas": teclas_t2_val,
+                                "total_teclas_indevidas_presidente": teclas_pres_t2_val,
+                                "total_identificador_invalido": id_inv_t2_val,
                                 "votos_por_hora": vph_db,
                                 "votos_por_hora_t1": vph_1t_db,
+                            },
+                            "resumo_1_turno_log": {
+                                "total_teclas_indevidas": teclas_t1_val,
+                                "total_teclas_indevidas_presidente": teclas_pres_t1_val,
+                                "total_identificador_invalido": id_inv_t1_val,
                             },
                             "ciclos_eleitores": ciclos_2t,
                             "ciclos_eleitores_1_turno": ciclos_1t,
@@ -3578,7 +3643,9 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         pass
                     return resp_secao_ind
             except Exception as exc_ind:
+                import traceback
                 print(f"[TSE-DB] Erro ao buscar secao individual no banco: {exc_ind}")
+                traceback.print_exc()
             finally:
                 db.close()
 

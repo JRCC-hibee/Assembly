@@ -66,8 +66,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-06-rev31"
-SYSTEM_COMMIT = "rev31-selective-and-auto-filtered-vps-ingestion"
+SYSTEM_BUILD = "2026-11-06-rev32"
+SYSTEM_COMMIT = "rev32-fix-single-section-attribute-error-and-hide-comp-uploads"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",

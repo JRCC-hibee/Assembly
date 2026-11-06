@@ -1356,14 +1356,14 @@ o Boletim de Urna (apos encerramento da votacao).
             <div class="flex flex-wrap items-center gap-2 text-xs mono">
               <span id="tseComparativoStatusBadge" class="px-2.5 py-1 rounded-lg bg-indigo-950 text-indigo-300 border border-indigo-600/50 font-bold text-[11px]"></span>
               
-              <!-- Opção 1: Subir Pasta Inteira do 1º Turno (Diretório completo do PR) -->
-              <label class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-[11px] cursor-pointer shadow-md transition inline-flex items-center gap-1.5" title="Selecione a pasta completa do 1º Turno (ex: bu_imgbu_logjez_rdv_vscmr_2026_1t_PR) para pareamento global de todas as urnas">
+              <!-- Opção 1: Subir Pasta Inteira do 1º Turno (Diretório completo do PR) - Oculto (dados já carregados no PostgreSQL) -->
+              <label class="hidden px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-[11px] cursor-pointer shadow-md transition items-center gap-1.5" title="Selecione a pasta completa do 1º Turno (ex: bu_imgbu_logjez_rdv_vscmr_2026_1t_PR) para pareamento global de todas as urnas">
                 <span>🗂️ Subir Pasta Inteira 1º Turno</span>
                 <input type="file" webkitdirectory directory multiple onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
               </label>
 
-              <!-- Opção 2: Subir Arquivos Avulsos do 1º Turno (.jez, .dat, .vsc, .zip) -->
-              <label class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-600/50 font-bold text-[11px] cursor-pointer transition inline-flex items-center gap-1.5" title="Selecione arquivos avulsos do 1º Turno ou arquivos .zip">
+              <!-- Opção 2: Subir Arquivos Avulsos do 1º Turno (.jez, .dat, .vsc, .zip) - Oculto (dados já carregados no PostgreSQL) -->
+              <label class="hidden px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-600/50 font-bold text-[11px] cursor-pointer transition items-center gap-1.5" title="Selecione arquivos avulsos do 1º Turno ou arquivos .zip">
                 <span>📂 Subir Arquivos 1ºT (.jez / BU / .zip)</span>
                 <input type="file" multiple accept=".jez,.dat,.vsc,.zip" onchange="iniciarImportacaoLoteTse(event)" class="hidden" />
               </label>
