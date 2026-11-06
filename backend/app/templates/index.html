@@ -4064,7 +4064,7 @@ o Boletim de Urna (apos encerramento da votacao).
       if (pMsg) pMsg.textContent = "Disparando motor de ingestão na VPS em segundo plano...";
 
       try {
-        const res = await fetch("/api/tse-reverso/servidor/iniciar-ingestao-local", { method: "POST" });
+        const res = await fetch("/api/tse-reverso/servidor/iniciar-ingestao-local?forcar=true", { method: "POST" });
         if (!res.ok) {
           const errText = await res.text();
           if (pMsg) pMsg.textContent = `Aviso do Servidor (${res.status}): ${errText}`;

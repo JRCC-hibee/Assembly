@@ -21,6 +21,9 @@ else:
         pool_size=20,
         max_overflow=40,
         pool_timeout=15,
+        connect_args={
+            "options": "-c statement_timeout=60000 -c lock_timeout=10000"
+        } if "postgres" in DATABASE_URL.lower() else {},
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

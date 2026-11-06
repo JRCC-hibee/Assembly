@@ -4129,7 +4129,7 @@ def obter_progresso_ingestao_servidor() -> dict:
     return dict(_STATUS_INGESTAO_LOCAL)
 
 
-def iniciar_ingestao_servidor_background(db_factory=None) -> dict:
+def iniciar_ingestao_servidor_background(db_factory=None, forcar: bool = False) -> dict:
     """
     Dispara a ingestão local na VPS em uma thread daemon em background,
     permitindo que a interface web acompanhe o progresso sem risco de timeout.
@@ -4137,12 +4137,31 @@ def iniciar_ingestao_servidor_background(db_factory=None) -> dict:
     global _THREAD_INGESTAO_LOCAL
 
     with _LOCK_INGESTAO_LOCAL:
-        if _STATUS_INGESTAO_LOCAL.get("ativo") and _THREAD_INGESTAO_LOCAL and _THREAD_INGESTAO_LOCAL.is_alive():
+        agora = time.time()
+        ultimo_batimento = _STATUS_INGESTAO_LOCAL.get("ultimo_batimento", 0)
+        esta_travado = bool(_STATUS_INGESTAO_LOCAL.get("ativo") and (agora - ultimo_batimento > 45))
+
+        if not forcar and not esta_travado and _STATUS_INGESTAO_LOCAL.get("ativo") and _THREAD_INGESTAO_LOCAL and _THREAD_INGESTAO_LOCAL.is_alive():
             return {
                 "ok": False,
                 "mensagem": "Já existe uma ingestão local em andamento no servidor.",
                 "status": _STATUS_INGESTAO_LOCAL,
             }
+
+        _STATUS_INGESTAO_LOCAL.update({
+            "ativo": True,
+            "finalizado": False,
+            "sucesso": False,
+            "progresso_pct": 2,
+            "mensagem": "Iniciando motor de ingestão na VPS em segundo plano...",
+            "total_urnas": 0,
+            "urnas_processadas": 0,
+            "urnas_novas": 0,
+            "urnas_duplicadas": 0,
+            "tempo_decorrido_s": 0,
+            "erros": [],
+            "ultimo_batimento": agora,
+        })
 
         _THREAD_INGESTAO_LOCAL = threading.Thread(target=_executar_ingestao_servidor_worker, daemon=True)
         _THREAD_INGESTAO_LOCAL.start()
@@ -4337,6 +4356,7 @@ def _executar_ingestao_servidor_worker():
                             if batch_count >= 50:
                                 try:
                                     db.commit()
+                                    db.expunge_all()
                                 except Exception as e_cmt:
                                     try:
                                         db.rollback()
@@ -4344,6 +4364,14 @@ def _executar_ingestao_servidor_worker():
                                         pass
                                     _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit lote ({pref}): {e_cmt}")
                                 batch_count = 0
+
+                            # Purgar cache e recriar sessão a cada 200 urnas para manter velocidade e consumo zero de RAM
+                            if urnas_processadas % 200 == 0:
+                                try:
+                                    db.close()
+                                except Exception:
+                                    pass
+                                db = SessionLocal()
 
                             if urnas_processadas % 25 == 0:
                                 tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
@@ -4357,11 +4385,13 @@ def _executar_ingestao_servidor_worker():
                                     "urnas_duplicadas": urnas_duplicadas,
                                     "tempo_decorrido_s": int(delta_s),
                                     "mensagem": f"Processando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} novas, {urnas_duplicadas:,} já existentes...",
+                                    "ultimo_batimento": time.time(),
                                 })
 
                     if batch_count > 0:
                         try:
                             db.commit()
+                            db.expunge_all()
                         except Exception as e_cmt:
                             try:
                                 db.rollback()
@@ -4452,6 +4482,7 @@ def _executar_ingestao_servidor_worker():
                         if batch_count >= 50:
                             try:
                                 db.commit()
+                                db.expunge_all()
                             except Exception as e_cmt:
                                 try:
                                     db.rollback()
@@ -4459,6 +4490,14 @@ def _executar_ingestao_servidor_worker():
                                     pass
                                 _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit lote ({pref}): {e_cmt}")
                             batch_count = 0
+
+                        # Purgar cache e recriar sessão a cada 200 urnas
+                        if urnas_processadas % 200 == 0:
+                            try:
+                                db.close()
+                            except Exception:
+                                pass
+                            db = SessionLocal()
 
                         if urnas_processadas % 25 == 0:
                             tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
@@ -4472,11 +4511,13 @@ def _executar_ingestao_servidor_worker():
                                 "urnas_duplicadas": urnas_duplicadas,
                                 "tempo_decorrido_s": int(delta_s),
                                 "mensagem": f"Processando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} novas, {urnas_duplicadas:,} já existentes...",
+                                "ultimo_batimento": time.time(),
                             })
 
                     if batch_count > 0:
                         try:
                             db.commit()
+                            db.expunge_all()
                         except Exception as e_cmt:
                             try:
                                 db.rollback()
@@ -4862,6 +4903,7 @@ def _executar_complementacao_worker():
                             if batch_count >= 50:
                                 try:
                                     db.commit()
+                                    db.expunge_all()
                                 except Exception as e_cmt:
                                     try:
                                         db.rollback()
@@ -4869,6 +4911,14 @@ def _executar_complementacao_worker():
                                         pass
                                     _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit lote ({pref}): {e_cmt}")
                                 batch_count = 0
+
+                            # Purgar cache e recriar sessão a cada 200 urnas
+                            if urnas_processadas % 200 == 0:
+                                try:
+                                    db.close()
+                                except Exception:
+                                    pass
+                                db = SessionLocal()
 
                             if urnas_processadas % 25 == 0:
                                 tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
@@ -4882,11 +4932,13 @@ def _executar_complementacao_worker():
                                     "urnas_duplicadas": urnas_duplicadas,
                                     "tempo_decorrido_s": int(delta_s),
                                     "mensagem": f"Complementando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} complementadas com 1ºT/dossiês...",
+                                    "ultimo_batimento": time.time(),
                                 })
 
                     if batch_count > 0:
                         try:
                             db.commit()
+                            db.expunge_all()
                         except Exception as e_cmt:
                             try:
                                 db.rollback()
@@ -4976,6 +5028,7 @@ def _executar_complementacao_worker():
                         if batch_count >= 50:
                             try:
                                 db.commit()
+                                db.expunge_all()
                             except Exception as e_cmt:
                                 try:
                                     db.rollback()
@@ -4983,6 +5036,14 @@ def _executar_complementacao_worker():
                                     pass
                                 _STATUS_INGESTAO_LOCAL["erros"].append(f"Erro commit lote ({pref}): {e_cmt}")
                             batch_count = 0
+
+                        # Purgar cache e recriar sessão a cada 200 urnas
+                        if urnas_processadas % 200 == 0:
+                            try:
+                                db.close()
+                            except Exception:
+                                pass
+                            db = SessionLocal()
 
                         if urnas_processadas % 25 == 0:
                             tot = max(1, _STATUS_INGESTAO_LOCAL["total_urnas"])
@@ -4996,11 +5057,13 @@ def _executar_complementacao_worker():
                                 "urnas_duplicadas": urnas_duplicadas,
                                 "tempo_decorrido_s": int(delta_s),
                                 "mensagem": f"Complementando {urnas_processadas:,} de {tot:,} urnas ({speed:.1f} urnas/s) - {urnas_novas:,} complementadas com 1ºT/dossiês...",
+                                "ultimo_batimento": time.time(),
                             })
 
                     if batch_count > 0:
                         try:
                             db.commit()
+                            db.expunge_all()
                         except Exception as e_cmt:
                             try:
                                 db.rollback()
@@ -5099,33 +5162,6 @@ def _consolidar_secoes_tse_sql(
     from sqlalchemy.orm import aliased
     from sqlalchemy import func, case, text, or_
     from .database import TseSecao, TseApuracaoBU, TseMetricasLog, TseVotoCandidato, ESTADOS_E_REGIOES_BR
-
-    # Auto-migração preventiva das colunas no banco se ainda não existirem
-    migracao_ddl = [
-        "ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_biometrica INTEGER DEFAULT 0",
-        "ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_biografica INTEGER DEFAULT 0",
-        "ALTER TABLE tse_apuracao_bu ADD COLUMN IF NOT EXISTS hab_sem_biometria INTEGER DEFAULT 0",
-        "ALTER TABLE tse_votos_candidatos ADD COLUMN IF NOT EXISTS votos_bu INTEGER DEFAULT 0",
-        "ALTER TABLE tse_votos_candidatos ADD COLUMN IF NOT EXISTS votos_rdv INTEGER DEFAULT 0",
-    ]
-    for ddl_cmd in migracao_ddl:
-        try:
-            db.execute(text(ddl_cmd))
-            db.commit()
-        except Exception:
-            try:
-                db.rollback()
-            except Exception:
-                pass
-            if "IF NOT EXISTS" in ddl_cmd:
-                try:
-                    db.execute(text(ddl_cmd.replace(" IF NOT EXISTS", "")))
-                    db.commit()
-                except Exception:
-                    try:
-                        db.rollback()
-                    except Exception:
-                        pass
 
     regiao_filtro = (regiao_filtro or "TODAS").strip()
     uf_filtro = (uf_filtro or "TODAS").strip().upper()

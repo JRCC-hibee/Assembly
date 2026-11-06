@@ -64,8 +64,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-05-rev26"
-SYSTEM_COMMIT = "rev26-restore-sync-base-button-and-fix-panel-display"
+SYSTEM_BUILD = "2026-11-05-rev27"
+SYSTEM_COMMIT = "rev27-fix-database-lock-leak-and-heartbeat-resilience"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1365,12 +1365,12 @@ def api_tse_reverso_servidor_status_importacao():
 
 
 @app.post("/api/tse-reverso/servidor/iniciar-ingestao-local")
-def api_tse_reverso_servidor_iniciar_ingestao_local():
+def api_tse_reverso_servidor_iniciar_ingestao_local(forcar: bool = False):
     """
     Dispara a ingestão direta de alta velocidade dos arquivos presentes na VPS
     em segundo plano (sem travamento de proxy/navegador).
     """
-    return iniciar_ingestao_servidor_background()
+    return iniciar_ingestao_servidor_background(forcar=forcar)
 
 
 @app.post("/api/tse-reverso/servidor/iniciar-complementacao")
