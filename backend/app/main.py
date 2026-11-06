@@ -66,8 +66,8 @@ from .tse_reverse_analyzer import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-06-rev29"
-SYSTEM_COMMIT = "rev29-fix-syntax-error-restore-tab-switching"
+SYSTEM_BUILD = "2026-11-06-rev30"
+SYSTEM_COMMIT = "rev30-fix-single-section-data-and-voter-logs"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",

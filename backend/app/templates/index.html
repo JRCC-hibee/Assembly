@@ -5638,6 +5638,9 @@ o Boletim de Urna (apos encerramento da votacao).
       }
 
       // Restaura rótulos dos 6 cartões superiores adaptados para o modo
+      const fBarCons = document.getElementById("tseFiltroForenseBar");
+      if (fBarCons) fBarCons.classList.remove("hidden");
+
       document.getElementById("tseCard1Label").textContent = `ESCOPO (${labelTurno})`;
       document.getElementById("tseCard2Label").textContent = "URNAS AUDITADAS";
       document.getElementById("tseCard3Label").textContent = "STATUS DE INTEGRIDADE";
@@ -6112,6 +6115,14 @@ o Boletim de Urna (apos encerramento da votacao).
 
     function renderizarLaudoTseReverso(data) {
       document.getElementById("tseReversoResultContainer").classList.remove("hidden");
+
+      // Oculta banner de urnas faltantes consolidado (exclusivo do modo consolidado de zonas/cidades)
+      const bannerFaltam = document.getElementById("bannerUrnasFaltantes2T");
+      if (bannerFaltam) bannerFaltam.classList.add("hidden");
+
+      // Oculta barra de filtros de divergência em massa (exclusiva do consolidado)
+      const fBar = document.getElementById("tseFiltroForenseBar");
+      if (fBar) fBar.classList.add("hidden");
 
       // Restaura rótulos dos 6 cartões superiores para modo Urna Individual
       document.getElementById("tseCard1Label").textContent = "MUNICÍPIO / UF";

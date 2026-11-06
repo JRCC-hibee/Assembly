@@ -2880,7 +2880,7 @@ def gerar_espelho_bobina_completo_tse(
     return "\n".join(linhas)
 
 
-def obter_secao_individual_tse(prefixo: str) -> dict | None:
+def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zona: str = None) -> dict | None:
     storage = _get_tse_storage_dir()
     pref_low = prefixo.lower()
     raw_sec_dir = os.path.join(storage, "raw", pref_low)
@@ -2931,26 +2931,68 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                 from sqlalchemy import or_, func
                 secao_db = None
 
-                # 1. Extração geográfica robusta para qualquer prefixo do TSE:
-                m_geo = re.search(r"([a-zA-Z]{2})[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})$", prefixo)
-                if m_geo:
-                    uf_p = m_geo.group(1).upper()
-                    mun_p = m_geo.group(2)
-                    zona_p = int(m_geo.group(3))
-                    sec_p = int(m_geo.group(4))
-                    chave_cand = f"{uf_p}_{mun_p}_{zona_p:04d}_{sec_p:04d}"
+                # Estratégia 1: Se UF, Município e Zona foram informados (via seletor da árvore de 5 níveis):
+                if uf and uf != "TODAS" and mun and mun != "TODAS" and zona and zona != "TODAS":
+                    m_sec_end = re.search(r"(\d{1,4})$", prefixo.strip())
+                    if m_sec_end:
+                        try:
+                            sec_candidate = int(m_sec_end.group(1))
+                            zona_candidate = int(zona)
+                            mun_candidate = str(mun).strip().zfill(5)
+                            secao_db = db.query(TseSecao).filter(
+                                func.upper(TseSecao.uf) == uf.strip().upper(),
+                                TseSecao.municipio_codigo == mun_candidate,
+                                TseSecao.zona == zona_candidate,
+                                TseSecao.secao == sec_candidate,
+                            ).first()
+                        except Exception:
+                            pass
+
+                # Estratégia 2: Busca por chave_secao exata ou normalizada (Ex: PR_75353_0174_0040)
+                if not secao_db:
+                    pref_norm = prefixo.strip().upper().replace("-", "_")
                     secao_db = db.query(TseSecao).filter(
                         or_(
-                            TseSecao.chave_secao == chave_cand,
-                            (
-                                (func.upper(TseSecao.uf) == uf_p)
-                                & (TseSecao.municipio_codigo == mun_p)
-                                & (TseSecao.zona == zona_p)
-                                & (TseSecao.secao == sec_p)
-                            ),
+                            TseSecao.chave_secao == pref_norm,
+                            TseSecao.chave_secao == prefixo.strip().upper(),
                         )
                     ).first()
 
+                # Estratégia 3: Extração geográfica robusta com UF para qualquer prefixo do TSE:
+                if not secao_db:
+                    m_geo = re.search(r"([a-zA-Z]{2})[_\-]?(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})$", prefixo)
+                    if m_geo:
+                        uf_p = m_geo.group(1).upper()
+                        mun_p = m_geo.group(2)
+                        zona_p = int(m_geo.group(3))
+                        sec_p = int(m_geo.group(4))
+                        chave_cand = f"{uf_p}_{mun_p}_{zona_p:04d}_{sec_p:04d}"
+                        secao_db = db.query(TseSecao).filter(
+                            or_(
+                                TseSecao.chave_secao == chave_cand,
+                                (
+                                    (func.upper(TseSecao.uf) == uf_p)
+                                    & (TseSecao.municipio_codigo == mun_p)
+                                    & (TseSecao.zona == zona_p)
+                                    & (TseSecao.secao == sec_p)
+                                ),
+                            )
+                        ).first()
+
+                # Estratégia 4: Extração geográfica sem UF (Ex: o00407-7535301740040 ou 7535301740040)
+                if not secao_db:
+                    m_num = re.search(r"(\d{5})[_\-]?(\d{1,4})[_\-]?(\d{1,4})$", prefixo)
+                    if m_num:
+                        mun_p = m_num.group(1)
+                        zona_p = int(m_num.group(2))
+                        sec_p = int(m_num.group(3))
+                        secao_db = db.query(TseSecao).filter(
+                            TseSecao.municipio_codigo == mun_p,
+                            TseSecao.zona == zona_p,
+                            TseSecao.secao == sec_p,
+                        ).first()
+
+                # Estratégia 5: Fallback por remoção de prefixos de pleito oficiais
                 if not secao_db:
                     pref_clean = pref_low.replace("o03221", "").replace("o03220", "").replace("o00407", "").replace("o00406", "").strip()
                     secao_db = db.query(TseSecao).filter(
@@ -2987,8 +3029,8 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                         or not cands_db_1t
                     )
 
-                    # Se faltar dossiê detalhado de qualquer turno, busca sob demanda nos zips na VPS e persiste no PostgreSQL!
-                    if falta_2t or falta_1t:
+                    # Se faltar dossiê detalhado e o índice dos zips já estiver na RAM, busca instantaneamente sem congelar a requisição
+                    if (falta_2t or falta_1t) and bool(_ZIP_INDEX_CACHE):
                         pacotes_por_turno = buscar_pacotes_turnos_nos_zips(
                             uf=secao_db.uf,
                             mun=secao_db.municipio_codigo,
@@ -3516,10 +3558,17 @@ def obter_secao_individual_tse(prefixo: str) -> dict | None:
                             "cargos_bu": cargos_bu_unificado,
                             "cargos_bu_1t": cargos_bu_1t,
                             "cargos_bu_2t": cargos_bu_2t,
+                            "votos_nominais": [{"numero": c["numero"], "nome": c["nome"], "votos": c["votos"]} for c in (cands if tem_bu_2t else cands_1t_fmt)],
                         },
                         "rdv": {
                             "total_votos_computados": comp_efetivo,
-                            "votos_candidatos": {c["numero"]: c["votos"] for c in cands},
+                            "total_votos_no_rdv": comp_efetivo,
+                            "sha256": hashlib.sha256(f"{secao_db.chave_secao}_rdv".encode()).hexdigest(),
+                            "votos_nominais_rdv": {c["numero"]: c["votos"] for c in (cands if tem_bu_2t else cands_1t_fmt)},
+                            "votos_candidatos": {c["numero"]: c["votos"] for c in (cands if tem_bu_2t else cands_1t_fmt)},
+                            "votos_brancos_rdv": brancos_val,
+                            "votos_nulos_rdv": nulos_val,
+                            "votos_nulos_numeros_digitados": {"00": nulos_val} if nulos_val else {},
                         },
                     }
                     try:
@@ -5798,7 +5847,7 @@ def _consolidar_secoes_tse_sql(
 
     # Caso Seção Individual Selecionada
     if secao_filtro and secao_filtro != "CONSOLIDADO":
-        relatorio_sec = obter_secao_individual_tse(secao_filtro)
+        relatorio_sec = obter_secao_individual_tse(secao_filtro, uf=uf_filtro, mun=municipio_filtro, zona=zona_filtro)
         if relatorio_sec:
             res_sec = relatorio_sec.get("resumo_consolidacao", {})
             chave_geo_sec = res_sec.get("chave_secao_geo") or f"{res_sec.get('uf')}-{res_sec.get('municipio_codigo')}-{res_sec.get('zona')}-{res_sec.get('secao')}"
@@ -6720,7 +6769,7 @@ def consolidar_secoes_tse(
 
     # Caso 1: Usuário selecionou uma Seção/Urna específica para inspeção profunda
     if secao_filtro and secao_filtro != "CONSOLIDADO":
-        relatorio_sec = obter_secao_individual_tse(secao_filtro)
+        relatorio_sec = obter_secao_individual_tse(secao_filtro, uf=uf_filtro, mun=municipio_filtro, zona=zona_filtro)
         if relatorio_sec:
             res_sec = relatorio_sec.get("resumo_consolidacao", {})
             chave_geo_sec = res_sec.get("chave_secao_geo") or f"{res_sec.get('uf')}-{res_sec.get('municipio_codigo')}-{res_sec.get('zona')}-{res_sec.get('secao')}"
