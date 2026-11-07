@@ -980,6 +980,18 @@ o Boletim de Urna (apos encerramento da votacao).
               <span>Complementar Lacunas (Dados Abertos)</span>
             </button>
 
+            <!-- Botão 3.3: Ingerir BUs Fidedignos (BWEB TSE) -->
+            <button
+              type="button"
+              id="btnAbrirModalBwebToolbar"
+              onclick="abrirModalIngestaoBwebTse()"
+              class="px-3.5 py-2.5 bg-purple-950 hover:bg-purple-900 border border-purple-500/60 text-purple-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-2 shadow shadow-purple-950/50"
+              title="Ingerir Boletins de Urna Fidedignos 100% fiéis e reconstruir as bobinas impressas via BWEB (bweb_*t_*.zip)"
+            >
+              <span>🧾</span>
+              <span>Ingerir BUs Fidedignos (BWEB)</span>
+            </button>
+
             <!-- Botão 4: Sincronizar Base (Atualizar Dados Carregados / Parciais) -->
             <button
               id="btnSincronizarBancoTse"
@@ -2804,6 +2816,178 @@ o Boletim de Urna (apos encerramento da votacao).
             <button
               type="button"
               onclick="fecharModalComplementoVotacaoSecao()"
+              class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL DE INGESTÃO DE BOLETINS DE URNA FIDEDIGNOS (BWEB TSE) -->
+    <div
+      id="modalIngestaoBwebTse"
+      class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4"
+      onclick="fecharModalIngestaoBwebTse(event)"
+    >
+      <div
+        class="bg-slate-900 border border-purple-500/40 rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh] overflow-hidden p-5 space-y-4"
+        onclick="event.stopPropagation()"
+      >
+        <!-- Cabeçalho -->
+        <div class="flex items-center justify-between pb-3 border-b border-slate-800 flex-shrink-0">
+          <div class="flex items-center gap-2.5">
+            <span class="text-2xl">🧾</span>
+            <div>
+              <h3 class="text-base font-extrabold text-white flex items-center gap-2">
+                <span>Ingestão de BUs Fidedignos (TSE Dados Abertos — BWEB)</span>
+                <span class="px-2 py-0.5 text-[10px] font-black rounded-full bg-purple-950 text-purple-300 border border-purple-700/60 mono">
+                  BOLETIM DE URNA OFICIAL
+                </span>
+              </h3>
+              <p class="text-[11px] text-slate-400 mt-0.5">
+                Reconstrói as bobinas térmicas oficiais do 1º e 2º Turnos com código de carga, série da urna, flashcard e votação de todos os cargos.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onclick="fecharModalIngestaoBwebTse()"
+            class="text-slate-400 hover:text-white text-lg font-bold p-1 rounded-lg hover:bg-slate-800 transition"
+          >
+            ✕
+          </button>
+        </div>
+
+        <!-- Conteúdo Rolável -->
+        <div class="flex-1 overflow-y-auto space-y-3.5 pr-1 text-xs">
+          <!-- Card 1: Diagnóstico dos Pacotes Disponíveis -->
+          <div class="bg-slate-950/80 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+            <div class="text-[11px] font-extrabold uppercase text-slate-300 tracking-wider flex items-center justify-between">
+              <span>Pacotes BWEB Detectados no Servidor:</span>
+              <button
+                type="button"
+                onclick="carregarDiagnosticoBweb()"
+                class="text-[10px] text-cyan-400 hover:text-cyan-300 font-bold transition inline-flex items-center gap-1"
+              >
+                <span>🔄</span> Atualizar
+              </button>
+            </div>
+
+            <div id="bwebArquivosLista" class="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+              <div class="text-slate-500 italic py-2 text-center">Buscando arquivos bweb_*.zip em /root/tse_import...</div>
+            </div>
+          </div>
+
+          <!-- Card 2: Diagnóstico do Banco de Dados (1T vs 2T) -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 text-center">
+              <div class="text-[10px] uppercase font-bold text-slate-400">Total Seções</div>
+              <div id="bwebTotalSecoes" class="text-base font-extrabold text-white mt-0.5 mono">-</div>
+            </div>
+            <div class="bg-slate-950 border border-purple-500/30 rounded-xl p-3 text-center">
+              <div class="text-[10px] uppercase font-bold text-purple-300">BUs 1º Turno</div>
+              <div id="bwebTotal1T" class="text-base font-extrabold text-purple-300 mt-0.5 mono">-</div>
+            </div>
+            <div class="bg-slate-950 border border-blue-500/30 rounded-xl p-3 text-center">
+              <div class="text-[10px] uppercase font-bold text-blue-300">BUs 2º Turno</div>
+              <div id="bwebTotal2T" class="text-base font-extrabold text-blue-300 mt-0.5 mono">-</div>
+            </div>
+            <div class="bg-slate-950 border border-amber-500/30 rounded-xl p-3 text-center">
+              <div class="text-[10px] uppercase font-bold text-amber-400">Bobinas Pendentes</div>
+              <div id="bwebBobinasPendentes" class="text-base font-black text-amber-300 mt-0.5 mono">-</div>
+            </div>
+          </div>
+
+          <!-- Card 3: Seleção do Arquivo / Turno para Ingestão -->
+          <div class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5">
+            <div class="text-[11px] font-extrabold uppercase text-slate-300 tracking-wider">
+              Selecionar Arquivo para Carga:
+            </div>
+            <div class="flex flex-col gap-2">
+              <select
+                id="selectArquivoBweb"
+                class="w-full bg-slate-900 border border-slate-700 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-purple-500 mono"
+                onchange="atualizarInfoArquivoBwebSelecionado()"
+              >
+                <option value="">Carregando pacotes...</option>
+              </select>
+              <div id="bwebInfoArquivoSelecionado" class="text-[11px] text-slate-400 italic"></div>
+            </div>
+          </div>
+
+          <!-- Card 4: Progresso e Métricas em Tempo Real -->
+          <div id="bwebProgressoContainer" class="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5 hidden">
+            <div class="flex items-center justify-between text-xs">
+              <span id="bwebProgressoStatusBadge" class="font-extrabold text-purple-400 flex items-center gap-1.5">
+                <span class="relative flex h-2 w-2">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
+                </span>
+                <span>Processando streaming...</span>
+              </span>
+              <span id="bwebProgressoPct" class="font-mono font-black text-white text-sm">0%</span>
+            </div>
+
+            <!-- Barra de progresso -->
+            <div class="w-full bg-slate-900 rounded-full h-2.5 overflow-hidden border border-slate-800">
+              <div id="bwebProgressBar" class="bg-gradient-to-r from-purple-500 to-indigo-400 h-2.5 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+
+            <!-- Métricas detalhadas -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-[11px] mono">
+              <div>
+                <span class="text-slate-500">Linhas Lidas:</span>
+                <span id="bwebMetricaLinhas" class="font-bold text-slate-300 block">0</span>
+              </div>
+              <div>
+                <span class="text-slate-500">Velocidade:</span>
+                <span id="bwebMetricaVelocidade" class="font-bold text-cyan-300 block">0 l/s</span>
+              </div>
+              <div>
+                <span class="text-slate-500">BUs Gerados:</span>
+                <span id="bwebMetricaBUs" class="font-bold text-purple-300 block">0</span>
+              </div>
+              <div>
+                <span class="text-slate-500">Votos Computados:</span>
+                <span id="bwebMetricaVotos" class="font-bold text-amber-300 block">0</span>
+              </div>
+            </div>
+
+            <div id="bwebProgressoMsg" class="text-[11px] text-slate-400 italic pt-1 truncate">
+              Iniciando...
+            </div>
+          </div>
+        </div>
+
+        <!-- Rodapé de Ações -->
+        <div class="flex items-center justify-between pt-3 border-t border-slate-800 flex-shrink-0">
+          <div class="text-[11px] text-slate-400 flex items-center gap-1.5">
+            <span>💡</span>
+            <span>Isolamento estrito entre 1º e 2º Turno garantido por chave de banco.</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              id="btnIniciarBweb"
+              onclick="executarInicioIngestaoBweb()"
+              class="px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-500 hover:from-purple-500 hover:to-indigo-400 text-white font-black text-xs rounded-xl shadow transition inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <span>⚡</span>
+              <span>Iniciar Carga do BU Fidedigno</span>
+            </button>
+            <button
+              type="button"
+              id="btnCancelarBweb"
+              onclick="executarCancelamentoIngestaoBweb()"
+              class="px-3.5 py-2 bg-rose-950 hover:bg-rose-900 text-rose-300 border border-rose-800/50 font-bold text-xs rounded-xl transition cursor-pointer hidden"
+            >
+              Parar
+            </button>
+            <button
+              type="button"
+              onclick="fecharModalIngestaoBwebTse()"
               class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer"
             >
               Fechar
@@ -9952,6 +10136,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         fecharModalEscolhaUploadTse();
         fecharModalHistoricoUploads();
         fecharModalDetalheHistorico();
+        fecharModalIngestaoBwebTse();
         return;
       }
       if (document.getElementById("tab-urna").classList.contains("hidden")) return;
@@ -9960,6 +10145,285 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       else if (e.key === "Enter") pressConfirma();
       else if (e.key === "Backspace") pressCorrige();
     });
+
+    // =========================================================================
+    // MODAL & ENGINE: INGESTÃO DE BOLETINS DE URNA FIDEDIGNOS (BWEB TSE)
+    // =========================================================================
+    let _bwebPollingTimer = null;
+    let _bwebListaArquivosCache = [];
+
+    function abrirModalIngestaoBwebTse() {
+      const modal = document.getElementById("modalIngestaoBwebTse");
+      if (modal) modal.classList.remove("hidden");
+      carregarDiagnosticoBweb();
+    }
+
+    function fecharModalIngestaoBwebTse(event) {
+      if (event && event.target && event.target.id !== "modalIngestaoBwebTse") return;
+      const modal = document.getElementById("modalIngestaoBwebTse");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    async function carregarDiagnosticoBweb() {
+      const listaEl = document.getElementById("bwebArquivosLista");
+      const selEl = document.getElementById("selectArquivoBweb");
+      const totSecEl = document.getElementById("bwebTotalSecoes");
+      const tot1tEl = document.getElementById("bwebTotal1T");
+      const tot2tEl = document.getElementById("bwebTotal2T");
+      const pendEl = document.getElementById("bwebBobinasPendentes");
+
+      try {
+        const res = await fetch("/api/tse-reverso/bweb/diagnostico");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        // 1. Diagnóstico do Banco
+        const b = data.banco || {};
+        if (totSecEl) totSecEl.textContent = (b.total_secoes || 0).toLocaleString("pt-BR");
+        if (tot1tEl) tot1tEl.textContent = (b.total_1t || 0).toLocaleString("pt-BR");
+        if (tot2tEl) tot2tEl.textContent = (b.total_2t || 0).toLocaleString("pt-BR");
+        const pendentes = (b.bobinas_vazias_1t || 0) + (b.bobinas_vazias_2t || 0);
+        if (pendEl) pendEl.textContent = pendentes.toLocaleString("pt-BR");
+
+        // 2. Lista de Pacotes BWEB
+        const arquivos = data.arquivos_disponiveis || [];
+        _bwebListaArquivosCache = arquivos;
+
+        if (arquivos.length === 0) {
+          if (listaEl) {
+            listaEl.innerHTML = `
+              <div class="text-amber-400 italic py-2 text-center">
+                Nenhum arquivo <code>bweb_*t_*.zip</code> encontrado em <code>/root/tse_import</code>.<br>
+                <span class="text-slate-400 text-[10px]">Envie o arquivo do TSE via Termius SFTP para a VPS.</span>
+              </div>
+            `;
+          }
+          if (selEl) {
+            selEl.innerHTML = `<option value="">Nenhum pacote BWEB no servidor</option>`;
+            selEl.disabled = true;
+          }
+          atualizarInfoArquivoBwebSelecionado();
+        } else {
+          if (listaEl) {
+            listaEl.innerHTML = arquivos.map(arq => {
+              const szMb = arq.tamanho_mb ? `${arq.tamanho_mb} MB` : "";
+              const turnoBadge = arq.turno === 1
+                ? `<span class="px-1.5 py-0.5 rounded bg-purple-950 text-purple-300 border border-purple-800 text-[10px] font-bold">1º Turno (04/10)</span>`
+                : (arq.turno === 2
+                  ? `<span class="px-1.5 py-0.5 rounded bg-blue-950 text-blue-300 border border-blue-800 text-[10px] font-bold">2º Turno (25/10)</span>`
+                  : `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 text-[10px]">Turno ${arq.turno || '?'}</span>`);
+
+              const statusBadge = arq.status_processado === "PROCESSADO"
+                ? `<span class="text-emerald-400 font-bold">✓ Carga Completa</span>`
+                : `<span class="text-amber-300 font-semibold">⚡ Pronto para Carga</span>`;
+
+              return `
+                <div class="flex items-center justify-between p-2 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] mono">
+                  <div class="flex items-center gap-2">
+                    <span class="text-slate-400">📦</span>
+                    <strong class="text-white">${arq.nome}</strong>
+                    ${turnoBadge}
+                    <span class="text-slate-500">(${szMb})</span>
+                  </div>
+                  <div>${statusBadge}</div>
+                </div>
+              `;
+            }).join("");
+          }
+
+          if (selEl) {
+            selEl.disabled = false;
+            selEl.innerHTML = arquivos.map(arq => {
+              const labelTurno = arq.turno === 1 ? "1º Turno (04/10/2026)" : (arq.turno === 2 ? "2º Turno (25/10/2026)" : `Turno ${arq.turno}`);
+              return `<option value="${arq.caminho}">${arq.nome} — [${arq.uf} - ${labelTurno}] (${arq.tamanho_mb} MB)</option>`;
+            }).join("");
+          }
+          atualizarInfoArquivoBwebSelecionado();
+        }
+
+        // 3. Status atual do processamento
+        const st = data.status_atual || {};
+        if (st.status === "EM_ANDAMENTO") {
+          atualizarInterfaceProgressoBweb(st);
+          iniciarPollingIngestaoBweb();
+        } else if (st.status === "CONCLUIDO") {
+          atualizarInterfaceProgressoBweb(st);
+        }
+      } catch (err) {
+        if (listaEl) {
+          listaEl.innerHTML = `<div class="text-rose-400 py-2 text-center text-xs">Erro ao diagnosticar BWEB: ${err.message}</div>`;
+        }
+      }
+    }
+
+    function atualizarInfoArquivoBwebSelecionado() {
+      const selEl = document.getElementById("selectArquivoBweb");
+      const infoEl = document.getElementById("bwebInfoArquivoSelecionado");
+      if (!selEl || !infoEl) return;
+
+      const pathSel = selEl.value;
+      const arq = _bwebListaArquivosCache.find(a => a.caminho === pathSel);
+      if (arq) {
+        const turnoDesc = arq.turno === 1 ? "1º Turno (04/10/2026)" : (arq.turno === 2 ? "2º Turno (25/10/2026)" : `Turno ${arq.turno}`);
+        infoEl.innerHTML = `
+          <span class="text-purple-300 font-bold">Arquivo Selecionado:</span> ${arq.nome} |
+          <span class="text-slate-300 font-semibold">UF:</span> ${arq.uf} |
+          <span class="text-cyan-300 font-bold">Turno:</span> ${turnoDesc} |
+          <span class="text-slate-300 font-semibold">Tamanho:</span> ${arq.tamanho_mb} MB
+          <br><span class="text-slate-500 text-[10px]">↳ O processamento é realizado via streaming direto da memória (Zero-Disk), atualizando o BU fidedigno e as bobinas térmicas oficiais.</span>
+        `;
+      } else {
+        infoEl.textContent = "";
+      }
+    }
+
+    async function executarInicioIngestaoBweb() {
+      const selEl = document.getElementById("selectArquivoBweb");
+      const btnIniciar = document.getElementById("btnIniciarBweb");
+      const btnCancelar = document.getElementById("btnCancelarBweb");
+      const caminho = selEl ? selEl.value : "";
+
+      if (!caminho) {
+        showSecurityAlert("Nenhum arquivo BWEB selecionado.", true);
+        return;
+      }
+
+      if (btnIniciar) btnIniciar.disabled = true;
+
+      try {
+        const res = await fetch("/api/tse-reverso/bweb/ingerir", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ caminho_arquivo: caminho })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          showSecurityAlert(`Aviso ao iniciar carga: ${data.mensagem || 'Falha na inicialização'}`, true);
+          if (btnIniciar) btnIniciar.disabled = false;
+          return;
+        }
+
+        if (btnCancelar) btnCancelar.classList.remove("hidden");
+        const contProg = document.getElementById("bwebProgressoContainer");
+        if (contProg) contProg.classList.remove("hidden");
+
+        iniciarPollingIngestaoBweb();
+      } catch (err) {
+        showSecurityAlert(`Erro ao disparar ingestão BWEB: ${err.message}`, true);
+        if (btnIniciar) btnIniciar.disabled = false;
+      }
+    }
+
+    function iniciarPollingIngestaoBweb() {
+      if (_bwebPollingTimer) clearInterval(_bwebPollingTimer);
+
+      const contProg = document.getElementById("bwebProgressoContainer");
+      if (contProg) contProg.classList.remove("hidden");
+
+      _bwebPollingTimer = setInterval(async () => {
+        try {
+          const res = await fetch("/api/tse-reverso/bweb/progresso");
+          if (!res.ok) return;
+          const st = await res.json();
+          atualizarInterfaceProgressoBweb(st);
+
+          if (st.status === "CONCLUIDO" || st.status === "ERRO" || st.status === "PARADO") {
+            clearInterval(_bwebPollingTimer);
+            _bwebPollingTimer = null;
+
+            const btnIniciar = document.getElementById("btnIniciarBweb");
+            const btnCancelar = document.getElementById("btnCancelarBweb");
+            if (btnIniciar) btnIniciar.disabled = false;
+            if (btnCancelar) btnCancelar.classList.add("hidden");
+
+            if (st.status === "CONCLUIDO") {
+              showSecurityAlert(`🎉 Carga do BU Fidedigno BWEB concluída com sucesso! ${st.secoes_processadas.toLocaleString('pt-BR')} seções e ${st.votos_computados.toLocaleString('pt-BR')} votos auditados.`, false);
+              carregarDiagnosticoBweb();
+              // Atualiza visão se estiver em urna individual
+              if (window.arvoreTseState && window.arvoreTseState.secao && window.arvoreTseState.secao !== "CONSOLIDADO") {
+                recarregarArvoreHierarquicaTse(false);
+              }
+            } else if (st.status === "ERRO") {
+              showSecurityAlert(`Erro na carga BWEB: ${st.erro || st.mensagem}`, true);
+            }
+          }
+        } catch (e) {
+          console.error("[BWEB] Erro no polling:", e);
+        }
+      }, 1000);
+    }
+
+    function atualizarInterfaceProgressoBweb(st) {
+      const contProg = document.getElementById("bwebProgressoContainer");
+      const badgeStatus = document.getElementById("bwebProgressoStatusBadge");
+      const pctEl = document.getElementById("bwebProgressoPct");
+      const barEl = document.getElementById("bwebProgressBar");
+      const linEl = document.getElementById("bwebMetricaLinhas");
+      const velEl = document.getElementById("bwebMetricaVelocidade");
+      const busEl = document.getElementById("bwebMetricaBUs");
+      const votEl = document.getElementById("bwebMetricaVotos");
+      const msgEl = document.getElementById("bwebProgressoMsg");
+      const btnIniciar = document.getElementById("btnIniciarBweb");
+      const btnCancelar = document.getElementById("btnCancelarBweb");
+
+      if (contProg && st.status !== "PARADO") contProg.classList.remove("hidden");
+
+      const pct = Math.min(100, Math.max(0, Number(st.porcentagem || 0)));
+      if (pctEl) pctEl.textContent = `${pct.toFixed(1)}%`;
+      if (barEl) barEl.style.width = `${pct}%`;
+
+      if (linEl) linEl.textContent = Number(st.linhas_lidas || 0).toLocaleString("pt-BR");
+      if (velEl) velEl.textContent = `${Math.round(st.velocidade_linhas_segundo || 0).toLocaleString("pt-BR")} l/s`;
+      if (busEl) busEl.textContent = Number(st.bus_atualizados || 0).toLocaleString("pt-BR");
+      if (votEl) votEl.textContent = Number(st.votos_computados || 0).toLocaleString("pt-BR");
+
+      if (msgEl) msgEl.textContent = st.mensagem || "";
+
+      if (st.status === "EM_ANDAMENTO") {
+        if (badgeStatus) {
+          badgeStatus.innerHTML = `
+            <span class="relative flex h-2 w-2">
+              <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-2 w-2 bg-purple-500"></span>
+            </span>
+            <span class="text-purple-300">Carga e decodificação streaming em andamento...</span>
+          `;
+        }
+        if (btnIniciar) btnIniciar.disabled = true;
+        if (btnCancelar) btnCancelar.classList.remove("hidden");
+      } else if (st.status === "CONCLUIDO") {
+        if (badgeStatus) {
+          badgeStatus.innerHTML = `
+            <span class="text-emerald-400 font-black">✓ Processamento BWEB Concluído com Sucesso</span>
+          `;
+        }
+        if (btnIniciar) btnIniciar.disabled = false;
+        if (btnCancelar) btnCancelar.classList.add("hidden");
+      } else if (st.status === "ERRO") {
+        if (badgeStatus) {
+          badgeStatus.innerHTML = `
+            <span class="text-rose-400 font-black">✕ Erro durante o processamento</span>
+          `;
+        }
+        if (btnIniciar) btnIniciar.disabled = false;
+        if (btnCancelar) btnCancelar.classList.add("hidden");
+      }
+    }
+
+    async function executarCancelamentoIngestaoBweb() {
+      const btnCancelar = document.getElementById("btnCancelarBweb");
+      if (btnCancelar) btnCancelar.disabled = true;
+
+      try {
+        const res = await fetch("/api/tse-reverso/bweb/cancelar", { method: "POST" });
+        const data = await res.json();
+        showSecurityAlert(data.mensagem || "Cancelamento solicitado ao servidor.", false);
+      } catch (err) {
+        showSecurityAlert(`Erro ao cancelar: ${err.message}`, true);
+      } finally {
+        if (btnCancelar) btnCancelar.disabled = false;
+      }
+    }
 
     async function checarVersaoProducao() {
       try {

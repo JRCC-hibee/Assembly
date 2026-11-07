@@ -82,10 +82,17 @@ from .tse_votacao_secao_parser import (
     obter_status_complementacao,
     localizar_arquivo_votacao_secao,
 )
+from .tse_bweb_parser import (
+    diagnosticar_bweb,
+    iniciar_ingestao_bweb,
+    cancelar_ingestao_bweb,
+    obter_status_ingestao_bweb,
+    localizar_arquivos_bweb,
+)
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-07-rev38"
-SYSTEM_COMMIT = "rev38-complementacao-lacunas-votacao-secao-br"
+SYSTEM_BUILD = "2026-11-07-rev39"
+SYSTEM_COMMIT = "rev39-ingestao-bu-fidedigno-bweb-tse"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1816,6 +1823,56 @@ def api_tse_reverso_votacao_secao_progresso():
 def api_tse_reverso_votacao_secao_cancelar():
     """Cancela o processo de complementação em andamento."""
     return cancelar_complementacao()
+
+
+# ==============================================================================
+# INGESTÃO DE BOLETINS DE URNA FIDEDIGNOS (TSE DADOS ABERTOS - BWEB)
+# ==============================================================================
+
+@app.get("/api/tse-reverso/bweb/diagnostico")
+def api_tse_reverso_bweb_diagnostico(db: Session = Depends(get_db)):
+    """
+    Retorna diagnóstico dos arquivos BWEB disponíveis no servidor e
+    quantas bobinas de 1º e 2º Turno estão pendentes de preenchimento.
+    """
+    return diagnosticar_bweb(db=db)
+
+
+@app.post("/api/tse-reverso/bweb/ingerir")
+def api_tse_reverso_bweb_ingerir(
+    caminho_arquivo: Optional[str] = None,
+    payload: dict = Body(default={}),
+    db: Session = Depends(get_db),
+):
+    """
+    Inicia o processamento pericial de um arquivo BWEB em segundo plano:
+    - caminho_arquivo: caminho do arquivo bweb_*.zip ou bweb_*.csv (via query param ou JSON body)
+    - turno: 1 ou 2 (opcional, detectado automaticamente pelo nome se omitido)
+    """
+    caminho = caminho_arquivo or payload.get("caminho_arquivo")
+    turno = payload.get("turno")
+    if turno is not None:
+        try:
+            turno = int(turno)
+        except Exception:
+            turno = None
+    return iniciar_ingestao_bweb(
+        caminho_arquivo=caminho,
+        turno=turno,
+    )
+
+
+@app.get("/api/tse-reverso/bweb/progresso")
+def api_tse_reverso_bweb_progresso():
+    """Retorna o progresso em tempo real da ingestão do BWEB."""
+    return obter_status_ingestao_bweb()
+
+
+@app.post("/api/tse-reverso/bweb/cancelar")
+def api_tse_reverso_bweb_cancelar():
+    """Cancela a ingestão BWEB em andamento."""
+    return cancelar_ingestao_bweb()
+
 
 
 

@@ -3257,8 +3257,8 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     espelho_2t = None
                     if tem_bu_2t:
                         if dossie_2t_db and dossie_2t_db.espelho_bobina and len(str(dossie_2t_db.espelho_bobina).strip().splitlines()) >= 15:
-                            m_c2 = re.search(r"Comparecimento\s+(\d+)", dossie_2t_db.espelho_bobina, re.I)
-                            if m_c2 and int(m_c2.group(1)) == comp_2t_val and "2º Turno" in dossie_2t_db.espelho_bobina and "JAIR BOLSONARO" not in dossie_2t_db.espelho_bobina:
+                            m_c2 = re.search(r"Comparecimento:?\s+(\d+)", dossie_2t_db.espelho_bobina, re.I)
+                            if m_c2 and int(m_c2.group(1)) == comp_2t_val and ("2º Turno" in dossie_2t_db.espelho_bobina or "2º TURNO" in dossie_2t_db.espelho_bobina or "2° Turno" in dossie_2t_db.espelho_bobina) and "JAIR BOLSONARO" not in dossie_2t_db.espelho_bobina:
                                 espelho_2t = dossie_2t_db.espelho_bobina
 
                         if not espelho_2t:
@@ -3291,8 +3291,8 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     espelho_1t = None
                     if tem_bu_1t:
                         if dossie_1t_db and dossie_1t_db.espelho_bobina and len(str(dossie_1t_db.espelho_bobina).strip().splitlines()) >= 15:
-                            m_c1 = re.search(r"Comparecimento\s+(\d+)", dossie_1t_db.espelho_bobina, re.I)
-                            if m_c1 and int(m_c1.group(1)) == comp_1t_val and "1º Turno" in dossie_1t_db.espelho_bobina and "JAIR BOLSONARO" not in dossie_1t_db.espelho_bobina:
+                            m_c1 = re.search(r"Comparecimento:?\s+(\d+)", dossie_1t_db.espelho_bobina, re.I)
+                            if m_c1 and int(m_c1.group(1)) == comp_1t_val and ("1º Turno" in dossie_1t_db.espelho_bobina or "1º TURNO" in dossie_1t_db.espelho_bobina or "1° Turno" in dossie_1t_db.espelho_bobina) and "JAIR BOLSONARO" not in dossie_1t_db.espelho_bobina:
                                 espelho_1t = dossie_1t_db.espelho_bobina
 
                         if not espelho_1t:
@@ -4452,12 +4452,21 @@ def obter_status_pasta_importacao_servidor() -> dict:
                             urnas_no_banco = contagem_uf_total.get(uf_det, 0)
 
                         is_votacao_secao = "votacao_secao" in f_low
+                        is_bweb = "bweb" in f_low
                         ja_ingerido = (urnas_no_banco > 100) or (f_low in uploads_concluidos)
-                        selecionado_padrao = (not ja_ingerido) and (not is_votacao_secao)
+                        selecionado_padrao = (not ja_ingerido) and (not is_votacao_secao) and (not is_bweb)
 
                         msg_diag = diag.get("mensagem_diagnostico", "")
                         if is_votacao_secao:
-                            msg_diag = "Pacote Oficial TSE Dados Abertos (Votação Seção BR) — Utilize o botão 'Complementar Lacunas' para preenchimento de turnos faltantes."
+                            msg_diag = "Pacote Oficial TSE Dados Abertos (Votação Seção BR) — Utilize o botão 'Complementar Lacunas'."
+                        elif is_bweb:
+                            msg_diag = "Pacote Oficial TSE BWEB (Boletim de Urna Fidedigno) — Utilize o botão 'Ingerir BUs Fidedignos (BWEB)'."
+
+                        tipo_pacote = "URNAS_FISICAS"
+                        if is_votacao_secao:
+                            tipo_pacote = "VOTACAO_SECAO"
+                        elif is_bweb:
+                            tipo_pacote = "BWEB_BOLETIM_URNA"
 
                         arquivos_zip.append({
                             "nome": f,
@@ -4471,8 +4480,8 @@ def obter_status_pasta_importacao_servidor() -> dict:
                             "tem_7z": diag.get("tem_7z_sistema", False),
                             "tem_unzip": diag.get("tem_unzip_sistema", False),
                             "uf": "BR" if is_votacao_secao else uf_det,
-                            "turno": "1T/2T" if is_votacao_secao else turno_det,
-                            "tipo_pacote": "VOTACAO_SECAO" if is_votacao_secao else "URNAS_FISICAS",
+                            "turno": ("1T/2T" if is_votacao_secao else (f"{turno_det}ºT" if turno_det else None)),
+                            "tipo_pacote": tipo_pacote,
                             "urnas_salvas_no_banco": urnas_no_banco,
                             "ja_ingerido": bool(ja_ingerido),
                             "selecionado_padrao": bool(selecionado_padrao),
@@ -4937,7 +4946,7 @@ def _executar_ingestao_servidor_worker(arquivos_selecionados: list[str] | None =
             temp_extract_dir = None
             try:
                 zip_low = os.path.basename(zip_path).lower()
-                if "votacao_secao" in zip_low:
+                if "votacao_secao" in zip_low or "bweb" in zip_low:
                     continue
                 m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(zip_path), re.IGNORECASE)
                 default_zip_uf = m_zip_uf.group(1).upper() if m_zip_uf else uf_inicial
@@ -5624,7 +5633,7 @@ def _executar_complementacao_worker():
             temp_extract_dir = None
             try:
                 zip_low = os.path.basename(zip_path).lower()
-                if "votacao_secao" in zip_low:
+                if "votacao_secao" in zip_low or "bweb" in zip_low:
                     continue
                 m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(zip_path), re.IGNORECASE)
                 default_zip_uf = m_zip_uf.group(1).upper() if m_zip_uf else uf_comp
