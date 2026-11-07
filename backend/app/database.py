@@ -4,7 +4,7 @@ import json
 import time
 from datetime import datetime, timezone
 from sqlalchemy import (
-    create_engine, Column, Integer, SmallInteger, String, Boolean,
+    create_engine, Column, Integer, SmallInteger, BigInteger, Float, String, Boolean,
     DateTime, Text, text, ForeignKey, Index, UniqueConstraint
 )
 from sqlalchemy.orm import declarative_base, sessionmaker, relationship, Session
