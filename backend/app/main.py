@@ -91,8 +91,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-07-rev39"
-SYSTEM_COMMIT = "rev39-ingestao-bu-fidedigno-bweb-tse"
+SYSTEM_BUILD = "2026-11-07-rev40"
+SYSTEM_COMMIT = "rev40-fidelidade-cargos-presidente-flavio-governador-moro"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -124,16 +124,40 @@ def on_startup():
         try:
             get_or_create_seccao(db)
             seed_default_candidates(db)
-            # Fidelidade cadastral e retroativa: Candidato 22 é FLÁVIO BOLSONARO na eleição de 2026
+            # Fidelidade cadastral e retroativa rigorosa:
+            # - Presidente: 22 é FLÁVIO BOLSONARO (LULA é 13)
+            # - Governador (PR): 22 é SÉRGIO MORO
             try:
                 from sqlalchemy import text
                 db.execute(text("UPDATE tse_votos_candidatos SET nome_candidato = 'FLÁVIO BOLSONARO' WHERE numero_candidato = 22 AND (cargo = 'PRESIDENTE' OR cargo IS NULL)"))
-                db.execute(text("UPDATE tse_dossie_secao SET espelho_bobina = REPLACE(REPLACE(espelho_bobina, 'JAIR BOLSONARO', 'FLÁVIO BOLSONARO'), 'FLAVIO BOLSONARO', 'FLÁVIO BOLSONARO') WHERE espelho_bobina LIKE '%BOLSONARO%'"))
+                db.execute(text("UPDATE tse_votos_candidatos SET nome_candidato = 'SÉRGIO MORO' WHERE numero_candidato = 22 AND cargo = 'GOVERNADOR'"))
+                db.execute(text("UPDATE tse_dossie_secao SET espelho_bobina = REPLACE(REPLACE(espelho_bobina, 'JAIR BOLSONARO', 'FLÁVIO BOLSONARO'), 'FLAVIO BOLSONARO', 'FLÁVIO BOLSONARO') WHERE espelho_bobina LIKE '%BOLSONARO%' AND espelho_bobina NOT LIKE '%GOVERNADOR%'"))
+
+                # Corrige qualquer espelho existente que tenha colocado BOLSONARO sob o cargo de GOVERNADOR
+                dossies_com_gov = db.execute(text("SELECT id, espelho_bobina FROM tse_dossie_secao WHERE espelho_bobina LIKE '%GOVERNADOR%' AND (espelho_bobina LIKE '%BOLSONARO%' OR espelho_bobina LIKE '%FLÁVIO%')")).fetchall()
+                for d_id, b_txt in dossies_com_gov:
+                    if not b_txt:
+                        continue
+                    linhas = b_txt.splitlines()
+                    in_gov = False
+                    modificado = False
+                    novas_linhas = []
+                    for ln in linhas:
+                        if "GOVERNADOR" in ln:
+                            in_gov = True
+                        elif in_gov and ("PRESIDENTE" in ln or "SENADOR" in ln or "DEPUTADO" in ln or "====================" in ln):
+                            in_gov = False
+                        if in_gov and ("BOLSONARO" in ln or "FLÁVIO" in ln or "FLAVIO" in ln) and "22" in ln:
+                            ln = re.sub(r"FLÁVIO BOLSONARO|FLAVIO BOLSONARO|JAIR BOLSONARO", "SÉRGIO MORO", ln)
+                            modificado = True
+                        novas_linhas.append(ln)
+                    if modificado:
+                        db.execute(text("UPDATE tse_dossie_secao SET espelho_bobina = :txt WHERE id = :id"), {"txt": "\n".join(novas_linhas), "id": d_id})
                 db.commit()
-                print("[STARTUP] Fidelidade restaurada com sucesso: Candidato 22 normalizado para FLÁVIO BOLSONARO.")
+                print("[STARTUP] Fidelidade restaurada com sucesso: Presidente 22 = FLÁVIO BOLSONARO | Governador 22 = SÉRGIO MORO.")
             except Exception as e_fid:
                 db.rollback()
-                print(f"[STARTUP] Aviso na restauração de fidelidade do candidato 22: {e_fid}")
+                print(f"[STARTUP] Aviso na restauração de fidelidade dos candidatos: {e_fid}")
             # Verificação e reparo automático de votos zerados em tse_votos_candidatos via catálogo
             try:
                 from .database import TseVotoCandidato

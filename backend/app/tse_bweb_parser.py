@@ -41,6 +41,16 @@ except ImportError:
     TseHistoricoUpload = None
     obter_regiao_uf = lambda uf: "SUL"
     PADRAO_NOMES_PRESIDENTE = {"13": "LULA", "22": "FLÁVIO BOLSONARO"}
+    PADRAO_NOMES_GOVERNADOR_PR = {
+        "12": "REQUIÃO FILHO",
+        "14": "LUIZ FRANÇA",
+        "16": "SAMUEL DE MATTOS",
+        "22": "SÉRGIO MORO",
+        "29": "ADRIANO FUNILEIRO",
+        "33": "DOUTOR ALEXANDRE SALOMÃO",
+        "55": "SANDRO ALEX",
+        "80": "TAYNÁ MIESSA",
+    }
     _obter_db_session = lambda: None
 
 
@@ -340,7 +350,16 @@ def gerar_espelho_bobina_bweb(
             vt = c.get("votos", 0)
             if vt > 0:
                 num_c = str(c.get("numero", ""))
-                nm_c = c.get("nome", "")
+                nm_c = str(c.get("nome", "")).strip()
+                cg_u = cg.upper()
+                if "PRESIDENT" in cg_u:
+                    if num_c == "22" or "JAIR" in nm_c.upper():
+                        nm_c = "FLÁVIO BOLSONARO"
+                    elif num_c == "13":
+                        nm_c = "LULA"
+                elif "GOVERNAD" in cg_u:
+                    if num_c == "22" or "BOLSONARO" in nm_c.upper():
+                        nm_c = "SÉRGIO MORO"
                 part_sg = c.get("partido", "")
                 linhas.append(f"  {num_c:>5} - {nm_c:<32} ({part_sg:<10}): {vt:>4} votos")
 
@@ -570,39 +589,66 @@ def _executar_ingestao_bweb_worker(
                     bu_db.mac_urna = sec_info["urna_efetivada"]
                     bu_db.divergencia_descricao = "Boletim de Urna Oficial TSE (BWEB)"
 
-                # 2. Votos nominais para Presidente strictly no turno_s
-                for c in pres_data.get("candidatos", []):
-                    num_c = c.get("numero")
-                    vt = c.get("votos", 0)
-                    nm_c = c.get("nome")
-                    if not num_c:
-                        continue
-                    if not nm_c or "JAIR" in (nm_c or "").upper():
-                        nm_c = PADRAO_NOMES_PRESIDENTE.get(str(num_c), nm_c or f"CANDIDATO {num_c}")
-
-                    voto_db = db.query(TseVotoCandidato).filter(
-                        TseVotoCandidato.secao_id == sec_id,
-                        TseVotoCandidato.turno == turno_s,
-                        TseVotoCandidato.cargo == "PRESIDENTE",
-                        TseVotoCandidato.numero_candidato == num_c
-                    ).first()
-
-                    if not voto_db:
-                        voto_db = TseVotoCandidato(
-                            secao_id=sec_id,
-                            turno=turno_s,
-                            cargo="PRESIDENTE",
-                            numero_candidato=num_c,
-                            nome_candidato=nm_c,
-                            quantidade_votos=vt,
-                            votos_bu=vt,
-                            votos_rdv=vt,
-                        )
-                        db.add(voto_db)
+                # 2. Votos nominais para todos os cargos (PRESIDENTE, GOVERNADOR, SENADOR, DEPUTADOS) strictly no turno_s
+                for cg_nome_raw, cg_info in sec_info["cargos"].items():
+                    cg_upper = cg_nome_raw.strip().upper()
+                    if "PRESIDENT" in cg_upper:
+                        cg_norm = "PRESIDENTE"
+                    elif "GOVERNAD" in cg_upper:
+                        cg_norm = "GOVERNADOR"
+                    elif "SENAD" in cg_upper:
+                        cg_norm = "SENADOR"
+                    elif "DEPUTADO FED" in cg_upper:
+                        cg_norm = "DEPUTADO FEDERAL"
+                    elif "DEPUTADO EST" in cg_upper or "DEPUTADO DIST" in cg_upper:
+                        cg_norm = "DEPUTADO ESTADUAL"
                     else:
-                        voto_db.quantidade_votos = vt
-                        voto_db.votos_bu = vt
-                        voto_db.nome_candidato = nm_c
+                        cg_norm = cg_upper[:30]
+
+                    for c in cg_info.get("candidatos", []):
+                        num_c = c.get("numero")
+                        vt = c.get("votos", 0)
+                        nm_c = c.get("nome")
+                        if not num_c:
+                            continue
+
+                        # Respeito estrito aos nomes por cargo
+                        if cg_norm == "PRESIDENTE":
+                            if str(num_c) == "22" or "JAIR" in (nm_c or "").upper():
+                                nm_c = "FLÁVIO BOLSONARO"
+                            elif str(num_c) == "13":
+                                nm_c = "LULA"
+                            elif not nm_c:
+                                nm_c = PADRAO_NOMES_PRESIDENTE.get(str(num_c), f"CANDIDATO {num_c}")
+                        elif cg_norm == "GOVERNADOR":
+                            if str(num_c) == "22" or "BOLSONARO" in (nm_c or "").upper():
+                                nm_c = "SÉRGIO MORO"
+                            elif not nm_c:
+                                nm_c = PADRAO_NOMES_GOVERNADOR_PR.get(str(num_c), f"CANDIDATO {num_c}")
+
+                        voto_db = db.query(TseVotoCandidato).filter(
+                            TseVotoCandidato.secao_id == sec_id,
+                            TseVotoCandidato.turno == turno_s,
+                            TseVotoCandidato.cargo == cg_norm,
+                            TseVotoCandidato.numero_candidato == num_c
+                        ).first()
+
+                        if not voto_db:
+                            voto_db = TseVotoCandidato(
+                                secao_id=sec_id,
+                                turno=turno_s,
+                                cargo=cg_norm,
+                                numero_candidato=num_c,
+                                nome_candidato=nm_c,
+                                quantidade_votos=vt,
+                                votos_bu=vt,
+                                votos_rdv=vt,
+                            )
+                            db.add(voto_db)
+                        else:
+                            voto_db.quantidade_votos = vt
+                            voto_db.votos_bu = vt
+                            voto_db.nome_candidato = nm_c
 
                 # 3. Reconstrói o espelho oficial fidedigno da bobina para o turno_s
                 data_pleito_fmt = "04/10/2026" if turno_s == 1 else "25/10/2026"

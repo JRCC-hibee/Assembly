@@ -582,6 +582,9 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
                         nome_cand = "FLÁVIO BOLSONARO"
                     elif num_cand == 13:
                         nome_cand = "LULA"
+                elif cargo_nome == "GOVERNADOR":
+                    if num_cand == 22 or "BOLSONARO" in (nome_cand or "").upper():
+                        nome_cand = "SÉRGIO MORO"
 
                 votos_map[(cargo_nome, num_cand)] = {
                     "cargo": cargo_nome,

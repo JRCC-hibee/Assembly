@@ -36,15 +36,31 @@ TIPO_VOTO_ASN1_MAP = {
 PADRAO_NOMES_PRESIDENTE = {
     "13": "LULA",
     "22": "FLÁVIO BOLSONARO",
+    "14": "RENAN SANTOS",
+    "16": "HERTZ DIAS",
+    "21": "EDMILSON COSTA",
+    "27": "CLARIANA BARAO",
+    "28": "LEONARDO AVALANCHE",
+    "29": "RUI COSTA PIMENTA",
+    "30": "ZEMA",
+    "35": "VETERINÁRIO WILSON GRASSI",
+    "55": "RONALDO CAIADO",
+    "70": "ESCRITOR AUGUSTO CURY",
+    "80": "SAMARA",
     "12": "CIRO GOMES",
     "15": "SIMONE TEBET",
-    "14": "PADRE KELMON",
-    "30": "FELIPE D'AVILA",
     "44": "SORAYA THRONICKE",
-    "16": "VERA",
-    "21": "CONSTITUINTE EYMAEL",
-    "27": "EYMAEL",
-    "80": "LÉO PÉRICLES",
+}
+
+PADRAO_NOMES_GOVERNADOR_PR = {
+    "12": "REQUIÃO FILHO",
+    "14": "LUIZ FRANÇA",
+    "16": "SAMUEL DE MATTOS",
+    "22": "SÉRGIO MORO",
+    "29": "ADRIANO FUNILEIRO",
+    "33": "DOUTOR ALEXANDRE SALOMÃO",
+    "55": "SANDRO ALEX",
+    "80": "TAYNÁ MIESSA",
 }
 
 # Cargos oficiais das Eleições Gerais (1º Turno e 2º Turno)
@@ -504,10 +520,15 @@ def decodificar_espelho_bu_txt(espelho_bu_raw: str, imgbu_bytes: bytes = None) -
             if m_cand:
                 num_c = m_cand.group(2).strip()
                 nome_c = m_cand.group(1).strip()
-                if num_c == "22":
-                    nome_c = "FLÁVIO BOLSONARO"
-                elif num_c == "13":
-                    nome_c = "LULA"
+                cg_u = cargo_atual.upper()
+                if "PRESIDENT" in cg_u:
+                    if num_c == "22" or "JAIR" in nome_c.upper():
+                        nome_c = "FLÁVIO BOLSONARO"
+                    elif num_c == "13":
+                        nome_c = "LULA"
+                elif "GOVERNAD" in cg_u:
+                    if num_c == "22" or "BOLSONARO" in nome_c.upper():
+                        nome_c = "SÉRGIO MORO"
                 cargos_bu_map[cargo_atual]["candidatos"].append({
                     "nome": nome_c,
                     "numero": num_c,
@@ -1936,8 +1957,12 @@ def _carregar_catalogo_disco() -> dict[str, dict]:
                     pref = item.get("prefixo")
                     if pref:
                         for c in item.get("candidatos", []):
+                            cg_c = str(c.get("cargo") or "PRESIDENTE").upper()
                             if str(c.get("numero")) == "22":
-                                c["nome"] = "FLÁVIO BOLSONARO"
+                                if "GOVERNAD" in cg_c:
+                                    c["nome"] = "SÉRGIO MORO"
+                                else:
+                                    c["nome"] = "FLÁVIO BOLSONARO"
                         _CATALOGO_MEMORIA[pref] = item
         except Exception:
             pass
@@ -2840,12 +2865,15 @@ def gerar_espelho_bobina_completo_tse(
             nome_c = str(c.get("nome") or f"Candidato {c.get('numero')}").strip().upper()
             num_str = str(c.get("numero", ""))
             if cg_nome == "PRESIDENTE":
-                if num_str == "22":
+                if num_str == "22" or "JAIR" in nome_c:
                     nome_c = "FLÁVIO BOLSONARO"
                 elif num_str == "13":
                     nome_c = "LULA"
-                elif "JAIR" in nome_c:
-                    nome_c = "FLÁVIO BOLSONARO"
+            elif cg_nome == "GOVERNADOR":
+                if num_str == "22" or "BOLSONARO" in nome_c:
+                    nome_c = "SÉRGIO MORO"
+                elif num_str in PADRAO_NOMES_GOVERNADOR_PR and (not nome_c or nome_c.startswith("CANDIDATO")):
+                    nome_c = PADRAO_NOMES_GOVERNADOR_PR[num_str]
             vt = int(c.get("votos", 0) or c.get("votos_bu", 0) or 0)
             col_nome = nome_c[:24].ljust(26)
             col_num = num_str.rjust(2 if len(num_str) <= 2 else len(num_str))
@@ -3104,11 +3132,27 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     urna_pendente_2t = not tem_bu_2t and tem_bu_1t
                     urna_pendente_1t = not tem_bu_1t and tem_bu_2t
 
+                    def _resolver_nome_cand_secao(v_cand):
+                        cg_c = str(v_cand.cargo or "PRESIDENTE").strip().upper()
+                        n_c = str(v_cand.numero_candidato)
+                        nm_c = v_cand.nome_candidato or ""
+                        if "PRESIDENT" in cg_c:
+                            if n_c == "22" or "JAIR" in nm_c.upper():
+                                return "FLÁVIO BOLSONARO"
+                            if n_c == "13":
+                                return "LULA"
+                            return PADRAO_NOMES_PRESIDENTE.get(n_c, nm_c or f"Candidato {n_c}")
+                        elif "GOVERNAD" in cg_c:
+                            if n_c == "22" or "BOLSONARO" in nm_c.upper():
+                                return "SÉRGIO MORO"
+                            return PADRAO_NOMES_GOVERNADOR_PR.get(n_c, nm_c or f"Candidato {n_c}")
+                        return nm_c or f"Candidato {n_c}"
+
                     cands = [
                         {
                             "cargo": v.cargo or "PRESIDENTE",
                             "numero": str(v.numero_candidato),
-                            "nome": "FLÁVIO BOLSONARO" if str(v.numero_candidato) == "22" else ("LULA" if str(v.numero_candidato) == "13" else (v.nome_candidato or f"Candidato {v.numero_candidato}")),
+                            "nome": _resolver_nome_cand_secao(v),
                             "votos": v.quantidade_votos,
                             "votos_bu": v.votos_bu or v.quantidade_votos,
                             "votos_rdv": v.votos_rdv or v.quantidade_votos,
@@ -3120,7 +3164,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         {
                             "cargo": v.cargo or "PRESIDENTE",
                             "numero": str(v.numero_candidato),
-                            "nome": "FLÁVIO BOLSONARO" if str(v.numero_candidato) == "22" else ("LULA" if str(v.numero_candidato) == "13" else (v.nome_candidato or f"Candidato {v.numero_candidato}")),
+                            "nome": _resolver_nome_cand_secao(v),
                             "votos": v.quantidade_votos,
                             "votos_bu": v.votos_bu or v.quantidade_votos,
                             "votos_rdv": v.votos_rdv or v.quantidade_votos,
@@ -6574,12 +6618,22 @@ def _consolidar_secoes_tse_sql(
     placar_candidatos = []
     for r in votos_cands:
         num_str = str(r.numero_candidato)
-        nome = r.nome_candidato or (PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_str}") if cargo_filtro == "PRESIDENTE" else f"CANDIDATO {num_str}")
+        nome = r.nome_candidato
         if cargo_filtro == "PRESIDENTE":
-            if num_str == "22":
+            if num_str == "22" or (nome and "JAIR" in nome.upper()):
                 nome = "FLÁVIO BOLSONARO"
             elif num_str == "13":
                 nome = "LULA"
+            elif not nome:
+                nome = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_str}")
+        elif cargo_filtro == "GOVERNADOR":
+            if num_str == "22" or (nome and "BOLSONARO" in nome.upper()):
+                nome = "SÉRGIO MORO"
+            elif not nome:
+                nome = PADRAO_NOMES_GOVERNADOR_PR.get(num_str, f"CANDIDATO {num_str}")
+        else:
+            if not nome:
+                nome = f"CANDIDATO {num_str}"
         v = int(r.votos)
         v_bu = int(r.votos_bu)
         v_rdv = int(r.votos_rdv)
@@ -6703,16 +6757,28 @@ def _consolidar_secoes_tse_sql(
     cands_nomes = {}
     for r in list(votos_t1_rows) + list(votos_t2_rows):
         n_str = str(r[0])
-        n_nm = r[1] or (PADRAO_NOMES_PRESIDENTE.get(n_str, f"CANDIDATO {n_str}") if cargo_filtro == "PRESIDENTE" else f"CANDIDATO {n_str}")
+        n_nm = r[1]
         if cargo_filtro == "PRESIDENTE":
-            if n_str == "22":
+            if n_str == "22" or (n_nm and "JAIR" in n_nm.upper()):
                 n_nm = "FLÁVIO BOLSONARO"
             elif n_str == "13":
                 n_nm = "LULA"
+            elif not n_nm:
+                n_nm = PADRAO_NOMES_PRESIDENTE.get(n_str, f"CANDIDATO {n_str}")
+        elif cargo_filtro == "GOVERNADOR":
+            if n_str == "22" or (n_nm and "BOLSONARO" in n_nm.upper()):
+                n_nm = "SÉRGIO MORO"
+            elif not n_nm:
+                n_nm = PADRAO_NOMES_GOVERNADOR_PR.get(n_str, f"CANDIDATO {n_str}")
+        else:
+            if not n_nm:
+                n_nm = f"CANDIDATO {n_str}"
         cands_nomes[n_str] = n_nm
     if cargo_filtro == "PRESIDENTE":
         cands_nomes.setdefault("13", "LULA")
         cands_nomes.setdefault("22", "FLÁVIO BOLSONARO")
+    elif cargo_filtro == "GOVERNADOR":
+        cands_nomes.setdefault("22", "SÉRGIO MORO")
 
     tot_t1_c = sum(cands_t1_map.values())
     tot_t2_c = sum(cands_t2_map.values())
