@@ -848,7 +848,7 @@ def _executar_ingestao_bweb_worker(
                 _STATUS_BWEB["porcentagem"] = round(pct, 1)
                 _STATUS_BWEB["tempo_decorrido_segundos"] = int(decorrido)
                 _STATUS_BWEB["mensagem"] = (
-                    f"Fase 2/2: Gravando BUs oficiais no PostgreSQL ({_STATUS_BWEB[bus_atualizados]:,} / {total_secoes_consolidadas:,} secoes concluidas)..."
+                    f"Fase 2/2: Gravando BUs oficiais no PostgreSQL ({_STATUS_BWEB['bus_atualizados']:,} / {total_secoes_consolidadas:,} secoes concluidas)..."
                 )
 
         buffer_secoes.clear()

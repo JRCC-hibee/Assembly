@@ -91,8 +91,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-07-rev41"
-SYSTEM_COMMIT = "rev41-fix-bweb-agrupamento-duas-fases-performance"
+SYSTEM_BUILD = "2026-11-07-rev42"
+SYSTEM_COMMIT = "rev42-fix-bweb-quote-syntax-status"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
