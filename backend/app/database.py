@@ -30,6 +30,14 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+def _obter_db_session():
+    try:
+        return SessionLocal()
+    except Exception:
+        return None
+
+
+
 class SeccaoConfig(Base):
     """Estado operacional da Urna e do Terminal do Mesário na Seção Eleitoral."""
     __tablename__ = "seccao_config"

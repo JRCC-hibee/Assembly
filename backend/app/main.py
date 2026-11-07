@@ -77,8 +77,8 @@ from .tse_pdf_relatorio_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-06-rev36"
-SYSTEM_COMMIT = "rev36-tse-sistot-pdf-audit-and-consistency-comparison"
+SYSTEM_BUILD = "2026-11-06-rev37"
+SYSTEM_COMMIT = "rev37-fix-startup-imports-and-container-crash"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",

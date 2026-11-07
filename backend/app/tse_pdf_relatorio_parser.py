@@ -312,7 +312,7 @@ def salvar_relatorio_no_banco(
     db,
     dados_relatorio: dict[str, Any],
     auto_commit: bool = True
-) -> TseRelatorioOficialTse:
+):
     """
     Persiste ou atualiza o registro do Relatório Oficial no PostgreSQL e executa o batimento cruzado contra o banco.
     """
@@ -380,7 +380,7 @@ def salvar_relatorio_no_banco(
     return rel_db
 
 
-def executar_batimento_forense(db, relatorio_obj: TseRelatorioOficialTse) -> dict[str, Any]:
+def executar_batimento_forense(db, relatorio_obj: Any) -> dict[str, Any]:
     """
     Executa batimento forense cruzado completo entre os totais informados no Relatório Oficial TSE (PDF)
     e a soma física das seções / urnas gravadas no banco PostgreSQL.
