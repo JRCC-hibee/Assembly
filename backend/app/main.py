@@ -1666,7 +1666,7 @@ def api_tse_reverso_relatorios_pdf_listar(db: Session = Depends(get_db)):
             "candidatos_count": len(cands),
             "secoes_agregadas_count": len(agregs),
             "contingencias_count": len(conts),
-            "updated_at": it.updated_at.isoformat() if it.updated_at else None,
+            "updated_at": getattr(it, "updated_at", getattr(it, "created_at", None)).isoformat() if getattr(it, "updated_at", getattr(it, "created_at", None)) else None,
         })
     return {"total": len(res), "relatorios": res}
 

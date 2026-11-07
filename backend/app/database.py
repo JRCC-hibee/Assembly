@@ -368,6 +368,7 @@ class TseRelatorioOficialTse(Base):
     delta_votos_validos = Column(BigInteger, default=0)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         Index("idx_tse_rel_uf_turno_cargo", "uf", "turno", "cargo"),
