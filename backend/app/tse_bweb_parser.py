@@ -499,209 +499,16 @@ def _executar_ingestao_bweb_worker(
         idx_biom_sem_hab = col_map.get("QT_ELEI_BIOM_SEM_HABILITACAO")
         idx_dt_pleito = col_map.get("DT_PLEITO")
 
-        # Buffer por seção e turno: key = (uf, mun_cod, zona, secao, turno)
+        # Dicionario de secoes consolidadas em memoria RAM: key = (uf, mun_cod, zona, secao, turno)
+        # As secoes inteiras do estado cabem confortavelmente em < 80 MB de RAM.
         buffer_secoes: dict[tuple[str, str, int, int, int], dict[str, Any]] = {}
         total_linhas = 0
         ultimo_update_status = time.time()
-        TAMANHO_LOTE = 400
 
-        def persistir_lote_bweb(lote: dict):
-            """Persiste um lote de seções com BU fidedigno no PostgreSQL."""
-            nonlocal db
-            if not lote:
-                return
-
-            for (uf_s, mun_cod_s, zona_s, secao_s, turno_s), sec_info in lote.items():
-                mun_cod_norm = str(mun_cod_s).strip().zfill(5)
-                chave_secao = f"{uf_s}_{mun_cod_norm}_{zona_s:04d}_{secao_s:04d}"
-
-                sec_id = mapa_secoes_id.get(chave_secao)
-                if not sec_id:
-                    # Cria a seção física se ainda não existia
-                    regiao = obter_regiao_uf(uf_s)
-                    secao_obj = TseSecao(
-                        chave_secao=chave_secao,
-                        regiao=regiao,
-                        uf=uf_s,
-                        municipio_codigo=mun_cod_norm,
-                        municipio_nome=sec_info["mun_nome"],
-                        zona=zona_s,
-                        secao=secao_s,
-                        local_votacao=sec_info["local_votacao"],
-                        modelo_urna="TSE_BWEB",
-                    )
-                    db.add(secao_obj)
-                    db.flush()
-                    sec_id = secao_obj.id
-                    mapa_secoes_id[chave_secao] = sec_id
-                    _STATUS_BWEB["secoes_novas_criadas"] += 1
-
-                # 1. Atualiza ou Insere TseApuracaoBU strictly para o turno_s
-                aptos_val = sec_info["aptos"]
-                comp_val = sec_info["comparecimento"]
-                abst_val = sec_info["abstencoes"]
-                biom_sem_val = sec_info["biom_sem_hab"]
-                hab_bio_val = max(0, comp_val - biom_sem_val)
-
-                # Totais de Presidente (ou gerais se 2T)
-                pres_data = sec_info["cargos"].get("Presidente", {})
-                v_nom_pres = sum(c.get("votos", 0) for c in pres_data.get("candidatos", []))
-                v_br_pres = pres_data.get("brancos", 0)
-                v_nu_pres = pres_data.get("nulos", 0)
-
-                bu_db = db.query(TseApuracaoBU).filter(
-                    TseApuracaoBU.secao_id == sec_id,
-                    TseApuracaoBU.turno == turno_s
-                ).first()
-
-                if not bu_db:
-                    bu_db = TseApuracaoBU(
-                        secao_id=sec_id,
-                        turno=turno_s,
-                        pleito="03220" if turno_s == 1 else "03221",
-                        eleitores_aptos=aptos_val,
-                        comparecimento=comp_val,
-                        faltosos=abst_val,
-                        votos_nominais=v_nom_pres,
-                        votos_brancos=v_br_pres,
-                        votos_nulos=v_nu_pres,
-                        votos_legenda=0,
-                        hab_biometrica=hab_bio_val,
-                        hab_biografica=biom_sem_val,
-                        hab_sem_biometria=0,
-                        hash_bu_sha256=sec_info["carga_1"],
-                        mac_urna=sec_info["urna_efetivada"],
-                        divergencia_detectada=False,
-                        divergencia_descricao="Boletim de Urna Oficial TSE (BWEB)",
-                    )
-                    db.add(bu_db)
-                else:
-                    bu_db.eleitores_aptos = aptos_val
-                    bu_db.comparecimento = comp_val
-                    bu_db.faltosos = abst_val
-                    bu_db.hab_biometrica = hab_bio_val
-                    bu_db.hab_biografica = biom_sem_val
-                    if v_nom_pres > 0 or v_br_pres > 0 or v_nu_pres > 0:
-                        bu_db.votos_nominais = v_nom_pres
-                        bu_db.votos_brancos = v_br_pres
-                        bu_db.votos_nulos = v_nu_pres
-                    bu_db.hash_bu_sha256 = sec_info["carga_1"]
-                    bu_db.mac_urna = sec_info["urna_efetivada"]
-                    bu_db.divergencia_descricao = "Boletim de Urna Oficial TSE (BWEB)"
-
-                # 2. Votos nominais para todos os cargos (PRESIDENTE, GOVERNADOR, SENADOR, DEPUTADOS) strictly no turno_s
-                for cg_nome_raw, cg_info in sec_info["cargos"].items():
-                    cg_upper = cg_nome_raw.strip().upper()
-                    if "PRESIDENT" in cg_upper:
-                        cg_norm = "PRESIDENTE"
-                    elif "GOVERNAD" in cg_upper:
-                        cg_norm = "GOVERNADOR"
-                    elif "SENAD" in cg_upper:
-                        cg_norm = "SENADOR"
-                    elif "DEPUTADO FED" in cg_upper:
-                        cg_norm = "DEPUTADO FEDERAL"
-                    elif "DEPUTADO EST" in cg_upper or "DEPUTADO DIST" in cg_upper:
-                        cg_norm = "DEPUTADO ESTADUAL"
-                    else:
-                        cg_norm = cg_upper[:30]
-
-                    for c in cg_info.get("candidatos", []):
-                        num_c = c.get("numero")
-                        vt = c.get("votos", 0)
-                        nm_c = c.get("nome")
-                        if not num_c:
-                            continue
-
-                        # Respeito estrito aos nomes por cargo
-                        if cg_norm == "PRESIDENTE":
-                            if str(num_c) == "22" or "JAIR" in (nm_c or "").upper():
-                                nm_c = "FLÁVIO BOLSONARO"
-                            elif str(num_c) == "13":
-                                nm_c = "LULA"
-                            elif not nm_c:
-                                nm_c = PADRAO_NOMES_PRESIDENTE.get(str(num_c), f"CANDIDATO {num_c}")
-                        elif cg_norm == "GOVERNADOR":
-                            if str(num_c) == "22" or "BOLSONARO" in (nm_c or "").upper():
-                                nm_c = "SÉRGIO MORO"
-                            elif not nm_c:
-                                nm_c = PADRAO_NOMES_GOVERNADOR_PR.get(str(num_c), f"CANDIDATO {num_c}")
-
-                        voto_db = db.query(TseVotoCandidato).filter(
-                            TseVotoCandidato.secao_id == sec_id,
-                            TseVotoCandidato.turno == turno_s,
-                            TseVotoCandidato.cargo == cg_norm,
-                            TseVotoCandidato.numero_candidato == num_c
-                        ).first()
-
-                        if not voto_db:
-                            voto_db = TseVotoCandidato(
-                                secao_id=sec_id,
-                                turno=turno_s,
-                                cargo=cg_norm,
-                                numero_candidato=num_c,
-                                nome_candidato=nm_c,
-                                quantidade_votos=vt,
-                                votos_bu=vt,
-                                votos_rdv=vt,
-                            )
-                            db.add(voto_db)
-                        else:
-                            voto_db.quantidade_votos = vt
-                            voto_db.votos_bu = vt
-                            voto_db.nome_candidato = nm_c
-
-                # 3. Reconstrói o espelho oficial fidedigno da bobina para o turno_s
-                data_pleito_fmt = "04/10/2026" if turno_s == 1 else "25/10/2026"
-                bobina_texto = gerar_espelho_bobina_bweb(
-                    uf=uf_s,
-                    mun_nome=sec_info["mun_nome"],
-                    mun_cod=mun_cod_norm,
-                    zona=zona_s,
-                    secao=secao_s,
-                    turno=turno_s,
-                    data_pleito=data_pleito_fmt,
-                    local_votacao=sec_info["local_votacao"],
-                    secoes_agregadas=sec_info["secoes_agregadas"],
-                    urna_efetivada=sec_info["urna_efetivada"],
-                    carga_1=sec_info["carga_1"],
-                    carga_2=sec_info["carga_2"],
-                    flashcard=sec_info["flashcard"],
-                    dt_abertura=sec_info["dt_abertura"],
-                    dt_encerramento=sec_info["dt_encerramento"],
-                    dt_emissao_bu=sec_info["dt_emissao_bu"],
-                    aptos=aptos_val,
-                    comparecimento=comp_val,
-                    abstencoes=abst_val,
-                    biom_sem_hab=biom_sem_val,
-                    cargos_votos=sec_info["cargos"],
-                )
-
-                dossie_db = db.query(TseDossieSecao).filter(
-                    TseDossieSecao.secao_id == sec_id,
-                    TseDossieSecao.turno == turno_s
-                ).first()
-
-                if not dossie_db:
-                    dossie_db = TseDossieSecao(
-                        secao_id=sec_id,
-                        turno=turno_s,
-                        prefixo=f"{chave_secao}_{turno_s}T",
-                        espelho_bobina=bobina_texto,
-                    )
-                    db.add(dossie_db)
-                else:
-                    dossie_db.espelho_bobina = bobina_texto
-
-                _STATUS_BWEB["secoes_processadas"] += 1
-                _STATUS_BWEB["bus_atualizados"] += 1
-                _STATUS_BWEB["votos_computados"] += comp_val
-
-            db.commit()
-
-        # Leitura linha a linha do CSV
+        # Fase 1: Leitura em streaming do CSV e consolidacao 100% em memoria RAM
         for row in reader:
             if _CANCELAR_BWEB_FLAG.is_set():
-                _STATUS_BWEB["mensagem"] = "Ingestão cancelada pelo usuário."
+                _STATUS_BWEB["mensagem"] = "Ingestao cancelada pelo usuario."
                 break
 
             total_linhas += 1
@@ -728,7 +535,6 @@ def _executar_ingestao_bweb_worker(
 
             sec_key = (uf_r, mun_cod_r, zona_r, secao_r, turno_r)
             if sec_key not in buffer_secoes:
-                # Extrai metadados da urna desta seção
                 try:
                     apt_val = int(row[idx_aptos])
                     comp_val = int(row[idx_comp])
@@ -768,7 +574,7 @@ def _executar_ingestao_bweb_worker(
                 "legendas_detalhe": {},
             })
 
-            # Contabilização de votos
+            # Contabilizacao de votos
             if num_vot_r == 95 or "BRANCO" in tipo_vot_r.upper():
                 cargo_dict["brancos"] += votos_r
             elif num_vot_r in (96, 97) or "NULO" in tipo_vot_r.upper():
@@ -787,16 +593,11 @@ def _executar_ingestao_bweb_worker(
                     "votos": votos_r,
                 })
 
-            # Se atingir o tamanho do lote, persiste e libera RAM
-            if len(buffer_secoes) >= TAMANHO_LOTE:
-                persistir_lote_bweb(buffer_secoes)
-                buffer_secoes.clear()
-
-            # Atualização visual a cada ~0.5s
+            # Atualizacao visual a cada ~0.5s durante a leitura em streaming
             agora = time.time()
             if agora - ultimo_update_status >= 0.5:
                 decorrido = max(0.1, agora - t0)
-                pct = min(99.0, (total_linhas / _STATUS_BWEB["total_linhas_estimado"]) * 100.0)
+                pct = min(50.0, (total_linhas / max(1, _STATUS_BWEB["total_linhas_estimado"])) * 50.0)
                 vel = round(total_linhas / decorrido, 1)
 
                 _STATUS_BWEB["linhas_lidas"] = total_linhas
@@ -804,17 +605,12 @@ def _executar_ingestao_bweb_worker(
                 _STATUS_BWEB["tempo_decorrido_segundos"] = int(decorrido)
                 _STATUS_BWEB["velocidade_linhas_segundo"] = vel
                 _STATUS_BWEB["mensagem"] = (
-                    f"Processando {vel:,} linhas/s ({pct:.1f}%). "
-                    f"{_STATUS_BWEB['bus_atualizados']:,} BUs oficiais ({turno_arquivo}ºT) gerados e gravados no banco."
+                    f"Fase 1/2: Consolidando em streaming ({vel:,.0f} linhas/s | {pct:.1f}%). "
+                    f"{len(buffer_secoes):,} seções do {uf_arquivo} mapeadas..."
                 )
                 ultimo_update_status = agora
 
-        # Persiste o restante do buffer
-        if buffer_secoes:
-            persistir_lote_bweb(buffer_secoes)
-            buffer_secoes.clear()
-
-        # Fecha descritores
+        # Fecha descritores do arquivo
         if f_text:
             f_text.close()
         if f_raw:
@@ -822,6 +618,240 @@ def _executar_ingestao_bweb_worker(
         if zip_ref:
             zip_ref.close()
 
+        # Fase 2: Gravacao atomica em lotes no PostgreSQL (alta performance via pre-fetch)
+        def persistir_lote_bweb(lote_items: list):
+            nonlocal db
+            if not lote_items:
+                return
+
+            batch_sec_ids = []
+            batch_prep = []
+
+            for (uf_s, mun_cod_s, zona_s, secao_s, turno_s), sec_info in lote_items:
+                mun_cod_norm = str(mun_cod_s).strip().zfill(5)
+                chave_secao = f"{uf_s}_{mun_cod_norm}_{zona_s:04d}_{secao_s:04d}"
+
+                sec_id = mapa_secoes_id.get(chave_secao)
+                if not sec_id:
+                    regiao = obter_regiao_uf(uf_s)
+                    secao_obj = TseSecao(
+                        chave_secao=chave_secao,
+                        regiao=regiao,
+                        uf=uf_s,
+                        municipio_codigo=mun_cod_norm,
+                        municipio_nome=sec_info["mun_nome"],
+                        zona=zona_s,
+                        secao=secao_s,
+                        local_votacao=sec_info["local_votacao"],
+                        modelo_urna="TSE_BWEB",
+                    )
+                    db.add(secao_obj)
+                    db.flush()
+                    sec_id = secao_obj.id
+                    mapa_secoes_id[chave_secao] = sec_id
+                    _STATUS_BWEB["secoes_novas_criadas"] += 1
+
+                batch_sec_ids.append(sec_id)
+                batch_prep.append(((uf_s, mun_cod_norm, zona_s, secao_s, turno_s), sec_id, chave_secao, sec_info))
+
+            turno_ref = lote_items[0][0][4]
+            bus_existentes = {
+                bu.secao_id: bu
+                for bu in db.query(TseApuracaoBU).filter(
+                    TseApuracaoBU.secao_id.in_(batch_sec_ids),
+                    TseApuracaoBU.turno == turno_ref
+                ).all()
+            }
+
+            dossies_existentes = {
+                d.secao_id: d
+                for d in db.query(TseDossieSecao).filter(
+                    TseDossieSecao.secao_id.in_(batch_sec_ids),
+                    TseDossieSecao.turno == turno_ref
+                ).all()
+            }
+
+            votos_existentes = {
+                (v.secao_id, v.cargo, v.numero_candidato): v
+                for v in db.query(TseVotoCandidato).filter(
+                    TseVotoCandidato.secao_id.in_(batch_sec_ids),
+                    TseVotoCandidato.turno == turno_ref
+                ).all()
+            }
+
+            for (uf_s, mun_cod_norm, zona_s, secao_s, turno_s), sec_id, chave_secao, sec_info in batch_prep:
+                aptos_val = sec_info["aptos"]
+                comp_val = sec_info["comparecimento"]
+                abst_val = sec_info["abstencoes"]
+                biom_sem_val = sec_info["biom_sem_hab"]
+                hab_bio_val = max(0, comp_val - biom_sem_val)
+
+                pres_data = sec_info["cargos"].get("Presidente", {})
+                v_nom_pres = sum(c.get("votos", 0) for c in pres_data.get("candidatos", []))
+                v_br_pres = pres_data.get("brancos", 0)
+                v_nu_pres = pres_data.get("nulos", 0)
+
+                bu_db = bus_existentes.get(sec_id)
+                if not bu_db:
+                    bu_db = TseApuracaoBU(
+                        secao_id=sec_id,
+                        turno=turno_s,
+                        pleito="03220" if turno_s == 1 else "03221",
+                        eleitores_aptos=aptos_val,
+                        comparecimento=comp_val,
+                        faltosos=abst_val,
+                        votos_nominais=v_nom_pres,
+                        votos_brancos=v_br_pres,
+                        votos_nulos=v_nu_pres,
+                        votos_legenda=0,
+                        hab_biometrica=hab_bio_val,
+                        hab_biografica=biom_sem_val,
+                        hab_sem_biometria=0,
+                        hash_bu_sha256=sec_info["carga_1"],
+                        mac_urna=sec_info["urna_efetivada"],
+                        divergencia_detectada=False,
+                        divergencia_descricao="Boletim de Urna Oficial TSE (BWEB)",
+                    )
+                    db.add(bu_db)
+                    bus_existentes[sec_id] = bu_db
+                else:
+                    bu_db.eleitores_aptos = aptos_val
+                    bu_db.comparecimento = comp_val
+                    bu_db.faltosos = abst_val
+                    bu_db.hab_biometrica = hab_bio_val
+                    bu_db.hab_biografica = biom_sem_val
+                    if v_nom_pres > 0 or v_br_pres > 0 or v_nu_pres > 0:
+                        bu_db.votos_nominais = v_nom_pres
+                        bu_db.votos_brancos = v_br_pres
+                        bu_db.votos_nulos = v_nu_pres
+                    bu_db.hash_bu_sha256 = sec_info["carga_1"]
+                    bu_db.mac_urna = sec_info["urna_efetivada"]
+                    bu_db.divergencia_descricao = "Boletim de Urna Oficial TSE (BWEB)"
+
+                for cg_nome_raw, cg_info in sec_info["cargos"].items():
+                    cg_upper = cg_nome_raw.strip().upper()
+                    if "PRESIDENT" in cg_upper:
+                        cg_norm = "PRESIDENTE"
+                    elif "GOVERNAD" in cg_upper:
+                        cg_norm = "GOVERNADOR"
+                    elif "SENAD" in cg_upper:
+                        cg_norm = "SENADOR"
+                    elif "DEPUTADO FED" in cg_upper:
+                        cg_norm = "DEPUTADO FEDERAL"
+                    elif "DEPUTADO EST" in cg_upper or "DEPUTADO DIST" in cg_upper:
+                        cg_norm = "DEPUTADO ESTADUAL"
+                    else:
+                        cg_norm = cg_upper[:30]
+
+                    for c in cg_info.get("candidatos", []):
+                        num_c = c.get("numero")
+                        vt = c.get("votos", 0)
+                        nm_c = c.get("nome")
+                        if not num_c:
+                            continue
+
+                        if cg_norm == "PRESIDENTE":
+                            if str(num_c) == "22" or "JAIR" in (nm_c or "").upper():
+                                nm_c = "FLÁVIO BOLSONARO"
+                            elif str(num_c) == "13":
+                                nm_c = "LULA"
+                            elif not nm_c:
+                                nm_c = PADRAO_NOMES_PRESIDENTE.get(str(num_c), f"CANDIDATO {num_c}")
+                        elif cg_norm == "GOVERNADOR":
+                            if str(num_c) == "22" or "BOLSONARO" in (nm_c or "").upper():
+                                nm_c = "SÉRGIO MORO"
+                            elif not nm_c:
+                                nm_c = PADRAO_NOMES_GOVERNADOR_PR.get(str(num_c), f"CANDIDATO {num_c}")
+
+                        v_key = (sec_id, cg_norm, num_c)
+                        voto_db = votos_existentes.get(v_key)
+                        if not voto_db:
+                            voto_db = TseVotoCandidato(
+                                secao_id=sec_id,
+                                turno=turno_s,
+                                cargo=cg_norm,
+                                numero_candidato=num_c,
+                                nome_candidato=nm_c,
+                                quantidade_votos=vt,
+                                votos_bu=vt,
+                                votos_rdv=vt,
+                            )
+                            db.add(voto_db)
+                            votos_existentes[v_key] = voto_db
+                        else:
+                            voto_db.quantidade_votos = vt
+                            voto_db.votos_bu = vt
+                            voto_db.nome_candidato = nm_c
+
+                data_pleito_fmt = "04/10/2026" if turno_s == 1 else "25/10/2026"
+                bobina_texto = gerar_espelho_bobina_bweb(
+                    uf=uf_s,
+                    mun_nome=sec_info["mun_nome"],
+                    mun_cod=mun_cod_norm,
+                    zona=zona_s,
+                    secao=secao_s,
+                    turno=turno_s,
+                    data_pleito=data_pleito_fmt,
+                    local_votacao=sec_info["local_votacao"],
+                    secoes_agregadas=sec_info["secoes_agregadas"],
+                    urna_efetivada=sec_info["urna_efetivada"],
+                    carga_1=sec_info["carga_1"],
+                    carga_2=sec_info["carga_2"],
+                    flashcard=sec_info["flashcard"],
+                    dt_abertura=sec_info["dt_abertura"],
+                    dt_encerramento=sec_info["dt_encerramento"],
+                    dt_emissao_bu=sec_info["dt_emissao_bu"],
+                    aptos=aptos_val,
+                    comparecimento=comp_val,
+                    abstencoes=abst_val,
+                    biom_sem_hab=biom_sem_val,
+                    cargos_votos=sec_info["cargos"],
+                )
+
+                dossie_db = dossies_existentes.get(sec_id)
+                if not dossie_db:
+                    dossie_db = TseDossieSecao(
+                        secao_id=sec_id,
+                        turno=turno_s,
+                        prefixo=f"{chave_secao}_{turno_s}T",
+                        espelho_bobina=bobina_texto,
+                    )
+                    db.add(dossie_db)
+                    dossies_existentes[sec_id] = dossie_db
+                else:
+                    dossie_db.espelho_bobina = bobina_texto
+
+                _STATUS_BWEB["secoes_processadas"] += 1
+                _STATUS_BWEB["bus_atualizados"] += 1
+                _STATUS_BWEB["votos_computados"] += comp_val
+
+            db.commit()
+
+        if not _CANCELAR_BWEB_FLAG.is_set() and buffer_secoes:
+            total_secoes_consolidadas = len(buffer_secoes)
+            itens_lista = list(buffer_secoes.items())
+            tamanho_lote = 500
+            _STATUS_BWEB["total_linhas_estimado"] = total_linhas
+
+            for i in range(0, total_secoes_consolidadas, tamanho_lote):
+                if _CANCELAR_BWEB_FLAG.is_set():
+                    _STATUS_BWEB["mensagem"] = "Ingestao cancelada pelo usuario."
+                    break
+
+                lote_fatia = itens_lista[i:i + tamanho_lote]
+                persistir_lote_bweb(lote_fatia)
+
+                agora = time.time()
+                decorrido = max(0.1, agora - t0)
+                pct = 50.0 + min(49.0, ((i + len(lote_fatia)) / total_secoes_consolidadas) * 50.0)
+
+                _STATUS_BWEB["porcentagem"] = round(pct, 1)
+                _STATUS_BWEB["tempo_decorrido_segundos"] = int(decorrido)
+                _STATUS_BWEB["mensagem"] = (
+                    f"Fase 2/2: Gravando BUs oficiais no PostgreSQL ({_STATUS_BWEB[bus_atualizados]:,} / {total_secoes_consolidadas:,} secoes concluidas)..."
+                )
+
+        buffer_secoes.clear()
         tempo_total = int(time.time() - t0)
         _STATUS_BWEB["status"] = "CONCLUIDO"
         _STATUS_BWEB["porcentagem"] = 100.0

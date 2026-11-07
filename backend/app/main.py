@@ -91,8 +91,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-07-rev40"
-SYSTEM_COMMIT = "rev40-fidelidade-cargos-presidente-flavio-governador-moro"
+SYSTEM_BUILD = "2026-11-07-rev41"
+SYSTEM_COMMIT = "rev41-fix-bweb-agrupamento-duas-fases-performance"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
