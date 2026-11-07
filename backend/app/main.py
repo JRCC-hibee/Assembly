@@ -75,10 +75,17 @@ from .tse_pdf_relatorio_parser import (
     executar_batimento_forense,
     detectar_e_ingerir_relatorios_servidor,
 )
+from .tse_votacao_secao_parser import (
+    diagnosticar_votacao_secao_e_lacunas,
+    iniciar_complementacao_segundo_plano,
+    cancelar_complementacao,
+    obter_status_complementacao,
+    localizar_arquivo_votacao_secao,
+)
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-06-rev37.1"
-SYSTEM_COMMIT = "rev37.1-fix-biginteger-float-and-startup"
+SYSTEM_BUILD = "2026-11-07-rev38"
+SYSTEM_COMMIT = "rev38-complementacao-lacunas-votacao-secao-br"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1763,6 +1770,53 @@ def api_tse_reverso_relatorios_pdf_excluir(relatorio_id: int, db: Session = Depe
     db.delete(rel)
     db.commit()
     return {"status": "REMOVIDO", "id": relatorio_id}
+
+
+# ==============================================================================
+# COMPLEMENTAÇÃO DE LACUNAS VIA DADOS ABERTOS TSE (VOTAÇÃO POR SEÇÃO 2026 BR)
+# ==============================================================================
+
+@app.get("/api/tse-reverso/votacao-secao/diagnostico")
+def api_tse_reverso_votacao_secao_diagnostico(db: Session = Depends(get_db)):
+    """
+    Retorna diagnóstico do arquivo de votação por seção no servidor e
+    quantas lacunas (seções/turnos faltantes) existem no banco de dados.
+    """
+    return diagnosticar_votacao_secao_e_lacunas(db=db)
+
+
+@app.post("/api/tse-reverso/votacao-secao/iniciar")
+def api_tse_reverso_votacao_secao_iniciar(
+    payload: dict = Body(default={}),
+    db: Session = Depends(get_db),
+):
+    """
+    Inicia o processo de complementação de lacunas em segundo plano:
+    - modo: 'APENAS_LACUNAS' (padrão) ou 'COMPLETO'
+    - ufs: lista de UFs opcionais (ex: ['PR', 'SC', 'RS'])
+    - caminho_arquivo: caminho opcional específico
+    """
+    modo = payload.get("modo", "APENAS_LACUNAS")
+    ufs = payload.get("ufs")
+    caminho = payload.get("caminho_arquivo")
+    return iniciar_complementacao_segundo_plano(
+        caminho_arquivo=caminho,
+        modo=modo,
+        ufs_filtro=ufs,
+    )
+
+
+@app.get("/api/tse-reverso/votacao-secao/progresso")
+def api_tse_reverso_votacao_secao_progresso():
+    """Retorna o progresso em tempo real da complementação de lacunas."""
+    return obter_status_complementacao()
+
+
+@app.post("/api/tse-reverso/votacao-secao/cancelar")
+def api_tse_reverso_votacao_secao_cancelar():
+    """Cancela o processo de complementação em andamento."""
+    return cancelar_complementacao()
+
 
 
 

@@ -4451,8 +4451,13 @@ def obter_status_pasta_importacao_servidor() -> dict:
                         elif uf_det:
                             urnas_no_banco = contagem_uf_total.get(uf_det, 0)
 
+                        is_votacao_secao = "votacao_secao" in f_low
                         ja_ingerido = (urnas_no_banco > 100) or (f_low in uploads_concluidos)
-                        selecionado_padrao = not ja_ingerido
+                        selecionado_padrao = (not ja_ingerido) and (not is_votacao_secao)
+
+                        msg_diag = diag.get("mensagem_diagnostico", "")
+                        if is_votacao_secao:
+                            msg_diag = "Pacote Oficial TSE Dados Abertos (Votação Seção BR) — Utilize o botão 'Complementar Lacunas' para preenchimento de turnos faltantes."
 
                         arquivos_zip.append({
                             "nome": f,
@@ -4461,12 +4466,13 @@ def obter_status_pasta_importacao_servidor() -> dict:
                             "formato": diag.get("formato", "ZIP"),
                             "status": diag.get("status", "OK"),
                             "valido": diag.get("valido", False),
-                            "mensagem_diagnostico": diag.get("mensagem_diagnostico", ""),
+                            "mensagem_diagnostico": msg_diag,
                             "acao_recomendada": diag.get("acao_recomendada", ""),
                             "tem_7z": diag.get("tem_7z_sistema", False),
                             "tem_unzip": diag.get("tem_unzip_sistema", False),
-                            "uf": uf_det,
-                            "turno": turno_det,
+                            "uf": "BR" if is_votacao_secao else uf_det,
+                            "turno": "1T/2T" if is_votacao_secao else turno_det,
+                            "tipo_pacote": "VOTACAO_SECAO" if is_votacao_secao else "URNAS_FISICAS",
                             "urnas_salvas_no_banco": urnas_no_banco,
                             "ja_ingerido": bool(ja_ingerido),
                             "selecionado_padrao": bool(selecionado_padrao),
@@ -4931,6 +4937,8 @@ def _executar_ingestao_servidor_worker(arquivos_selecionados: list[str] | None =
             temp_extract_dir = None
             try:
                 zip_low = os.path.basename(zip_path).lower()
+                if "votacao_secao" in zip_low:
+                    continue
                 m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(zip_path), re.IGNORECASE)
                 default_zip_uf = m_zip_uf.group(1).upper() if m_zip_uf else uf_inicial
 
@@ -5616,6 +5624,8 @@ def _executar_complementacao_worker():
             temp_extract_dir = None
             try:
                 zip_low = os.path.basename(zip_path).lower()
+                if "votacao_secao" in zip_low:
+                    continue
                 m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(zip_path), re.IGNORECASE)
                 default_zip_uf = m_zip_uf.group(1).upper() if m_zip_uf else uf_comp
 
