@@ -1303,6 +1303,17 @@ o Boletim de Urna (apos encerramento da votacao).
             <span>🔄</span>
             <span>Atualizar BI</span>
           </button>
+          <button
+            type="button"
+            onclick="limparCacheConsolidacaoTse()"
+            id="btnLimparCacheBi"
+            class="hidden px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 font-bold text-xs transition shadow flex items-center gap-1.5 cursor-pointer"
+            title="Limpar memória cache de consultas do navegador"
+          >
+            <span>⚡</span>
+            <span id="lblCacheBiQtd">Cache: 0</span>
+            <span class="text-[10px] text-cyan-400 font-bold underline ml-1">Limpar</span>
+          </button>
         </div>
       </div>
 
@@ -1313,6 +1324,11 @@ o Boletim de Urna (apos encerramento da votacao).
           <div class="flex flex-wrap items-center gap-2">
             <span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 text-[10px] font-extrabold mono uppercase">
               Árvore de Consolidação (5 Níveis)
+            </span>
+            <span id="tseCacheStatusBadge" class="hidden items-center gap-1 px-2.5 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700 text-[10px] font-bold mono">
+              <span>⚡</span>
+              <span id="tseCacheCount">0 locais em cache</span>
+              <button onclick="limparCacheConsolidacaoTse()" class="underline text-cyan-200 hover:text-white font-extrabold ml-1" title="Limpar cache do navegador">(Limpar)</button>
             </span>
             <!-- SINALIZAÇÃO VISUAL IMEDIATA DE CARREGAMENTO NO CLIQUE -->
             <div id="tseTreeLoadingBadge" class="hidden items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/50 text-xs font-bold animate-pulse shadow-lg shadow-cyan-950/50">
@@ -2126,6 +2142,50 @@ o Boletim de Urna (apos encerramento da votacao).
       <p class="text-sm text-cyan-300 mt-2 mono">Arquivos .ZIP (1ºT e 2ºT) ou pastas de urnas serão processados em streaming direto para o PostgreSQL!</p>
     </div>
 
+
+    <!-- MODAL DE PROGRESSO DO CARREGAMENTO DO FILTRO DO BI COM BARRA PERCENTUAL -->
+    <div id="tseFiltroProgressModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
+      <div class="bg-slate-900 border-2 border-cyan-500/70 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl">
+        <div class="flex items-start justify-between border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-3">
+            <div id="tseFiltroProgressIcon" class="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xl font-bold animate-pulse">
+              📊
+            </div>
+            <div>
+              <div class="flex items-center gap-1.5">
+                <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
+                  BI & INTELIGÊNCIA ELEITORAL
+                </span>
+                <span id="tseFiltroCacheBadge" class="hidden px-1.5 py-0.5 text-[10px] font-extrabold rounded bg-emerald-950 text-emerald-300 border border-emerald-700 mono">
+                  ⚡ CACHE ATIVO
+                </span>
+              </div>
+              <h3 id="tseFiltroProgressTitle" class="text-base font-extrabold text-white mt-0.5">
+                Carregando Dados...
+              </h3>
+            </div>
+          </div>
+          <span id="tseFiltroProgressPct" class="text-2xl font-black text-cyan-400 mono">0%</span>
+        </div>
+
+        <!-- Barra de Progresso com Glow -->
+        <div class="space-y-1.5">
+          <div class="w-full bg-slate-950 rounded-full h-4 overflow-hidden border border-slate-800 p-0.5">
+            <div id="tseFiltroProgressBar" style="width: 0%" class="bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-400 h-full rounded-full transition-all duration-300 shadow-[0_0_15px_rgba(6,182,212,0.6)]"></div>
+          </div>
+          <div class="flex items-center justify-between text-[11px] mono text-slate-400">
+            <span id="tseFiltroProgressStatus">Conectando ao banco de dados...</span>
+            <span id="tseFiltroProgressTarget" class="text-slate-300 font-bold truncate max-w-[200px] text-right">Brasil</span>
+          </div>
+        </div>
+
+        <!-- Feedback Final / Conclusão -->
+        <div id="tseFiltroSuccessBox" class="hidden p-2.5 rounded-xl bg-emerald-950/60 border border-emerald-500/60 text-emerald-300 text-xs font-bold flex items-center gap-2">
+          <span>✅</span>
+          <span id="tseFiltroSuccessMsg">Dados carregados com sucesso!</span>
+        </div>
+      </div>
+    </div>
 
     <!-- MODAL / HUD FLUTUANTE DE PROGRESSO DE UPLOAD EM LOTE (SEMPRE VISÍVEL) -->
     <div id="tseFloatingProgressModal" class="fixed inset-0 bg-black/80 backdrop-blur-md z-50 hidden flex items-center justify-center p-4">
@@ -4886,6 +4946,7 @@ o Boletim de Urna (apos encerramento da votacao).
         const data = await res.json();
         if (res.ok && data.ok) {
           window.localTseFilesByPrefix = {};
+          limparCacheConsolidacaoTse(false);
           const fCont = document.getElementById("tseFilterBarContainer");
           if (fCont) fCont.classList.add("hidden");
           const rCont = document.getElementById("tseReversoResultContainer");
@@ -5594,6 +5655,7 @@ o Boletim de Urna (apos encerramento da votacao).
           if (forcarAlerta) {
             showSecurityAlert(`⚡ Status do Servidor: ${pct}% concluído (${(prog.urnas_processadas || 0).toLocaleString('pt-BR')} de ${(prog.total_urnas || 0).toLocaleString('pt-BR')} urnas gravadas no PostgreSQL em segundo plano).`, false);
             try {
+              limparCacheConsolidacaoTse(false);
               atualizarStatusBancoAuditoria();
               atualizarConsolidacaoTse(false);
               atualizarDiagnosticoDiscoVps(false);
@@ -5601,6 +5663,7 @@ o Boletim de Urna (apos encerramento da votacao).
           } else if (prog.urnas_processadas && prog.urnas_processadas % 2500 === 0 && window._lastUrnasPollSync !== prog.urnas_processadas) {
             window._lastUrnasPollSync = prog.urnas_processadas;
             try {
+              limparCacheConsolidacaoTse(false);
               atualizarStatusBancoAuditoria();
               atualizarConsolidacaoTse(false);
               atualizarDiagnosticoDiscoVps(false);
@@ -5623,6 +5686,7 @@ o Boletim de Urna (apos encerramento da votacao).
               pPill.innerHTML = `✅ Concluído no Servidor`;
             }
             try {
+              limparCacheConsolidacaoTse(false);
               atualizarStatusBancoAuditoria();
               atualizarConsolidacaoTse(false);
               atualizarDiagnosticoDiscoVps(false);
@@ -5829,6 +5893,7 @@ o Boletim de Urna (apos encerramento da votacao).
         if (mPct) mPct.textContent = "95%";
         atualizarEtapaSync(4, "ativo", "Consolidando comparativo forense e matriz de teclas...");
 
+        limparCacheConsolidacaoTse(false);
         await atualizarConsolidacaoTse(true);
 
         // Concluído 100%
@@ -5994,12 +6059,26 @@ o Boletim de Urna (apos encerramento da votacao).
 
     function alterarFiltroCargoTse(cargo) {
       window.arvoreTseState.cargo = cargo || "PRESIDENTE";
+      mostrarSinalizacaoCarregandoArvore(
+        window.arvoreTseState.regiao,
+        window.arvoreTseState.uf,
+        window.arvoreTseState.municipio,
+        window.arvoreTseState.zona,
+        window.arvoreTseState.secao
+      );
       atualizarConsolidacaoTse(true);
     }
 
     async function aplicarFiltroForenseTse(novoFiltroForense) {
       window.arvoreTseState.filtro_forense = novoFiltroForense || "TODAS";
       window.arvoreTseState.secao = "CONSOLIDADO";
+      mostrarSinalizacaoCarregandoArvore(
+        window.arvoreTseState.regiao,
+        window.arvoreTseState.uf,
+        window.arvoreTseState.municipio,
+        window.arvoreTseState.zona,
+        "CONSOLIDADO"
+      );
       await atualizarConsolidacaoTse(true);
     }
 
@@ -6058,6 +6137,192 @@ o Boletim de Urna (apos encerramento da votacao).
 
     window._tseCarregandoArvore = false;
 
+    // =========================================================================
+    // CACHE EM MEMÓRIA NO NAVEGADOR PARA NAVEGAÇÃO INSTANTÂNEA NO BI (0ms)
+    // Memoriza consultas consolidadas e nós da árvore. Ao navegar e voltar para
+    // um estado, cidade ou zona já visitado, a resposta é imediata.
+    // =========================================================================
+    window.tseConsolidarCache = new Map();
+
+    function gerarChaveCacheTse(st) {
+      return [
+        st?.regiao || "TODAS",
+        st?.uf || "TODAS",
+        st?.municipio || "TODAS",
+        st?.zona || "TODAS",
+        st?.secao || "CONSOLIDADO",
+        st?.filtro_forense || "TODAS",
+        st?.cargo || "PRESIDENTE",
+        st?.modo_visao || "COMPARATIVO"
+      ].join("|");
+    }
+
+    function limparCacheConsolidacaoTse(mostrarAlerta = true) {
+      if (window.tseConsolidarCache) {
+        window.tseConsolidarCache.clear();
+      }
+      atualizarBadgeIndicadorCache();
+      if (mostrarAlerta && typeof showSecurityAlert === "function") {
+        showSecurityAlert("⚡ Memória de cache do BI limpa no navegador. As próximas consultas buscarão dados frescos do PostgreSQL.", false);
+      }
+    }
+
+    function atualizarBadgeIndicadorCache() {
+      const count = window.tseConsolidarCache ? window.tseConsolidarCache.size : 0;
+      const badge = document.getElementById("tseCacheStatusBadge");
+      const countEl = document.getElementById("tseCacheCount");
+      const btn = document.getElementById("btnLimparCacheBi");
+      const lblQtd = document.getElementById("lblCacheBiQtd");
+
+      if (count > 0) {
+        if (badge) {
+          badge.classList.remove("hidden");
+          badge.classList.add("inline-flex");
+        }
+        if (countEl) {
+          countEl.textContent = `${count} ${count === 1 ? 'local memorizado' : 'locais memorizados'}`;
+        }
+        if (btn) btn.classList.remove("hidden");
+        if (lblQtd) lblQtd.textContent = `Cache: ${count}`;
+      } else {
+        if (badge) {
+          badge.classList.add("hidden");
+          badge.classList.remove("inline-flex");
+        }
+        if (btn) btn.classList.add("hidden");
+        if (lblQtd) lblQtd.textContent = `Cache: 0`;
+      }
+    }
+
+    // =========================================================================
+    // MODAL DE PROGRESSO DO CARREGAMENTO COM BARRA PERCENTUAL (TSE FILTRO BI)
+    // Apresenta avanço contínuo (0% a 100%) e fecha automaticamente ao concluir
+    // com mensagem de confirmação.
+    // =========================================================================
+    let _tseProgressInterval = null;
+
+    function obterNomeAmigavelAlvo(regiao, uf, municipio, zona, secao) {
+      if (secao && secao !== "CONSOLIDADO") {
+        return `Seção ${secao}`;
+      } else if (zona && zona !== "TODAS") {
+        return `Zona ${zona}`;
+      } else if (municipio && municipio !== "TODAS") {
+        const hier = window.arvoreTseState?.hierarquia;
+        const cid = (hier?.cidades || []).find(c => c.codigo === municipio);
+        return cid ? `${cid.nome} (${municipio})` : `Município ${municipio}`;
+      } else if (uf && uf !== "TODAS") {
+        const hier = window.arvoreTseState?.hierarquia;
+        const ufObj = (hier?.estados || []).find(e => e.uf === uf);
+        return ufObj ? `${uf} — ${ufObj.nome}` : `Estado ${uf}`;
+      } else if (regiao && regiao !== "TODAS") {
+        return `Região ${regiao}`;
+      }
+      return "Brasil (Nacional)";
+    }
+
+    function abrirModalProgressoFiltro(titulo, alvoFormatado, isCached = false) {
+      const modal = document.getElementById("tseFiltroProgressModal");
+      if (!modal) return;
+
+      if (_tseProgressInterval) {
+        clearInterval(_tseProgressInterval);
+        _tseProgressInterval = null;
+      }
+
+      const titleEl = document.getElementById("tseFiltroProgressTitle");
+      const targetEl = document.getElementById("tseFiltroProgressTarget");
+      const pctEl = document.getElementById("tseFiltroProgressPct");
+      const barEl = document.getElementById("tseFiltroProgressBar");
+      const statusEl = document.getElementById("tseFiltroProgressStatus");
+      const cacheBadge = document.getElementById("tseFiltroCacheBadge");
+      const successBox = document.getElementById("tseFiltroSuccessBox");
+
+      if (titleEl) titleEl.textContent = titulo || "Carregando Dados...";
+      if (targetEl) targetEl.textContent = alvoFormatado || "Brasil";
+      if (successBox) successBox.classList.add("hidden");
+
+      modal.classList.remove("hidden");
+
+      if (isCached) {
+        if (cacheBadge) cacheBadge.classList.remove("hidden");
+        if (statusEl) statusEl.textContent = "⚡ Recuperando do cache em memória do navegador (0 ms de rede)...";
+        if (pctEl) pctEl.textContent = "95%";
+        if (barEl) barEl.style.width = "95%";
+        return;
+      }
+
+      if (cacheBadge) cacheBadge.classList.add("hidden");
+      let currentPct = 14;
+      if (pctEl) pctEl.textContent = `${currentPct}%`;
+      if (barEl) barEl.style.width = `${currentPct}%`;
+      if (statusEl) statusEl.textContent = "Conectando ao banco de dados PostgreSQL...";
+
+      const steps = [
+        { atMs: 250, pct: 35, status: "Filtrando seções e boletins de urna no PostgreSQL..." },
+        { atMs: 650, pct: 62, status: "Consolidando votos, biometrias e batimento triplo..." },
+        { atMs: 1200, pct: 82, status: "Processando matriz hierárquica e teclas indevidas..." },
+        { atMs: 1800, pct: 93, status: "Finalizando compilação e laudo do BI..." }
+      ];
+
+      let stepIdx = 0;
+      const startTime = Date.now();
+
+      _tseProgressInterval = setInterval(() => {
+        const elapsed = Date.now() - startTime;
+        while (stepIdx < steps.length && elapsed >= steps[stepIdx].atMs) {
+          currentPct = steps[stepIdx].pct;
+          if (pctEl) pctEl.textContent = `${currentPct}%`;
+          if (barEl) barEl.style.width = `${currentPct}%`;
+          if (statusEl) statusEl.textContent = steps[stepIdx].status;
+          stepIdx++;
+        }
+      }, 80);
+    }
+
+    function fecharModalProgressoFiltroComSucesso(mensagemSucesso = null) {
+      if (_tseProgressInterval) {
+        clearInterval(_tseProgressInterval);
+        _tseProgressInterval = null;
+      }
+
+      const modal = document.getElementById("tseFiltroProgressModal");
+      if (!modal || modal.classList.contains("hidden")) return;
+
+      const pctEl = document.getElementById("tseFiltroProgressPct");
+      const barEl = document.getElementById("tseFiltroProgressBar");
+      const statusEl = document.getElementById("tseFiltroProgressStatus");
+      const successBox = document.getElementById("tseFiltroSuccessBox");
+      const successMsg = document.getElementById("tseFiltroSuccessMsg");
+
+      if (pctEl) pctEl.textContent = "100%";
+      if (barEl) barEl.style.width = "100%";
+      if (statusEl) statusEl.textContent = "✅ Carregamento 100% concluído!";
+
+      if (successBox && successMsg) {
+        successMsg.textContent = mensagemSucesso || "Dados carregados com sucesso!";
+        successBox.classList.remove("hidden");
+      }
+
+      // Aguarda 450ms no estado 100% concluído para o usuário ver a confirmação antes de fechar
+      setTimeout(() => {
+        if (modal) modal.classList.add("hidden");
+        if (successBox) successBox.classList.add("hidden");
+      }, 450);
+    }
+
+    function fecharModalProgressoFiltroComErro(mensagemErro) {
+      if (_tseProgressInterval) {
+        clearInterval(_tseProgressInterval);
+        _tseProgressInterval = null;
+      }
+      const statusEl = document.getElementById("tseFiltroProgressStatus");
+      if (statusEl) statusEl.textContent = `❌ ${mensagemErro || 'Erro ao carregar dados'}`;
+      setTimeout(() => {
+        const modal = document.getElementById("tseFiltroProgressModal");
+        if (modal) modal.classList.add("hidden");
+      }, 1000);
+    }
+
     function mostrarSinalizacaoCarregandoArvore(regiao, uf, municipio, zona, secao) {
       const badge = document.getElementById("tseTreeLoadingBadge");
       const txt = document.getElementById("tseTreeLoadingText");
@@ -6079,6 +6344,8 @@ o Boletim de Urna (apos encerramento da votacao).
         rotulo = `Região ${regiao}`;
       }
 
+      const alvoFormatado = obterNomeAmigavelAlvo(regiao, uf, municipio, zona, secao);
+
       if (txt) txt.innerHTML = `⏳ Carregando <strong>${rotulo}</strong>... Por favor aguarde.`;
       if (badge) {
         badge.classList.remove("hidden");
@@ -6091,6 +6358,22 @@ o Boletim de Urna (apos encerramento da votacao).
         resContainer.classList.add("opacity-60", "pointer-events-none");
       }
       document.body.classList.add("cursor-wait");
+
+      // Checa se o nó já está no cache do navegador
+      const stPrevia = {
+        regiao: regiao || "TODAS",
+        uf: uf || "TODAS",
+        municipio: municipio || "TODAS",
+        zona: zona || "TODAS",
+        secao: secao || "CONSOLIDADO",
+        filtro_forense: window.arvoreTseState?.filtro_forense || "TODAS",
+        cargo: window.arvoreTseState?.cargo || "PRESIDENTE",
+        modo_visao: window.arvoreTseState?.modo_visao || "COMPARATIVO"
+      };
+      const chave = gerarChaveCacheTse(stPrevia);
+      const isCached = window.tseConsolidarCache && window.tseConsolidarCache.has(chave);
+
+      abrirModalProgressoFiltro(`Carregando ${rotulo}...`, alvoFormatado, isCached);
     }
 
     function ocultarSinalizacaoCarregandoArvore() {
@@ -6394,9 +6677,121 @@ o Boletim de Urna (apos encerramento da votacao).
       hideSecurityAlert();
     }
 
+    function aplicarPayloadConsolidadoNoDOM(payload, mostrarAlertaSeVazio = false) {
+      if (!payload) return false;
+      window.lastConsolidadoPayload = payload;
+
+      const st = window.arvoreTseState;
+
+      // Popula dinamicamente os cargos disponíveis retornados pelo banco mantendo a lista de cargos completa
+      const cargosLista = (Array.isArray(payload.cargos_disponiveis) && payload.cargos_disponiveis.length > 0)
+        ? payload.cargos_disponiveis
+        : ["PRESIDENTE", "GOVERNADOR", "SENADOR", "DEPUTADO FEDERAL", "DEPUTADO ESTADUAL"];
+      const selCargo = document.getElementById("selectCargoTse");
+      if (selCargo) {
+        const cargoAtual = st.cargo || "PRESIDENTE";
+        const rotulosCargos = {
+          "PRESIDENTE": "Presidente da República",
+          "GOVERNADOR": "Governador",
+          "SENADOR": "Senador",
+          "DEPUTADO FEDERAL": "Deputado Federal",
+          "DEPUTADO ESTADUAL": "Deputado Estadual",
+          "DEPUTADO DISTRITAL": "Deputado Distrital"
+        };
+        const opts = cargosLista.map(cg => {
+          const rotulo = rotulosCargos[cg] || (cg.charAt(0) + cg.slice(1).toLowerCase());
+          return `<option value="${cg}" ${cg === cargoAtual ? "selected" : ""}>${rotulo}</option>`;
+        }).join("");
+        selCargo.innerHTML = opts;
+      }
+
+      const hier = payload.hierarquia || {};
+      window.arvoreTseState.hierarquia = hier;
+      window.arvoreTseState.regiao = hier.regiao_selecionada || "TODAS";
+      window.arvoreTseState.uf = hier.uf_selecionada || "TODAS";
+      window.arvoreTseState.municipio = hier.municipio_selecionado || "TODAS";
+      window.arvoreTseState.zona = hier.zona_selecionada || "TODAS";
+      window.arvoreTseState.secao = hier.secao_selecionada || "CONSOLIDADO";
+      window.arvoreTseState.filtro_forense = hier.filtro_forense_selecionado || "TODAS";
+
+      const totalGeral = hier.total_geral_urnas || 0;
+      const cBadge = document.getElementById("tseCatalogCountBadge");
+      if (cBadge) {
+        cBadge.textContent = totalGeral > 0 ? `${totalGeral.toLocaleString("pt-BR")}` : "";
+        if (totalGeral > 0) {
+          cBadge.classList.remove("hidden");
+        } else {
+          cBadge.classList.add("hidden");
+        }
+      }
+
+      if (totalGeral === 0) {
+        const fCont = document.getElementById("tseFilterBarContainer");
+        if (fCont) fCont.classList.add("hidden");
+        const rCont = document.getElementById("tseReversoResultContainer");
+        if (rCont) rCont.classList.add("hidden");
+        return false;
+      }
+
+      const fCont = document.getElementById("tseFilterBarContainer");
+      if (fCont) fCont.classList.remove("hidden");
+      const rCont = document.getElementById("tseReversoResultContainer");
+      if (rCont) rCont.classList.remove("hidden");
+
+      popularSeletoresHierarquicosTse(hier);
+
+      if (payload.modo_visao === "SECAO_INDIVIDUAL" && payload.secao_individual) {
+        window.lastSecaoIndividualPayload = payload.secao_individual;
+        const btnV = document.getElementById("btnVoltarConsolidado");
+        if (btnV) btnV.classList.remove("hidden");
+        // Mantém os cards totalizadores por candidato e resumo de Brancos/Nulos/Faltosos SEMPRE visíveis também na urna individual!
+        const plBox = document.getElementById("tsePlacarConsolidadoBox");
+        if (plBox) plBox.classList.remove("hidden");
+        const lBox = document.getElementById("tseListaUrnasConsolidadaBox");
+        if (lBox) lBox.classList.add("hidden");
+        const iSec = document.getElementById("tseIndividualUrnaSection");
+        if (iSec) iSec.classList.remove("hidden");
+        renderizarLaudoTseReverso(payload.secao_individual);
+      } else if (payload.consolidado) {
+        window.lastSecaoIndividualPayload = null;
+        const btnV = document.getElementById("btnVoltarConsolidado");
+        if (btnV) btnV.classList.add("hidden");
+        const plBox = document.getElementById("tsePlacarConsolidadoBox");
+        if (plBox) plBox.classList.remove("hidden");
+        const lBox = document.getElementById("tseListaUrnasConsolidadaBox");
+        if (lBox) lBox.classList.remove("hidden");
+        const iSec = document.getElementById("tseIndividualUrnaSection");
+        if (iSec) iSec.classList.add("hidden");
+        renderizarVisaoConsolidadaTse(payload.consolidado, hier);
+      }
+      return true;
+    }
+
     async function atualizarConsolidacaoTse(mostrarAlertaSeVazio = false) {
+      const st = window.arvoreTseState;
+      const chave = gerarChaveCacheTse(st);
+      const alvoFormatado = obterNomeAmigavelAlvo(st.regiao, st.uf, st.municipio, st.zona, st.secao);
+
+      // 1. CHECAGEM NO CACHE DO NAVEGADOR (Navegação Instantânea em 0ms)
+      if (window.tseConsolidarCache && window.tseConsolidarCache.has(chave)) {
+        try {
+          const cachedPayload = window.tseConsolidarCache.get(chave);
+          aplicarPayloadConsolidadoNoDOM(cachedPayload, mostrarAlertaSeVazio);
+          atualizarBadgeIndicadorCache();
+          fecharModalProgressoFiltroComSucesso(`⚡ Dados de ${alvoFormatado} carregados instantaneamente do cache!`);
+          return;
+        } catch (eCache) {
+          console.warn("[TSE-CACHE] Falha ao renderizar do cache, buscando do PostgreSQL:", eCache);
+        }
+      }
+
+      // Se o modal ainda não estiver aberto e a chamada decorre de ação do usuário, abre agora
+      const modal = document.getElementById("tseFiltroProgressModal");
+      if (modal && modal.classList.contains("hidden") && mostrarAlertaSeVazio) {
+        abrirModalProgressoFiltro(`Carregando Dados...`, alvoFormatado, false);
+      }
+
       try {
-        const st = window.arvoreTseState;
         const qs = new URLSearchParams({
           regiao: st.regiao || "TODAS",
           uf: st.uf || "TODAS",
@@ -6409,51 +6804,23 @@ o Boletim de Urna (apos encerramento da votacao).
         });
 
         const res = await fetch(`/api/tse-reverso/consolidar?${qs.toString()}`);
-        if (!res.ok) return;
-        const payload = await res.json();
-        window.lastConsolidadoPayload = payload;
-
-        // Popula dinamicamente os cargos disponíveis retornados pelo banco mantendo a lista de cargos completa
-        const cargosLista = (Array.isArray(payload.cargos_disponiveis) && payload.cargos_disponiveis.length > 0)
-          ? payload.cargos_disponiveis
-          : ["PRESIDENTE", "GOVERNADOR", "SENADOR", "DEPUTADO FEDERAL", "DEPUTADO ESTADUAL"];
-        const selCargo = document.getElementById("selectCargoTse");
-        if (selCargo) {
-          const cargoAtual = st.cargo || "PRESIDENTE";
-          const rotulosCargos = {
-            "PRESIDENTE": "Presidente da República",
-            "GOVERNADOR": "Governador",
-            "SENADOR": "Senador",
-            "DEPUTADO FEDERAL": "Deputado Federal",
-            "DEPUTADO ESTADUAL": "Deputado Estadual",
-            "DEPUTADO DISTRITAL": "Deputado Distrital"
-          };
-          const opts = cargosLista.map(cg => {
-            const rotulo = rotulosCargos[cg] || (cg.charAt(0) + cg.slice(1).toLowerCase());
-            return `<option value="${cg}" ${cg === cargoAtual ? "selected" : ""}>${rotulo}</option>`;
-          }).join("");
-          selCargo.innerHTML = opts;
+        if (!res.ok) {
+          fecharModalProgressoFiltroComErro(`Falha na resposta do servidor (HTTP ${res.status})`);
+          return;
         }
+        const payload = await res.json();
+
+        // Armazena no cache em memória (LRU limit 100 itens)
+        if (!window.tseConsolidarCache) window.tseConsolidarCache = new Map();
+        if (window.tseConsolidarCache.size >= 100) {
+          const firstKey = window.tseConsolidarCache.keys().next().value;
+          window.tseConsolidarCache.delete(firstKey);
+        }
+        window.tseConsolidarCache.set(chave, payload);
+        atualizarBadgeIndicadorCache();
 
         const hier = payload.hierarquia || {};
-        window.arvoreTseState.hierarquia = hier;
-        window.arvoreTseState.regiao = hier.regiao_selecionada || "TODAS";
-        window.arvoreTseState.uf = hier.uf_selecionada || "TODAS";
-        window.arvoreTseState.municipio = hier.municipio_selecionado || "TODAS";
-        window.arvoreTseState.zona = hier.zona_selecionada || "TODAS";
-        window.arvoreTseState.secao = hier.secao_selecionada || "CONSOLIDADO";
-        window.arvoreTseState.filtro_forense = hier.filtro_forense_selecionado || "TODAS";
-
         const totalGeral = hier.total_geral_urnas || 0;
-        const cBadge = document.getElementById("tseCatalogCountBadge");
-        if (cBadge) {
-          cBadge.textContent = totalGeral > 0 ? `${totalGeral.toLocaleString("pt-BR")}` : "";
-          if (totalGeral > 0) {
-            cBadge.classList.remove("hidden");
-          } else {
-            cBadge.classList.add("hidden");
-          }
-        }
 
         if (totalGeral === 0) {
           // Se a memória estava vazia/fria mas existem seções gravadas no PostgreSQL,
@@ -6467,6 +6834,7 @@ o Boletim de Urna (apos encerramento da votacao).
                 if (stData.total_secoes > 0) {
                   const syncRes = await fetch("/api/tse-reverso/sincronizar-banco", { method: "POST" });
                   if (syncRes.ok) {
+                    window.tseConsolidarCache.clear();
                     return atualizarConsolidacaoTse(mostrarAlertaSeVazio);
                   }
                 }
@@ -6476,46 +6844,17 @@ o Boletim de Urna (apos encerramento da votacao).
             }
           }
           window._tseAutoSyncTentado = false;
-
-          const fCont = document.getElementById("tseFilterBarContainer");
-          if (fCont) fCont.classList.add("hidden");
-          const rCont = document.getElementById("tseReversoResultContainer");
-          if (rCont) rCont.classList.add("hidden");
+          aplicarPayloadConsolidadoNoDOM(payload, mostrarAlertaSeVazio);
+          fecharModalProgressoFiltroComSucesso("Nenhum dado encontrado para os filtros selecionados.");
           return;
         }
         window._tseAutoSyncTentado = false;
 
-        const fCont = document.getElementById("tseFilterBarContainer");
-        if (fCont) fCont.classList.remove("hidden");
-        const rCont = document.getElementById("tseReversoResultContainer");
-        if (rCont) rCont.classList.remove("hidden");
-
-        popularSeletoresHierarquicosTse(hier);
-
-        if (payload.modo_visao === "SECAO_INDIVIDUAL" && payload.secao_individual) {
-          window.lastSecaoIndividualPayload = payload.secao_individual;
-          const btnV = document.getElementById("btnVoltarConsolidado");
-          if (btnV) btnV.classList.remove("hidden");
-          // Mantém os cards totalizadores por candidato e resumo de Brancos/Nulos/Faltosos SEMPRE visíveis também na urna individual!
-          const plBox = document.getElementById("tsePlacarConsolidadoBox");
-          if (plBox) plBox.classList.remove("hidden");
-          const lBox = document.getElementById("tseListaUrnasConsolidadaBox");
-          if (lBox) lBox.classList.add("hidden");
-          const iSec = document.getElementById("tseIndividualUrnaSection");
-          if (iSec) iSec.classList.remove("hidden");
-          renderizarLaudoTseReverso(payload.secao_individual);
-        } else if (payload.consolidado) {
-          window.lastSecaoIndividualPayload = null;
-          const btnV = document.getElementById("btnVoltarConsolidado");
-          if (btnV) btnV.classList.add("hidden");
-          const plBox = document.getElementById("tsePlacarConsolidadoBox");
-          if (plBox) plBox.classList.remove("hidden");
-          const lBox = document.getElementById("tseListaUrnasConsolidadaBox");
-          if (lBox) lBox.classList.remove("hidden");
-          const iSec = document.getElementById("tseIndividualUrnaSection");
-          if (iSec) iSec.classList.add("hidden");
-          renderizarVisaoConsolidadaTse(payload.consolidado, hier);
-        }
+        aplicarPayloadConsolidadoNoDOM(payload, mostrarAlertaSeVazio);
+        fecharModalProgressoFiltroComSucesso(`✅ Dados de ${alvoFormatado} carregados com sucesso!`);
+      } catch (err) {
+        console.error("[TSE-CONSOLIDAR] Erro ao carregar dados consolidados:", err);
+        fecharModalProgressoFiltroComErro(err.message);
       } finally {
         ocultarSinalizacaoCarregandoArvore();
         window._tseCarregandoArvore = false;
