@@ -690,6 +690,11 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
     if teclas_pres_t2 == 0 and teclas_totais_t2 > 0:
         teclas_pres_t2 = teclas_totais_t2
 
+    comp_log_t2 = int(resumo.get("comparecimento_log") or 0)
+    if comp_log_t2 > 0 and (teclas_totais_t2 >= comp_log_t2 or teclas_pres_t2 >= comp_log_t2):
+        teclas_totais_t2 = 0
+        teclas_pres_t2 = 0
+
     tempo_medio_t2 = int(round(float(resumo.get("tempo_medio_cabine_s") or resumo.get("tempo_medio_ciclo_s") or 0.0)))
     vazao_t2 = json.dumps(resumo.get("votos_por_hora", {})) if resumo.get("votos_por_hora") else None
 
@@ -726,6 +731,11 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
                 teclas_pres_t1 = sum(int(c.get("teclas_indevidas_presidente") or 0) for c in c_1t)
         if teclas_totais_t1 == 0 and teclas_pres_t1 > 0:
             teclas_totais_t1 = teclas_pres_t1
+
+        comp_log_t1 = int(resumo.get("comparecimento_log_t1") or 0)
+        if comp_log_t1 > 0 and (teclas_totais_t1 >= comp_log_t1 or teclas_pres_t1 >= comp_log_t1):
+            teclas_totais_t1 = 0
+            teclas_pres_t1 = 0
         tempo_medio_t1 = int(round(float(resumo.get("tempo_medio_cabine_t1_s") or resumo.get("tempo_medio_ciclo_t1_s") or 0.0)))
         vazao_t1 = json.dumps(resumo.get("votos_por_hora_t1", {})) if resumo.get("votos_por_hora_t1") else None
 

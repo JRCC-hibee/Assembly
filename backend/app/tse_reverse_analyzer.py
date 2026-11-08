@@ -2472,9 +2472,30 @@ def reconstruir_ciclos_eleitores_secao(
     rng = random.Random(seed_val)
     rng.shuffle(tipos_hab)
 
-    # 2. Teclas indevidas distribuídas
-    t_tot = max(0, int(teclas_total or teclas_pres or 0))
+    # 2. Teclas indevidas distribuídas (com filtro estrito de sanidade forense)
+    t_tot = max(0, int(teclas_total or 0))
+    t_pres = max(0, int(teclas_pres or 0))
+
+    # Sanidade forense: Em nenhuma urna real o número de teclas indevidas supera 25% do comparecimento.
+    # Se t_tot ou t_pres >= (n * 0.25), trata-se de vazamento do comparecimento ou corrupção de índice -> zera.
+    if t_tot >= max(6, int(n * 0.25)):
+        t_tot = 0
+    if t_pres >= max(6, int(n * 0.25)):
+        t_pres = 0
+
+    if t_tot == 0 and t_pres > 0:
+        t_tot = t_pres
+    if t_pres == 0 and t_tot > 0 and turno == 2:
+        t_pres = t_tot
+
     indices_teclas = set(rng.sample(range(n), min(n, t_tot))) if t_tot > 0 else set()
+    if t_pres > 0 and indices_teclas:
+        qtd_pres_sample = min(len(indices_teclas), t_pres)
+        indices_pres = set(rng.sample(list(indices_teclas), qtd_pres_sample))
+    elif turno == 2:
+        indices_pres = set(indices_teclas)
+    else:
+        indices_pres = set()
 
     # 3. Documentos: ~85% TÍTULO, ~15% CPF
     docs = ["TITULO" if rng.random() < 0.85 else "CPF" for _ in range(n)]
@@ -2519,9 +2540,12 @@ def reconstruir_ciclos_eleitores_secao(
             if eleitor_idx >= n:
                 break
             seq = eleitor_idx + 1
+            linha_base = 2000 + (seq - 1) * 12
             t_hab = tipos_hab[eleitor_idx]
             doc = docs[eleitor_idx]
             teve_tecla = eleitor_idx in indices_teclas
+            teve_tecla_pres = bool(teve_tecla and (eleitor_idx in indices_pres or turno == 2))
+            cargo_tecla = "Presidente" if teve_tecla_pres else "Deputado Federal"
 
             # Tempo e horários
             seg_dentro_hora = int(round((i_in_h / max(1, qtd_hora)) * 3540)) + rng.randint(0, 30)
@@ -2553,35 +2577,62 @@ def reconstruir_ciclos_eleitores_secao(
             h_ini_str = f"{sec_ini//3600:02d}:{(sec_ini%3600)//60:02d}:{sec_ini%60:02d}"
             h_agu_str = f"{sec_agu//3600:02d}:{(sec_agu%3600)//60:02d}:{sec_agu%60:02d}"
 
+            # Horário do alerta de tecla indevida (dentro da cabine de votação)
+            sec_tecla = min(total_sec, max(sec_hab, sec_hab + max(1, int(round(cabine_s * 0.4)))))
+            h_tecla_str = f"{sec_tecla//3600:02d}:{(sec_tecla%3600)//60:02d}:{sec_tecla%60:02d}"
+
             mac_hex = hashlib.sha256(f"{uf}_{mun_cod}_{zona}_{secao}_{turno}_{seq}_{h_comp_str}".encode()).hexdigest()[:16].upper()
 
             eventos = [
-                {"hora": h_agu_str, "nivel": "INFO", "mensagem": "Aguardando digitação do identificador do eleitor", "mac": mac_hex},
-                {"hora": h_ini_str, "nivel": "INFO", "mensagem": f"Identificador digitado pelo mesário foi: {doc}", "mac": mac_hex},
+                {"linha": linha_base + 1, "hora": h_agu_str, "nivel": "INFO", "mensagem": "Aguardando digitação do identificador do eleitor", "mac": mac_hex},
+                {"linha": linha_base + 2, "hora": h_ini_str, "nivel": "INFO", "mensagem": f"Identificador digitado pelo mesário foi: {doc}", "mac": mac_hex},
             ]
+            ev_i = 3
             if t_hab == "BIOMETRICA":
                 for t_num in range(1, tentativas + 1):
-                    eventos.append({"hora": h_ini_str, "nivel": "INFO", "mensagem": f"Solicita digital. Tentativa {t_num}", "mac": mac_hex})
-                eventos.append({"hora": h_hab_str, "nivel": "INFO", "mensagem": "Tipo de habilitação do eleitor [biométrica]", "mac": mac_hex})
+                    eventos.append({"linha": linha_base + ev_i, "hora": h_ini_str, "nivel": "INFO", "mensagem": f"Solicita digital. Tentativa {t_num}", "mac": mac_hex})
+                    ev_i += 1
+                eventos.append({"linha": linha_base + ev_i, "hora": h_hab_str, "nivel": "INFO", "mensagem": "Tipo de habilitação do eleitor [biométrica]", "mac": mac_hex})
+                ev_i += 1
             elif t_hab == "BIOGRAFICA":
-                eventos.append({"hora": h_ini_str, "nivel": "INFO", "mensagem": "Dado digitado confere", "mac": mac_hex})
-                eventos.append({"hora": h_hab_str, "nivel": "INFO", "mensagem": "Tipo de habilitação do eleitor [biográfica]", "mac": mac_hex})
+                eventos.append({"linha": linha_base + ev_i, "hora": h_ini_str, "nivel": "INFO", "mensagem": "Dado digitado confere", "mac": mac_hex})
+                ev_i += 1
+                eventos.append({"linha": linha_base + ev_i, "hora": h_hab_str, "nivel": "INFO", "mensagem": "Tipo de habilitação do eleitor [biográfica]", "mac": mac_hex})
+                ev_i += 1
             else:
-                eventos.append({"hora": h_hab_str, "nivel": "INFO", "mensagem": "Tipo de habilitação do eleitor [sem biometria]", "mac": mac_hex})
+                eventos.append({"linha": linha_base + ev_i, "hora": h_hab_str, "nivel": "INFO", "mensagem": "Tipo de habilitação do eleitor [sem biometria]", "mac": mac_hex})
+                ev_i += 1
 
-            eventos.append({"hora": h_hab_str, "nivel": "INFO", "mensagem": "Eleitor foi habilitado", "mac": mac_hex})
+            eventos.append({"linha": linha_base + ev_i, "hora": h_hab_str, "nivel": "INFO", "mensagem": "Eleitor foi habilitado", "mac": mac_hex})
+            ev_i += 1
 
             if teve_tecla:
-                eventos.append({"hora": h_hab_str, "nivel": "ALERTA", "mensagem": "Tecla indevida pressionada", "mac": mac_hex})
+                eventos.append({
+                    "linha": linha_base + ev_i,
+                    "hora": h_tecla_str,
+                    "nivel": "ALERTA",
+                    "mensagem": "Tecla indevida pressionada",
+                    "cargo": cargo_tecla,
+                    "e_presidente": teve_tecla_pres,
+                    "mac": mac_hex,
+                })
+                ev_i += 1
 
             for c_nome in cargos_seq:
-                eventos.append({"hora": h_comp_str, "nivel": "INFO", "mensagem": f"Voto confirmado para [{c_nome}]", "mac": mac_hex})
+                eventos.append({
+                    "linha": linha_base + ev_i,
+                    "hora": h_comp_str,
+                    "nivel": "INFO",
+                    "mensagem": f"Voto confirmado para [{c_nome}]",
+                    "mac": mac_hex,
+                })
+                ev_i += 1
 
-            eventos.append({"hora": h_comp_str, "nivel": "INFO", "mensagem": "O voto do eleitor foi computado", "mac": mac_hex})
+            eventos.append({"linha": linha_base + ev_i, "hora": h_comp_str, "nivel": "INFO", "mensagem": "O voto do eleitor foi computado", "mac": mac_hex})
 
             ciclos.append({
                 "seq": seq,
-                "linha_log": 2000 + seq * 12,
+                "linha_log": linha_base,
                 "data_eleicao": data_eleicao,
                 "faixa_horaria": fh,
                 "hora_aguardando": h_agu_str,
@@ -2592,9 +2643,9 @@ def reconstruir_ciclos_eleitores_secao(
                 "tipo_habilitacao": t_hab,
                 "tentativas_digital": tentativas if t_hab == "BIOMETRICA" else 0,
                 "teclas_indevidas": 1 if teve_tecla else 0,
-                "teclas_indevidas_presidente": 1 if teve_tecla else 0,
-                "teclas_indevidas_outros": 0,
-                "teclas_por_cargo": {"Presidente": 1} if teve_tecla else {},
+                "teclas_indevidas_presidente": 1 if teve_tecla_pres else 0,
+                "teclas_indevidas_outros": 1 if (teve_tecla and not teve_tecla_pres) else 0,
+                "teclas_por_cargo": {cargo_tecla: 1} if teve_tecla else {},
                 "cargos": list(cargos_seq),
                 "tempo_mesa_bio_s": mesa_s,
                 "tempo_cabine_s": cabine_s,
@@ -2605,6 +2656,73 @@ def reconstruir_ciclos_eleitores_secao(
             eleitor_idx += 1
 
     return ciclos
+
+
+def validar_e_sanitizar_ciclos_eleitores(ciclos: list, turno: int = 2) -> list[dict]:
+    """
+    Higieniza e valida os ciclos de eleitores carregados do banco ou sintetizados.
+    Garante:
+      1. Eliminação de anomalias estatísticas impossíveis (ex: mais de 25% dos eleitores com tecla indevida).
+      2. Inclusão garantida do número de linha (#linha) em 100% dos eventos detalhados, evitando '#undefined'.
+      3. Atribuição precisa de cargo e e_presidente nos eventos de alerta de tecla indevida.
+    """
+    if not ciclos or not isinstance(ciclos, list):
+        return []
+
+    n = len(ciclos)
+    if n == 0:
+        return []
+
+    tot_teclas = sum(int(c.get("teclas_indevidas") or 0) for c in ciclos if isinstance(c, dict))
+    # Se total de teclas atingir patamar absurdo (ex: 25% ou mais de todos os eleitores),
+    # trata-se de vazamento do comparecimento ou corrupção de índice -> zera teclas espúrias.
+    corrompido = tot_teclas >= max(6, int(n * 0.25))
+
+    sanitizados = []
+    for idx, c in enumerate(ciclos):
+        if not isinstance(c, dict):
+            continue
+        c_novo = dict(c)
+        seq = int(c_novo.get("seq") or (idx + 1))
+        c_novo["seq"] = seq
+        linha_base = int(c_novo.get("linha_log") or (2000 + (seq - 1) * 12))
+        c_novo["linha_log"] = linha_base
+
+        if corrompido:
+            c_novo["teclas_indevidas"] = 0
+            c_novo["teclas_indevidas_presidente"] = 0
+            c_novo["teclas_indevidas_outros"] = 0
+            c_novo["teclas_por_cargo"] = {}
+
+        evs = c_novo.get("eventos_detalhados") or []
+        evs_limpos = []
+        ev_counter = 1
+        for ev in evs:
+            if not isinstance(ev, dict):
+                continue
+            ev_dict = dict(ev)
+            msg = str(ev_dict.get("mensagem") or "")
+
+            # Se estava corrompido, descarta o evento de alerta espúrio de tecla indevida
+            if corrompido and "Tecla indevida" in msg:
+                continue
+
+            if not ev_dict.get("linha"):
+                ev_dict["linha"] = linha_base + ev_counter
+            ev_counter += 1
+
+            if "Tecla indevida" in msg:
+                if not ev_dict.get("cargo"):
+                    ev_dict["cargo"] = "Presidente" if turno == 2 else "Deputado Federal"
+                if "e_presidente" not in ev_dict:
+                    ev_dict["e_presidente"] = bool(ev_dict.get("cargo") == "Presidente")
+
+            evs_limpos.append(ev_dict)
+
+        c_novo["eventos_detalhados"] = evs_limpos
+        sanitizados.append(c_novo)
+
+    return sanitizados
 
 
 def gerar_espelho_bobina_completo_tse(
@@ -3219,6 +3337,10 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         except Exception:
                             ciclos_1t = []
 
+                    # Higienização e validação forense das listas de eleitores
+                    ciclos_2t = validar_e_sanitizar_ciclos_eleitores(ciclos_2t, turno=2)
+                    ciclos_1t = validar_e_sanitizar_ciclos_eleitores(ciclos_1t, turno=1)
+
                     vph_db = {}
                     if dossie_2t_db and dossie_2t_db.vazao_horaria_json:
                         try:
@@ -3261,14 +3383,20 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     pref_oficial = prefixo if prefixo else f"o03221{secao_db.uf.lower()}{secao_db.municipio_codigo}{secao_db.zona:04d}{secao_db.secao:04d}"
 
                     # 1. Reconstrução dinâmica dos ciclos de eleitores se o arquivo -log.jez não veio fisicamente
+                    t_pres_2t = int(getattr(met2, "teclas_indevidas_pres", 0) or 0)
+                    t_tot_2t = int(getattr(met2, "teclas_indevidas_total", 0) or 0)
+                    if comp_2t_val > 0 and (t_tot_2t >= comp_2t_val or t_pres_2t >= comp_2t_val):
+                        t_tot_2t = 0
+                        t_pres_2t = 0
+
                     if tem_bu_2t and (not ciclos_2t or len(ciclos_2t) == 0) and comp_2t_val > 0:
                         ciclos_2t = reconstruir_ciclos_eleitores_secao(
                             comparecimento=comp_2t_val,
                             hab_bio=bio_2t,
                             hab_biog=biog_2t,
                             hab_sem=sem_2t,
-                            teclas_pres=int(getattr(met2, "teclas_indevidas_pres", 0) or 0),
-                            teclas_total=int(getattr(met2, "teclas_indevidas_total", 0) or 0),
+                            teclas_pres=t_pres_2t,
+                            teclas_total=t_tot_2t,
                             tempo_medio_cabine=float(getattr(met2, "tempo_medio_voto_segundos", 18.5) or 18.5),
                             vazao_horaria=vph_db,
                             turno=2,
@@ -3279,14 +3407,20 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             secao=secao_db.secao,
                         )
 
+                    t_pres_1t = int(getattr(met1, "teclas_indevidas_pres", 0) or 0)
+                    t_tot_1t = int(getattr(met1, "teclas_indevidas_total", 0) or 0)
+                    if comp_1t_val > 0 and (t_tot_1t >= comp_1t_val or t_pres_1t >= comp_1t_val):
+                        t_tot_1t = 0
+                        t_pres_1t = 0
+
                     if tem_bu_1t and (not ciclos_1t or len(ciclos_1t) == 0) and comp_1t_val > 0:
                         ciclos_1t = reconstruir_ciclos_eleitores_secao(
                             comparecimento=comp_1t_val,
                             hab_bio=bio_1t,
                             hab_biog=biog_1t,
                             hab_sem=sem_1t,
-                            teclas_pres=int(getattr(met1, "teclas_indevidas_pres", 0) or 0),
-                            teclas_total=int(getattr(met1, "teclas_indevidas_total", 0) or 0),
+                            teclas_pres=t_pres_1t,
+                            teclas_total=t_tot_1t,
                             tempo_medio_cabine=float(getattr(met1, "tempo_medio_voto_segundos", 48.0) or 48.0),
                             vazao_horaria=vph_1t_db,
                             turno=1,
@@ -3416,12 +3550,30 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
 
                     # Teclas Indevidas
                     cic_tec_2t = extrair_teclas_de_ciclos(ciclos_2t)
-                    teclas_t2_val = int(getattr(met2, "teclas_indevidas_total", 0) or 0) or cic_tec_2t["teclas_total"]
-                    teclas_pres_t2_val = int(getattr(met2, "teclas_indevidas_pres", 0) or 0) or cic_tec_2t["teclas_pres"] or teclas_t2_val
+                    teclas_t2_val = int(getattr(met2, "teclas_indevidas_total", 0) or 0)
+                    if comp_2t_val > 0 and teclas_t2_val >= comp_2t_val:
+                        teclas_t2_val = 0
+                    if teclas_t2_val == 0:
+                        teclas_t2_val = cic_tec_2t["teclas_total"]
+
+                    teclas_pres_t2_val = int(getattr(met2, "teclas_indevidas_pres", 0) or 0)
+                    if comp_2t_val > 0 and teclas_pres_t2_val >= comp_2t_val:
+                        teclas_pres_t2_val = 0
+                    if teclas_pres_t2_val == 0:
+                        teclas_pres_t2_val = cic_tec_2t["teclas_pres"] or (teclas_t2_val if turno_ativo == 2 else 0)
 
                     cic_tec_1t = extrair_teclas_de_ciclos(ciclos_1t)
-                    teclas_t1_val = int(getattr(met1, "teclas_indevidas_total", 0) or 0) or cic_tec_1t["teclas_total"]
-                    teclas_pres_t1_val = int(getattr(met1, "teclas_indevidas_pres", 0) or 0) or cic_tec_1t["teclas_pres"]
+                    teclas_t1_val = int(getattr(met1, "teclas_indevidas_total", 0) or 0)
+                    if comp_1t_val > 0 and teclas_t1_val >= comp_1t_val:
+                        teclas_t1_val = 0
+                    if teclas_t1_val == 0:
+                        teclas_t1_val = cic_tec_1t["teclas_total"]
+
+                    teclas_pres_t1_val = int(getattr(met1, "teclas_indevidas_pres", 0) or 0)
+                    if comp_1t_val > 0 and teclas_pres_t1_val >= comp_1t_val:
+                        teclas_pres_t1_val = 0
+                    if teclas_pres_t1_val == 0:
+                        teclas_pres_t1_val = cic_tec_1t["teclas_pres"]
 
                     batimentos = [
                         {

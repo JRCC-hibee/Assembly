@@ -92,8 +92,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-08-rev43"
-SYSTEM_COMMIT = "rev43-integracao-vacuum-checkpoint-painel-vps"
+SYSTEM_BUILD = "2026-11-08-rev44"
+SYSTEM_COMMIT = "rev44-fix-linhas-log-undefined-e-teclas-indevidas"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",

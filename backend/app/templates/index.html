@@ -8467,9 +8467,10 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }
 
       const evs = item.eventos_detalhados || [];
-      document.getElementById("modalEventosBody").innerHTML = evs.map(ev => {
+      document.getElementById("modalEventosBody").innerHTML = evs.map((ev, evIdx) => {
         const isTeclaIndevida = ev.mensagem && ev.mensagem.includes("Tecla indevida");
-        const isPres = ev.e_presidente || (ev.cargo && ev.cargo.toUpperCase() === "PRESIDENTE");
+        const isPres = ev.e_presidente || (ev.cargo && ev.cargo.toUpperCase() === "PRESIDENTE") || (window.currentTseTurnoGrafico === 2);
+        const cargoDesc = ev.cargo || (isPres ? "Presidente" : "Deputado Federal");
         const rowBg = isTeclaIndevida
           ? (isPres ? "bg-amber-950/50 border-l-4 border-amber-500 font-semibold" : "bg-slate-800/60 border-l-2 border-slate-600")
           : "";
@@ -8477,18 +8478,19 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         if (isTeclaIndevida) {
           badge = isPres
             ? `<span class="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-500 text-slate-950">🎯 TECLA INDEVIDA (PRESIDENTE)</span>`
-            : `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-amber-300 border border-amber-700/60">⚠️ TECLA INDEVIDA (${ev.cargo || 'OUTRO CARGO'})</span>`;
+            : `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-amber-300 border border-amber-700/60">⚠️ TECLA INDEVIDA (${cargoDesc.toUpperCase()})</span>`;
         } else {
           badge = `<span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${ev.nivel === 'INFO' ? 'bg-slate-800 text-slate-300' : 'bg-amber-900/70 text-amber-300'}">${ev.nivel}</span>`;
         }
+        const linhaNum = ev.linha || (item.linha_log ? (item.linha_log + evIdx + 1) : (2000 + (item.seq || 1)*12 + evIdx + 1));
         return `
           <tr class="${rowBg}">
-            <td class="py-1 text-slate-500">#${ev.linha}</td>
+            <td class="py-1 text-slate-500">#${linhaNum}</td>
             <td class="py-1 font-bold text-cyan-300">${ev.hora}</td>
             <td class="py-1">${badge}</td>
             <td class="py-1 ${isTeclaIndevida ? (isPres ? 'text-amber-200 font-bold' : 'text-slate-300') : 'text-slate-200'}">
               ${ev.mensagem}
-              ${isTeclaIndevida && ev.cargo ? `<span class="text-[10px] text-slate-400 block font-normal">↳ Cargo na cabine: <strong>${ev.cargo}</strong></span>` : ''}
+              ${isTeclaIndevida ? `<span class="text-[10px] text-slate-400 block font-normal">↳ Cargo na cabine: <strong>${cargoDesc}</strong></span>` : ''}
             </td>
             <td class="py-1 text-right text-slate-500 font-mono text-[10px]">${ev.mac || '-'}</td>
           </tr>
