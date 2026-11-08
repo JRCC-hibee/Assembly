@@ -151,15 +151,28 @@
           <span>🗳️</span>
           <span>Simulador de Urna</span>
         </button>
+        <!-- Botão 2: BI & Inteligência Eleitoral -->
         <button
-          id="btn-modulo-auditoria"
-          onclick="ativarModulo('auditoria')"
-          class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-transparent"
-          title="Auditoria Forense Multi-Urna TSE, Comparativo 1ºT vs 2ºT, Árvore Nacional e Ingestão de .ZIPs"
+          id="btn-modulo-auditoria-bi"
+          onclick="ativarModuloAuditoriaComSubaba('bi')"
+          class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-700/50"
+          title="BI Completo de Auditoria Eleitoral, Análise Forense, Árvore Nacional e Comparativo 1ºT vs 2ºT"
         >
-          <span>🔍</span>
-          <span>Auditoria Eleições (TSE)</span>
-          <span class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 mono">BRASIL</span>
+          <span>📊</span>
+          <span>BI & Inteligência Eleitoral</span>
+          <span class="text-[9px] px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-800 mono">INSIGHTS</span>
+        </button>
+
+        <!-- Botão 3: Setup & Ingestão de Dados -->
+        <button
+          id="btn-modulo-auditoria-setup"
+          onclick="ativarModuloAuditoriaComSubaba('setup')"
+          class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-indigo-300 border border-slate-700/50"
+          title="Setup & Ingestão de Dados: Arquivos .ZIP/.7Z, BWEB, Sincronização e Armazenamento VPS"
+        >
+          <span>⚙️</span>
+          <span>Setup & Carga</span>
+          <span class="text-[9px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-800 mono">VPS</span>
         </button>
       </div>
 
@@ -207,6 +220,39 @@
       <button onclick="switchTab('tab-simulacao')" id="btn-tab-simulacao" class="tab-btn px-4 py-2 rounded-lg font-semibold text-sm bg-slate-800 text-amber-300 hover:bg-slate-700 border border-amber-500/30">
         5. Simulador de Cadência & Auditoria Forense Local
       </button>
+    </div>
+  </div>
+
+  <!-- Sub-navegação interna exclusiva do MÓDULO 2: AUDITORIA TSE (BI COMPLETO vs SETUP & CARGA) -->
+  <div id="subnav-auditoria" class="max-w-7xl mx-auto px-4 mt-5 hidden">
+    <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-900/90 border border-slate-800 rounded-2xl p-2.5 backdrop-blur-md shadow-xl">
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          id="btn-subnav-auditoria-bi"
+          onclick="alternarSubAbaAuditoria('bi')"
+          class="flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-black text-xs transition duration-150 bg-gradient-to-r from-cyan-600 to-teal-500 text-slate-950 shadow-lg shadow-cyan-950/50 border border-cyan-400"
+        >
+          <span class="text-base">📊</span>
+          <span>BI & Inteligência Eleitoral</span>
+          <span class="text-[9px] px-1.5 py-0.5 rounded uppercase font-bold mono bg-cyan-950 text-cyan-300 border border-cyan-800">Insights & Forense</span>
+        </button>
+
+        <button
+          id="btn-subnav-auditoria-setup"
+          onclick="alternarSubAbaAuditoria('setup')"
+          class="flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-xs transition duration-150 bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700"
+        >
+          <span class="text-base">⚙️</span>
+          <span>Setup & Ingestão de Dados</span>
+          <span class="text-[9px] px-1.5 py-0.5 rounded uppercase font-bold mono bg-indigo-950 text-indigo-300 border border-indigo-800">Carga .ZIP & VPS</span>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-3 text-xs mono text-slate-300 pr-2">
+        <span class="hidden md:inline text-slate-400">Visão Ativa: <strong id="subnavModoLabel" class="text-cyan-300">BI & Analytics</strong></span>
+        <span>•</span>
+        <span id="subnavUrnasBadge" class="text-emerald-400 font-bold">Base Conectada</span>
+      </div>
     </div>
   </div>
 
@@ -898,8 +944,13 @@ o Boletim de Urna (apos encerramento da votacao).
 
     <!-- MÓDULO 2: AUDITORIA FORENSE ELEIÇÕES (TSE) — COMPARATIVO 1ºT VS 2ºT E ÁRVORE NACIONAL -->
     <section id="tab-tse-reverso" class="hidden space-y-6">
-      <!-- Central de Ingestão de Dados na VPS (Segundo Plano Automático Permanente) -->
-      <div class="bg-slate-900 border-2 border-indigo-500/50 rounded-2xl p-6 space-y-4 shadow-2xl">
+
+      <!-- ============================================================== -->
+      <!-- PARTE 1: CENTRAL DE SETUP, ARQUIVOS & INGESTÃO DE DADOS (VPS)  -->
+      <!-- ============================================================== -->
+      <div id="auditoria-view-setup" class="space-y-6">
+        <!-- Central de Ingestão de Dados na VPS (Segundo Plano Automático Permanente) -->
+        <div class="bg-slate-900 border-2 border-indigo-500/50 rounded-2xl p-6 space-y-4 shadow-2xl">
         <div class="flex flex-wrap items-center justify-between gap-4">
           <div class="max-w-2xl">
             <div class="flex items-center gap-2">
@@ -1187,6 +1238,71 @@ o Boletim de Urna (apos encerramento da votacao).
               <span id="vpsEtaPill" class="text-cyan-400 font-bold">ETA: calculando...</span>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Banner de Transição Rápida: Setup -> BI -->
+      <div class="bg-gradient-to-r from-cyan-950/40 via-slate-900 to-indigo-950/40 border border-cyan-500/40 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 rounded-xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-xl font-bold">📊</div>
+          <div>
+            <div class="text-sm font-extrabold text-white">Pronto para Analisar os Dados?</div>
+            <div class="text-xs text-slate-300">Acesse o <strong>BI & Inteligência Eleitoral</strong> para explorar a árvore de consolidação em 5 níveis, comparativo 1ºT vs 2ºT, fluxo horário e dossiês voto a voto.</div>
+          </div>
+        </div>
+        <button onclick="alternarSubAbaAuditoria('bi')" class="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-400 hover:from-cyan-400 hover:to-teal-300 text-slate-950 font-black text-xs transition shadow-md flex items-center gap-2 cursor-pointer">
+          <span>Ir para o BI & Inteligência Eleitoral</span>
+          <span>➡️</span>
+        </button>
+      </div>
+    </div>
+    <!-- FIM PARTE 1: SETUP -->
+
+    <!-- ============================================================== -->
+    <!-- PARTE 2: BI & INTELIGÊNCIA ELEITORAL (DASHBOARD & INSIGHTS)     -->
+    <!-- ============================================================== -->
+    <div id="auditoria-view-bi" class="space-y-6">
+
+      <!-- Header Executivo de BI & Insights -->
+      <div class="bg-gradient-to-r from-slate-900 via-slate-900 to-cyan-950/50 border-2 border-cyan-500/40 rounded-2xl p-5 shadow-2xl flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="px-2.5 py-0.5 text-[10px] font-extrabold uppercase rounded-full bg-cyan-950 text-cyan-300 border border-cyan-700 mono">
+              BI & INTELIGÊNCIA ELEITORAL
+            </span>
+            <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-950 text-emerald-300 border border-emerald-800 mono">
+              PostgreSQL Zero-Disk Raw
+            </span>
+            <span class="px-2 py-0.5 text-[10px] font-bold rounded bg-indigo-950 text-indigo-300 border border-indigo-800 mono">
+              1º e 2º Turno Pareados
+            </span>
+          </div>
+          <h2 class="text-lg font-extrabold text-white mt-1.5 flex items-center gap-2">
+            <span>Dashboard Executivo & Análise Forense Multidimensional</span>
+          </h2>
+          <p class="text-xs text-slate-300 mt-1 leading-relaxed max-w-3xl">
+            Painel analítico completo: navegue pelos 5 níveis geográficos (Região, Estado, Município, Zona e Seção), compare o 1ºT × 2ºT com deltas nominais, confira os batimentos triplos (BU × RDV × Log) e analise a vazão horária dos eleitores.
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onclick="alternarSubAbaAuditoria('setup')"
+            class="px-4 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-indigo-500/50 text-indigo-300 font-bold text-xs transition shadow flex items-center gap-2 cursor-pointer"
+            title="Ir para a Central de Setup para carregar novos arquivos .ZIP, BWEB ou gerenciar a VPS"
+          >
+            <span>⚙️</span>
+            <span>Setup & Carga (.ZIP / VPS)</span>
+          </button>
+          <button
+            type="button"
+            onclick="forcarSincronizacaoBancoTse()"
+            class="px-4 py-2.5 rounded-xl bg-emerald-950 hover:bg-emerald-900 border border-emerald-500/60 text-emerald-300 font-bold text-xs transition shadow flex items-center gap-2 cursor-pointer"
+            title="Sincronizar base e atualizar métricas do BI"
+          >
+            <span>🔄</span>
+            <span>Atualizar BI</span>
+          </button>
         </div>
       </div>
 
@@ -1719,7 +1835,10 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
       </div>
-    </section>
+    </div>
+    <!-- FIM PARTE 2: BI -->
+
+  </section>
 
     <!-- MODAL FORENSE DE DETALHAMENTO INDIVIDUAL DO ELEITOR NO LOGD.DAT -->
     <div id="voterDetailModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" onclick="fecharModalEleitorTse(event)">
@@ -3099,16 +3218,113 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     window.moduloAtual = "simulador"; // "simulador" ou "auditoria"
+    window.auditoriaSubAbaAtual = "bi"; // "bi" ou "setup"
 
-    function ativarModulo(mod) {
+    function alternarSubAbaAuditoria(subAba) {
+      window.auditoriaSubAbaAtual = subAba;
+      try {
+        localStorage.setItem("auditoria_subaba_ativa", subAba);
+      } catch (e) {}
+
+      // Se o módulo auditoria não estiver ativo no momento, ativa-o primeiro
+      if (window.moduloAtual !== "auditoria") {
+        ativarModulo("auditoria", subAba);
+        return;
+      }
+
+      const viewBi = document.getElementById("auditoria-view-bi");
+      const viewSetup = document.getElementById("auditoria-view-setup");
+      const btnBi = document.getElementById("btn-subnav-auditoria-bi");
+      const btnSetup = document.getElementById("btn-subnav-auditoria-setup");
+      const btnTopBi = document.getElementById("btn-modulo-auditoria-bi");
+      const btnTopSetup = document.getElementById("btn-modulo-auditoria-setup");
+      const subnavModoLabel = document.getElementById("subnavModoLabel");
+      const mainTitle = document.getElementById("moduloMainTitle");
+      const subtitle = document.getElementById("moduloSubtitle");
+      const badgeIndicator = document.getElementById("moduloIndicatorBadge");
+
+      if (subAba === "bi") {
+        if (viewBi) viewBi.classList.remove("hidden");
+        if (viewSetup) viewSetup.classList.add("hidden");
+
+        if (btnBi) {
+          btnBi.className = "flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-black text-xs transition duration-150 bg-gradient-to-r from-cyan-600 to-teal-500 text-slate-950 shadow-lg shadow-cyan-950/50 border border-cyan-400";
+        }
+        if (btnSetup) {
+          btnSetup.className = "flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-xs transition duration-150 bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700";
+        }
+        if (btnTopBi) {
+          btnTopBi.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition duration-150 bg-cyan-600 text-slate-950 shadow-lg shadow-cyan-950/50";
+        }
+        if (btnTopSetup) {
+          btnTopSetup.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-indigo-300 border border-slate-700/50";
+        }
+        if (subnavModoLabel) subnavModoLabel.textContent = "BI & Analytics";
+        if (badgeIndicator) {
+          badgeIndicator.textContent = "BI & Inteligência Eleitoral";
+          badgeIndicator.className = "text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase mono bg-cyan-950 text-cyan-300 border border-cyan-700";
+        }
+        if (mainTitle) mainTitle.textContent = "Auditoria Eleições — BI & Inteligência Eleitoral";
+        if (subtitle) subtitle.textContent = "Dashboard Forense Nacional (1º e 2º Turno) • Árvore 5 Níveis • Batimento Triplo • Curvas de Vazão";
+
+        try {
+          atualizarConsolidacaoTse(false);
+        } catch (eCons) {}
+        try {
+          atualizarStatusBancoAuditoria();
+        } catch (eStat) {}
+      } else {
+        if (viewSetup) viewSetup.classList.remove("hidden");
+        if (viewBi) viewBi.classList.add("hidden");
+
+        if (btnSetup) {
+          btnSetup.className = "flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-black text-xs transition duration-150 bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg shadow-indigo-950/50 border border-indigo-400";
+        }
+        if (btnBi) {
+          btnBi.className = "flex items-center gap-2.5 px-5 py-2.5 rounded-xl font-bold text-xs transition duration-150 bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700";
+        }
+        if (btnTopSetup) {
+          btnTopSetup.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition duration-150 bg-indigo-600 text-white shadow-lg shadow-indigo-950/50";
+        }
+        if (btnTopBi) {
+          btnTopBi.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-700/50";
+        }
+        if (subnavModoLabel) subnavModoLabel.textContent = "Setup & Ingestão";
+        if (badgeIndicator) {
+          badgeIndicator.textContent = "Setup & Ingestão de Dados";
+          badgeIndicator.className = "text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase mono bg-indigo-950 text-indigo-300 border border-indigo-700";
+        }
+        if (mainTitle) mainTitle.textContent = "Central de Setup & Ingestão de Dados na VPS";
+        if (subtitle) subtitle.textContent = "Carga de Pacotes .ZIP/.7Z • Ingestão BWEB • Gestão de Armazenamento e Limpeza VPS";
+
+        try {
+          atualizarProgressoIngestaoServidor(false);
+        } catch (eProg) {}
+        try {
+          verificarArquivosServidorTse();
+        } catch (eVps) {}
+        try {
+          atualizarDiagnosticoDiscoVps(false);
+        } catch (eDsk) {}
+      }
+    }
+
+    function ativarModuloAuditoriaComSubaba(subAba) {
+      ativarModulo("auditoria", subAba);
+    }
+
+    function ativarModulo(mod, subabaDesejada = null) {
       window.moduloAtual = mod;
       try {
         localStorage.setItem("urna_modulo_ativo", mod);
       } catch (e) {}
 
       const btnSimulador = document.getElementById("btn-modulo-simulador");
-      const btnAuditoria = document.getElementById("btn-modulo-auditoria");
+      const btnAuditoriaBi = document.getElementById("btn-modulo-auditoria-bi");
+      const btnAuditoriaSetup = document.getElementById("btn-modulo-auditoria-setup");
+      const btnAuditoriaLegacy = document.getElementById("btn-modulo-auditoria");
       const subnavSimulador = document.getElementById("subnav-simulador");
+      const subnavAuditoria = document.getElementById("subnav-auditoria");
       const hdrStatusSimulador = document.getElementById("headerStatusBadge");
       const hdrStatusAuditoria = document.getElementById("headerAuditoriaBadge");
       const badgeIndicator = document.getElementById("moduloIndicatorBadge");
@@ -3122,48 +3338,25 @@ o Boletim de Urna (apos encerramento da votacao).
       });
 
       if (mod === "auditoria") {
-        if (btnAuditoria) btnAuditoria.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition duration-150 bg-cyan-600 text-slate-950 shadow-lg shadow-cyan-950/50";
         if (btnSimulador) btnSimulador.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-slate-200 border border-slate-700/50";
         if (subnavSimulador) subnavSimulador.classList.add("hidden");
+        if (subnavAuditoria) subnavAuditoria.classList.remove("hidden");
         if (hdrStatusSimulador) hdrStatusSimulador.classList.add("hidden");
         if (hdrStatusAuditoria) hdrStatusAuditoria.classList.remove("hidden");
-        if (badgeIndicator) {
-          badgeIndicator.textContent = "Módulo Auditoria TSE";
-          badgeIndicator.className = "text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase mono bg-cyan-950 text-cyan-300 border border-cyan-700";
-        }
-        if (mainTitle) mainTitle.textContent = "Auditoria Eleições — TSE Nacional (1º e 2º Turno)";
-        if (subtitle) subtitle.textContent = "Batimento Forense Triplo (BU × RDV ASN.1 × Log.jez) • Teclas Isoladas p/ Presidente • PostgreSQL Zero-Disk Raw";
 
         const tabAuditoria = document.getElementById("tab-tse-reverso");
         if (tabAuditoria) tabAuditoria.classList.remove("hidden");
 
-        try {
-          atualizarConsolidacaoTse(false);
-        } catch (eCons) {
-          console.warn("[AUDITORIA] Falha ao atualizar consolidação:", eCons);
-        }
-        try {
-          atualizarStatusBancoAuditoria();
-        } catch (eStat) {
-          console.warn("[AUDITORIA] Falha ao atualizar status do banco:", eStat);
-        }
-        try {
-          atualizarProgressoIngestaoServidor(false);
-        } catch (eProg) {
-          console.warn("[AUDITORIA] Falha ao verificar progresso da VPS:", eProg);
-        }
-        try {
-          verificarArquivosServidorTse();
-        } catch (eVps) {
-          console.warn("[AUDITORIA] Falha ao verificar arquivos da VPS:", eVps);
-        }
-        try {
-          atualizarDiagnosticoDiscoVps(false);
-        } catch (eDsk) {}
+        const subAba = subabaDesejada || window.auditoriaSubAbaAtual || localStorage.getItem("auditoria_subaba_ativa") || "bi";
+        alternarSubAbaAuditoria(subAba);
       } else {
         if (btnSimulador) btnSimulador.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-black text-xs transition duration-150 bg-emerald-600 text-white shadow-md shadow-emerald-900/30";
-        if (btnAuditoria) btnAuditoria.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-700/50";
+        if (btnAuditoriaBi) btnAuditoriaBi.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-700/50";
+        if (btnAuditoriaSetup) btnAuditoriaSetup.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-indigo-300 border border-slate-700/50";
+        if (btnAuditoriaLegacy) btnAuditoriaLegacy.className = "flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs transition duration-150 bg-slate-900 text-slate-400 hover:text-cyan-300 border border-slate-700/50";
+
         if (subnavSimulador) subnavSimulador.classList.remove("hidden");
+        if (subnavAuditoria) subnavAuditoria.classList.add("hidden");
         if (hdrStatusSimulador) hdrStatusSimulador.classList.remove("hidden");
         if (hdrStatusAuditoria) hdrStatusAuditoria.classList.add("hidden");
         if (badgeIndicator) {
@@ -3186,6 +3379,10 @@ o Boletim de Urna (apos encerramento da votacao).
           const badge = document.getElementById("headerAuditoriaCount");
           if (badge) {
             badge.textContent = `${(d.total_secoes || 0).toLocaleString("pt-BR")} URNAS (${d.total_ufs || 0} UF)`;
+          }
+          const subBadge = document.getElementById("subnavUrnasBadge");
+          if (subBadge) {
+            subBadge.textContent = `${(d.total_secoes || 0).toLocaleString("pt-BR")} Urnas (${d.total_ufs || 0} UF)`;
           }
           const fBadge = document.getElementById("headerUrnasFaltantesBadge");
           if (fBadge) {
