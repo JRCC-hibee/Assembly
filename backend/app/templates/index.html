@@ -1074,12 +1074,22 @@ o Boletim de Urna (apos encerramento da votacao).
               <button
                 type="button"
                 id="btnLimparTemporariosVps"
-                onclick="executarLimpezaTemporariosVps()"
+                onclick="executarLimpezaTemporariosVps(false)"
                 class="px-3 py-1 text-[11px] font-extrabold rounded-lg bg-indigo-950 hover:bg-indigo-900 text-indigo-300 border border-indigo-700/60 transition inline-flex items-center gap-1 shadow shadow-indigo-950/50 cursor-pointer"
-                title="Remove pastas temporárias órfãs de extração sem tocar no banco ou nos arquivos brutos"
+                title="Remove pastas temporárias órfãs e executa VACUUM FULL + CHECKPOINT no PostgreSQL em 1 clique (sem apagar dados)"
               >
                 <span>🧹</span>
-                <span>Limpar Temporários</span>
+                <span>Limpar & Otimizar VPS</span>
+              </button>
+              <button
+                type="button"
+                id="btnZerarBobinasVps"
+                onclick="confirmarZerarBobinasVps()"
+                class="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-slate-900 hover:bg-rose-950/70 text-slate-400 hover:text-rose-300 border border-slate-800 hover:border-rose-700/60 transition inline-flex items-center gap-1 shadow-sm cursor-pointer"
+                title="Esvazia a tabela de bobinas térmicas (TRUNCATE tse_dossie_secao) para recuperar 100% do espaço de fitas impressas"
+              >
+                <span>⚡</span>
+                <span>Zerar Bobinas (TRUNCATE)</span>
               </button>
               <button
                 type="button"
@@ -4789,29 +4799,62 @@ o Boletim de Urna (apos encerramento da votacao).
       }
     }
 
-    async function executarLimpezaTemporariosVps() {
+    async function executarLimpezaTemporariosVps(purgarDossies = false) {
       const btn = document.getElementById("btnLimparTemporariosVps");
+      const btnZerar = document.getElementById("btnZerarBobinasVps");
       if (btn) {
         btn.disabled = true;
-        btn.innerHTML = `<span>⏳</span><span>Limpando...</span>`;
+        btn.innerHTML = `<span>⏳</span><span>Otimizando...</span>`;
       }
+      if (btnZerar) btnZerar.disabled = true;
+
       try {
-        const res = await fetch("/api/tse-reverso/limpar-temporarios", { method: "POST" });
+        const res = await fetch("/api/tse-reverso/limpar-temporarios", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ otimizar_banco: true, purgar_dossies: purgarDossies })
+        });
         const d = await res.json();
         if (res.ok && d.ok) {
-          alert(`🧹 Limpeza de Temporários Concluída com Sucesso!\n\n• Espaço Liberado: ${d.mb_liberados} MB (${d.gb_liberados} GB)\n• Itens Removidos: ${d.itens_removidos} arquivos/pastas órfãs.\n\nNenhum dado do banco de dados ou pacote de importação foi alterado.`);
+          let msg = `🧹 Limpeza & Otimização Concluída com Sucesso!\n\n`;
+          if (d.mb_liberados > 0) {
+            msg += `• Pastas Temporárias: ${d.mb_liberados} MB liberados (${d.itens_removidos} itens removidos).\n`;
+          } else {
+            msg += `• Pastas Temporárias: 0 MB residuais (pastas limpas).\n`;
+          }
+          if (d.otimizacao_banco && d.otimizacao_banco.ok) {
+            msg += `• Banco PostgreSQL: 100% Otimizado (VACUUM FULL & CHECKPOINT).\n`;
+            if (d.otimizacao_banco.tabelas_otimizadas && d.otimizacao_banco.tabelas_otimizadas.length) {
+              msg += `  Tabelas compactadas: ${d.otimizacao_banco.tabelas_otimizadas.join(', ')}\n`;
+            }
+          }
+          msg += `\nEspaço em disco recuperado na VPS! Todos os dados de seções e apurações continuam preservados.`;
+          alert(msg);
         } else {
-          alert(`Aviso na limpeza: ${d.mensagem || 'Falha ao executar limpeza.'}`);
+          alert(`Aviso na limpeza: ${d.mensagem || (d.erros && d.erros.join(', ')) || 'Falha ao executar limpeza.'}`);
         }
       } catch (e) {
         alert(`Erro de conexão ao solicitar limpeza: ${e.message}`);
       } finally {
         if (btn) {
           btn.disabled = false;
-          btn.innerHTML = `<span>🧹</span><span>Limpar Temporários</span>`;
+          btn.innerHTML = `<span>🧹</span><span>Limpar & Otimizar VPS</span>`;
         }
+        if (btnZerar) btnZerar.disabled = false;
         atualizarDiagnosticoDiscoVps(false);
       }
+    }
+
+    async function confirmarZerarBobinasVps() {
+      const conf = confirm(
+        "⚡ Esvaziar Bobinas Térmicas (TRUNCATE)?\n\n" +
+        "Esta ação executa o TRUNCATE TABLE tse_dossie_secao e CHECKPOINT na VPS, liberando imediatamente o espaço ocupado pelas bobinas impressas.\n\n" +
+        "• Todas as 73.226 seções, apurações e votos continuam 100% preservados.\n" +
+        "• As bobinas oficiais podem ser reingeridas a qualquer momento.\n\n" +
+        "Deseja prosseguir com o TRUNCATE das bobinas?"
+      );
+      if (!conf) return;
+      await executarLimpezaTemporariosVps(true);
     }
 
     async function confirmarRemoverZipsIngeridosVps() {

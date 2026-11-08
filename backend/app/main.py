@@ -65,6 +65,7 @@ from .tse_reverse_analyzer import (
     sincronizar_catalogo_com_banco,
     obter_status_disco_vps,
     limpar_arquivos_temporarios_vps,
+    otimizar_banco_postgresql,
     remover_zips_processados_vps,
     _CATALOGO_MEMORIA,
 )
@@ -91,8 +92,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-07-rev42"
-SYSTEM_COMMIT = "rev42-fix-bweb-quote-syntax-status"
+SYSTEM_BUILD = "2026-11-08-rev43"
+SYSTEM_COMMIT = "rev43-integracao-vacuum-checkpoint-painel-vps"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1480,13 +1481,29 @@ def api_tse_reverso_disco_status():
     return obter_status_disco_vps()
 
 
+class LimparTemporariosRequest(BaseModel):
+    otimizar_banco: bool = True
+    purgar_dossies: bool = False
+
+
 @app.post("/api/tse-reverso/limpar-temporarios")
-def api_tse_reverso_limpar_temporarios():
+def api_tse_reverso_limpar_temporarios(payload: Optional[LimparTemporariosRequest] = Body(None)):
     """
-    Executa limpeza imediata de arquivos e pastas temporárias de extração na VPS (.tmp_tse_extract, /tmp/tse_*).
-    Não afeta nenhum dado do banco PostgreSQL nem os arquivos originais.
+    Executa limpeza imediata de arquivos e pastas temporárias de extração na VPS (.tmp_tse_extract, /tmp/tse_*)
+    e executa manutenção e compactação profunda do PostgreSQL (CHECKPOINT + VACUUM FULL).
     """
-    return limpar_arquivos_temporarios_vps()
+    otimizar = payload.otimizar_banco if payload else True
+    purgar = payload.purgar_dossies if payload else False
+    return limpar_arquivos_temporarios_vps(otimizar_banco=otimizar, purgar_dossies=purgar)
+
+
+@app.post("/api/tse-reverso/otimizar-banco")
+def api_tse_reverso_otimizar_banco(payload: Optional[LimparTemporariosRequest] = Body(None)):
+    """
+    Executa otimização e compactação direta do banco PostgreSQL (CHECKPOINT + VACUUM FULL).
+    """
+    purgar = payload.purgar_dossies if payload else False
+    return otimizar_banco_postgresql(purgar_dossies=purgar)
 
 
 class RemoverZipsRequest(BaseModel):

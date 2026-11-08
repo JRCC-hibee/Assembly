@@ -4690,11 +4690,86 @@ def obter_status_disco_vps() -> dict:
     }
 
 
-def limpar_arquivos_temporarios_vps() -> dict:
+def otimizar_banco_postgresql(purgar_dossies: bool = False) -> dict:
+    """
+    Executa a manutenção profunda e otimização física do PostgreSQL na VPS:
+    1. Se purgar_dossies=True, executa TRUNCATE TABLE tse_dossie_secao (libera espaço das bobinas).
+    2. CHECKPOINT: força gravação em disco e descarte de logs de transação WAL.
+    3. VACUUM FULL nas tabelas principais para recuperar espaço em disco e reorganizar índices:
+       - tse_votos_candidatos
+       - tse_secoes
+       - tse_apuracao_bu
+       - tse_metricas_log
+       - tse_dossie_secao (se não foi purgada)
+    """
+    from .database import engine, DATABASE_URL
+    from sqlalchemy import text
+
+    tabelas_otimizadas = []
+    avisos = []
+
+    if not engine:
+        return {"ok": False, "mensagem": "Engine de banco de dados indisponível."}
+
+    is_postgres = str(DATABASE_URL).startswith("postgresql")
+
+    try:
+        with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+            if is_postgres:
+                if purgar_dossies:
+                    try:
+                        conn.execute(text("TRUNCATE TABLE tse_dossie_secao;"))
+                        tabelas_otimizadas.append("tse_dossie_secao (TRUNCATE)")
+                    except Exception as e_tr:
+                        avisos.append(f"TRUNCATE tse_dossie_secao: {e_tr}")
+
+                try:
+                    conn.execute(text("CHECKPOINT;"))
+                    tabelas_otimizadas.append("CHECKPOINT (Logs WAL)")
+                except Exception as e_cp:
+                    avisos.append(f"CHECKPOINT: {e_cp}")
+
+                tabelas_alvo = [
+                    "tse_votos_candidatos",
+                    "tse_secoes",
+                    "tse_apuracao_bu",
+                    "tse_metricas_log",
+                ]
+                if not purgar_dossies:
+                    tabelas_alvo.append("tse_dossie_secao")
+
+                for tab in tabelas_alvo:
+                    try:
+                        conn.execute(text(f"VACUUM FULL {tab};"))
+                        tabelas_otimizadas.append(f"{tab} (VACUUM FULL)")
+                    except Exception as e_v:
+                        avisos.append(f"VACUUM {tab}: {e_v}")
+            else:
+                try:
+                    conn.execute(text("VACUUM;"))
+                    tabelas_otimizadas.append("SQLite VACUUM")
+                except Exception as e_v:
+                    avisos.append(f"VACUUM SQLite: {e_v}")
+
+        return {
+            "ok": True,
+            "tabelas_otimizadas": tabelas_otimizadas,
+            "avisos": avisos,
+        }
+    except Exception as exc:
+        return {
+            "ok": False,
+            "erro": str(exc),
+            "tabelas_otimizadas": tabelas_otimizadas,
+            "avisos": avisos,
+        }
+
+
+def limpar_arquivos_temporarios_vps(otimizar_banco: bool = True, purgar_dossies: bool = False) -> dict:
     """
     Remove recursivamente todos os diretórios e arquivos temporários de extração
     (.tmp_tse_extract, /tmp/tse_ingest_*, /tmp/tse_comp_*, etc.)
-    sem tocar no PostgreSQL nem nos arquivos originais em /root/tse_import.
+    e opcionalmente executa a manutenção do PostgreSQL (VACUUM FULL + CHECKPOINT).
     """
     import glob
     import shutil
@@ -4737,12 +4812,20 @@ def limpar_arquivos_temporarios_vps() -> dict:
             except Exception:
                 pass
 
+    res_banco = None
+    if otimizar_banco:
+        try:
+            res_banco = otimizar_banco_postgresql(purgar_dossies=purgar_dossies)
+        except Exception as e_b:
+            erros.append(f"Erro na otimização do banco de dados: {e_b}")
+
     return {
         "ok": True,
         "bytes_liberados": bytes_liberados,
         "mb_liberados": round(bytes_liberados / (1024**2), 2),
         "gb_liberados": round(bytes_liberados / (1024**3), 2),
         "itens_removidos": itens_removidos,
+        "otimizacao_banco": res_banco,
         "erros": erros,
     }
 
