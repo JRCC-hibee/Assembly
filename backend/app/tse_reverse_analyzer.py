@@ -3133,55 +3133,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
     raw_sec_dir = os.path.join(storage, "raw", pref_low)
     sec_json_path = os.path.join(storage, "secoes", f"{pref_low}.json")
 
-    # Se os arquivos brutos (.dat / .jez) estiverem no servidor em disco, decodifica
-    if os.path.isdir(raw_sec_dir):
-        pacote_completo: dict[str, bytes] = {}
-        for fname in os.listdir(raw_sec_dir):
-            fpath = os.path.join(raw_sec_dir, fname)
-            if os.path.isfile(fpath):
-                with open(fpath, "rb") as fp:
-                    pacote_completo[fname] = fp.read()
-        if pacote_completo:
-            relatorio = analisar_pacote_seccao_tse(pacote_completo)
-            resumo = relatorio["resumo_consolidacao"]
-            mc = resumo.get("municipio_codigo")
-            if mc in MUNICIPIOS_PR_TSE:
-                resumo["municipio_nome"] = MUNICIPIOS_PR_TSE[mc]
-            catalogo = _carregar_catalogo_disco()
-            catalogo[pref_low] = resumo
-            try:
-                with open(sec_json_path, "w", encoding="utf-8") as fp:
-                    json.dump(relatorio, fp, ensure_ascii=False)
-            except Exception:
-                pass
-            return relatorio
-
-    # Se existir cache JSON em disco, só usa se estiver COMPLETO com 1T e 2T
-    if os.path.exists(sec_json_path):
-        try:
-            with open(sec_json_path, "r", encoding="utf-8") as fp:
-                cached_data = json.load(fp)
-            c_log = cached_data.get("log_jez") or {}
-            c_cic = c_log.get("ciclos_eleitores") or []
-            c_cic_1t = c_log.get("ciclos_eleitores_1_turno") or []
-            c_imgbu = cached_data.get("imgbu") or {}
-            b1 = c_imgbu.get("espelho_bobina_1t") or cached_data.get("espelho_bobina_1t") or ""
-            b2 = c_imgbu.get("espelho_bobina_2t") or cached_data.get("espelho_bobina_2t") or ""
-            c_comp = cached_data.get("comparativo_turnos")
-            c_txt = json.dumps(cached_data)
-            # Rejeita cache antigo se faltar bobina 1T/2T ou ciclos ou se contiver JAIR BOLSONARO
-            if (
-                c_cic and len(c_cic) > 0
-                and c_comp is not None
-                and len(b1.strip().splitlines()) >= 10
-                and len(b2.strip().splitlines()) >= 10
-                and "JAIR BOLSONARO" not in c_txt
-            ):
-                return cached_data
-        except Exception:
-            pass
-
-    # Busca individual resiliente diretamente no PostgreSQL (Estratégia Zero-Disk Raw + Dossiê Integrado)
+    # 1. Busca individual prioritária diretamente no PostgreSQL (Estratégia Zero-Disk Raw + Dossiê Integrado)
     db = _obter_db_session()
     if db:
             try:
@@ -3345,9 +3297,13 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
 
                     cands_t2_db = [v for v in secao_db.votos_candidatos if v.turno == 2]
                     cands_1t_db = [v for v in secao_db.votos_candidatos if v.turno == 1]
+                    if not cands_t2_db:
+                        cands_t2_db = db.query(TseVotoCandidato).filter(TseVotoCandidato.secao_id == secao_db.id, TseVotoCandidato.turno == 2).all()
+                    if not cands_1t_db:
+                        cands_1t_db = db.query(TseVotoCandidato).filter(TseVotoCandidato.secao_id == secao_db.id, TseVotoCandidato.turno == 1).all()
 
-                    tem_bu_2t = bu2 is not None
-                    tem_bu_1t = bu1 is not None
+                    tem_bu_2t = (bu2 is not None) or (len(cands_t2_db) > 0)
+                    tem_bu_1t = (bu1 is not None) or (len(cands_1t_db) > 0)
                     urna_pendente_2t = not tem_bu_2t and tem_bu_1t
                     urna_pendente_1t = not tem_bu_1t and tem_bu_2t
 
@@ -3402,6 +3358,22 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     falt_1t_val = int(bu1.faltosos if bu1 else 0)
                     brancos_1t_val = int(bu1.votos_brancos if bu1 else 0)
                     nulos_1t_val = int(bu1.votos_nulos if bu1 else 0)
+
+                    if comp_1t_val == 0 and cands_1t_db:
+                        v_nom_1t = sum(v.quantidade_votos for v in cands_1t_db if "PRESIDENT" in (v.cargo or "PRESIDENTE").upper())
+                        comp_1t_val = v_nom_1t + brancos_1t_val + nulos_1t_val
+                    if aptos_1t_val == 0:
+                        aptos_1t_val = aptos_2t_val or int(secao_db.eleitores_aptos or 0)
+                    if falt_1t_val == 0 and aptos_1t_val > comp_1t_val:
+                        falt_1t_val = aptos_1t_val - comp_1t_val
+
+                    if comp_2t_val == 0 and cands_t2_db:
+                        v_nom_2t = sum(v.quantidade_votos for v in cands_t2_db if "PRESIDENT" in (v.cargo or "PRESIDENTE").upper())
+                        comp_2t_val = v_nom_2t + brancos_2t_val + nulos_2t_val
+                    if aptos_2t_val == 0:
+                        aptos_2t_val = aptos_1t_val or int(secao_db.eleitores_aptos or 0)
+                    if falt_2t_val == 0 and aptos_2t_val > comp_2t_val:
+                        falt_2t_val = aptos_2t_val - comp_2t_val
 
                     bio_2t = int(getattr(bu2, "hab_biometrica", 0) or 0) if bu2 else 0
                     biog_2t = int(getattr(bu2, "hab_biografica", 0) or 0) if bu2 else 0
@@ -3727,7 +3699,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     bu_ativo = bu2 if tem_bu_2t else bu1
                     met_ativo = met2 if tem_bu_2t else met1
                     comp_efetivo = comp_2t_val if tem_bu_2t else comp_1t_val
-                    aptos_val = aptos_2t_val if tem_bu_2t else aptos_1t_val
+                    aptos_val = aptos_2t_val or aptos_1t_val or int(secao_db.eleitores_aptos or 0)
                     faltosos_val = falt_2t_val if tem_bu_2t else falt_1t_val
                     brancos_val = brancos_2t_val if tem_bu_2t else brancos_1t_val
                     nulos_val = nulos_2t_val if tem_bu_2t else nulos_1t_val
@@ -4123,6 +4095,30 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
             finally:
                 db.close()
 
+    # Fallback 1: Decodificação de arquivos brutos em disco se existirem
+    if os.path.isdir(raw_sec_dir):
+        pacote_completo: dict[str, bytes] = {}
+        for fname in os.listdir(raw_sec_dir):
+            fpath = os.path.join(raw_sec_dir, fname)
+            if os.path.isfile(fpath):
+                with open(fpath, "rb") as fp:
+                    pacote_completo[fname] = fp.read()
+        if pacote_completo:
+            relatorio = analisar_pacote_seccao_tse(pacote_completo)
+            resumo = relatorio["resumo_consolidacao"]
+            mc = resumo.get("municipio_codigo")
+            if mc in MUNICIPIOS_PR_TSE:
+                resumo["municipio_nome"] = MUNICIPIOS_PR_TSE[mc]
+            catalogo = _carregar_catalogo_disco()
+            catalogo[pref_low] = resumo
+            try:
+                with open(sec_json_path, "w", encoding="utf-8") as fp:
+                    json.dump(relatorio, fp, ensure_ascii=False)
+            except Exception:
+                pass
+            return relatorio
+
+    # Fallback 2: Cache JSON em disco
     if os.path.exists(sec_json_path):
         try:
             with open(sec_json_path, "r", encoding="utf-8") as fp:

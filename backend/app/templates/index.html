@@ -6037,6 +6037,15 @@ o Boletim de Urna (apos encerramento da votacao).
           : "px-3.5 py-1.5 rounded-md font-black text-xs transition flex items-center gap-1.5 text-slate-300 hover:text-white";
       }
 
+      const compBox = document.getElementById("tseComparativoTurnosBox");
+      if (compBox) {
+        if (modo === "COMPARATIVO" || (window.lastSecaoIndividualPayload && window.lastSecaoIndividualPayload.comparativo_turnos?.disponivel && modo !== "1T" && modo !== "2T")) {
+          compBox.classList.remove("hidden");
+        } else if (modo === "1T" || modo === "2T") {
+          compBox.classList.add("hidden");
+        }
+      }
+
       if (typeof alternarBobinaTurnoTse === "function") {
         alternarBobinaTurnoTse(modo === "1T" ? 1 : 2);
       }
@@ -6751,6 +6760,15 @@ o Boletim de Urna (apos encerramento da votacao).
         if (lBox) lBox.classList.add("hidden");
         const iSec = document.getElementById("tseIndividualUrnaSection");
         if (iSec) iSec.classList.remove("hidden");
+        const compBox = document.getElementById("tseComparativoTurnosBox");
+        if (compBox) {
+          const ct = payload.secao_individual.comparativo_turnos;
+          if (window.arvoreTseState.modo_visao === "COMPARATIVO" || ct?.disponivel) {
+            compBox.classList.remove("hidden");
+          } else {
+            compBox.classList.add("hidden");
+          }
+        }
         renderizarLaudoTseReverso(payload.secao_individual);
       } else if (payload.consolidado) {
         window.lastSecaoIndividualPayload = null;
@@ -7792,7 +7810,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       const cargoAtual = window.arvoreTseState.cargo || "PRESIDENTE";
       const modoVisao = window.arvoreTseState.modo_visao || "COMPARATIVO";
-      const isVisao1T = (modoVisao === "1T") || (window.currentTseBobinaTurno === 1 && modoVisao !== "2T");
+      const isVisao1T = (window.currentTseBobinaTurno === 1) || (modoVisao === "1T");
 
       const rotulosCargos = {
         "PRESIDENTE": "Presidente da República",
@@ -7802,7 +7820,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         "DEPUTADO ESTADUAL": "Deputado Estadual"
       };
       const cargoLabel = rotulosCargos[cargoAtual] || cargoAtual;
-      const turnoLabel = isVisao1T ? "1º Turno" : (modoVisao === "2T" ? "2º Turno" : "Consolidado / 2º Turno");
+      const turnoLabel = isVisao1T ? "1º Turno (04/10/2026)" : "2º Turno (25/10/2026)";
 
       const titleEl = document.getElementById("tsePlacarTitle");
       if (titleEl) {
@@ -8125,17 +8143,20 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       window.currentTseCiclos2T = rawCic2T;
       window.currentTseCiclos1T = rawCic1T;
 
-      let turnoPadrao = 2;
-      if (window.arvoreTseState.modo_visao === "1T" || isUrnaPendente2T || (rawCic2T.length === 0 && rawCic1T.length > 0)) {
-        turnoPadrao = 1;
-      } else if (rawCic2T.length > 0) {
-        turnoPadrao = 2;
-      } else if (rawCic1T.length > 0) {
-        turnoPadrao = 1;
+      let turnoAtivo = window.currentTseBobinaTurno;
+      if (window.arvoreTseState.modo_visao === "1T") {
+        turnoAtivo = 1;
+      } else if (window.arvoreTseState.modo_visao === "2T") {
+        turnoAtivo = 2;
+      } else if (isUrnaPendente2T || (rawCic2T.length === 0 && rawCic1T.length > 0)) {
+        turnoAtivo = 1;
+      } else if (!turnoAtivo) {
+        turnoAtivo = (rawCic2T.length > 0) ? 2 : 1;
       }
 
-      window.currentTseTurnoGrafico = turnoPadrao;
-      window.currentTseCiclos = (turnoPadrao === 1 ? window.currentTseCiclos1T : window.currentTseCiclos2T);
+      window.currentTseBobinaTurno = turnoAtivo;
+      window.currentTseTurnoGrafico = turnoAtivo;
+      window.currentTseCiclos = (turnoAtivo === 1 ? window.currentTseCiclos1T : window.currentTseCiclos2T);
       window.currentTseHourFilter = "TODAS";
 
       try { renderizarBarraSeletorTurnoGraficoTse(); } catch (e) { console.error("[TSE] Erro barra seletora:", e); }
@@ -8146,11 +8167,12 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       window.currentTseEspelho1T = bu.espelho_bobina_1t || data.espelho_bobina_1t || resCons.espelho_bobina_1t || (bu.turno === 1 ? bu.espelho_bobina : "") || gerarBobinaClienteTse(data, 1);
       window.currentTseEspelho2T = bu.espelho_bobina_2t || data.espelho_bobina_2t || resCons.espelho_bobina_2t || (bu.turno === 2 ? bu.espelho_bobina : "") || (isUrnaPendente2T ? "" : gerarBobinaClienteTse(data, 2));
 
-      alternarBobinaTurnoTse(turnoPadrao, true, false);
+      alternarBobinaTurnoTse(turnoAtivo, false, false);
     }
 
     function alternarBobinaTurnoTse(turnoNum, syncGrafico = true, syncPlacar = true) {
       window.currentTseBobinaTurno = turnoNum;
+      window.currentTseTurnoGrafico = turnoNum;
       const btn1T = document.getElementById("btnBobina1T");
       const btn2T = document.getElementById("btnBobina2T");
       const pre = document.getElementById("tseEspelhoBuPre");
@@ -8194,6 +8216,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
     function alternarTurnoGraficoEleitoresTse(turnoNum, syncBobina = true) {
       window.currentTseTurnoGrafico = turnoNum;
+      window.currentTseBobinaTurno = turnoNum;
       let ciclos = turnoNum === 1
         ? (window.currentTseCiclos1T || [])
         : (window.currentTseCiclos2T || []);
@@ -8208,8 +8231,8 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       try { renderizarFiltroHorasTse(); } catch (e) { console.error("[TSE] Erro filtro horas:", e); }
       try { renderizarGraficoETabelaPorHoraTse(); } catch (e) { console.error("[TSE] Erro tabela eleitores:", e); }
 
-      if (syncBobina && typeof alternarBobinaTurnoTse === "function" && window.currentTseBobinaTurno !== turnoNum) {
-        alternarBobinaTurnoTse(turnoNum, false);
+      if (syncBobina && typeof alternarBobinaTurnoTse === "function") {
+        alternarBobinaTurnoTse(turnoNum, false, true);
       }
     }
 
@@ -8481,6 +8504,9 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       const box = document.getElementById("tseComparativoTurnosBox");
       if (!box) return;
       window.lastComparativoTurnosData = ct;
+      if (window.arvoreTseState.modo_visao === "COMPARATIVO" || ct?.disponivel) {
+        box.classList.remove("hidden");
+      }
 
       const titleEl = document.getElementById("tseComparativoTurnosTitle");
       if (titleEl) {
