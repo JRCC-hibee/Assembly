@@ -92,8 +92,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-09-rev50"
-SYSTEM_COMMIT = "rev50-coluna-novos-votos-absorcao-segundo-turno"
+SYSTEM_BUILD = "2026-11-09-rev51"
+SYSTEM_COMMIT = "rev51-fix-horarios-cargos-1t-bu-xxx-e-teclas-indevidas"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -159,6 +159,17 @@ def on_startup():
             except Exception as e_fid:
                 db.rollback()
                 print(f"[STARTUP] Aviso na restauração de fidelidade dos candidatos: {e_fid}")
+
+            # Purga espelhos e ciclos antigos com hashes simulados ou horários unificados de cargos
+            try:
+                from sqlalchemy import text
+                db.execute(text("UPDATE tse_dossie_secao SET espelho_bobina = NULL WHERE espelho_bobina LIKE '%5.474.978.923%' OR espelho_bobina LIKE '%983.294%' OR espelho_bobina LIKE '%987.379.467.680%' OR espelho_bobina LIKE '%2.768.343.531%'"))
+                db.execute(text("UPDATE tse_dossie_secao SET ciclos_eleitores_json = NULL WHERE ciclos_eleitores_json LIKE '%Voto confirmado para [Deputado Federal]%' AND turno = 1"))
+                db.commit()
+                print("[STARTUP] Espelhos e ciclos legados com simulação purgados para regeneração autêntica com 'XXX'.")
+            except Exception as e_clean:
+                db.rollback()
+                print(f"[STARTUP] Aviso na purga de espelhos simulados: {e_clean}")
             # Verificação e reparo automático de votos zerados em tse_votos_candidatos via catálogo
             try:
                 from .database import TseVotoCandidato

@@ -8733,11 +8733,17 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
           <div class="text-[10px] text-slate-400 font-bold">6. TECLAS INDEVIDAS & LOGS</div>
           <div class="flex items-baseline justify-between">
-            <span class="text-indigo-300 font-bold">1ºT: ${tecT1.toLocaleString("pt-BR")}</span>
-            <span class="text-amber-300 font-extrabold text-sm">2ºT: ${tecT2.toLocaleString("pt-BR")}</span>
+            <span class="text-indigo-300 font-bold">1ºT: ${(ct.tem_log_1t === false || ct.teclas_indevidas_t1 === "XXX") ? '<span class="text-amber-400 font-mono">XXX</span>' : tecT1.toLocaleString("pt-BR")}</span>
+            <span class="text-amber-300 font-extrabold text-sm">2ºT: ${(ct.tem_log_2t === false || ct.teclas_indevidas_t2 === "XXX") ? '<span class="text-amber-400 font-mono">XXX</span>' : tecT2.toLocaleString("pt-BR")}</span>
           </div>
-          <div class="text-[10px] text-emerald-400 font-bold">
-            Δ ${dTec >= 0 ? '+' + dTec : dTec} teclas | Tít. Inv: ${idInvT1}→${idInvT2}
+          <div class="text-[10px] text-slate-300 font-bold">
+            ${(ct.tem_log_1t === false && ct.tem_log_2t === false)
+              ? '<span class="text-slate-500">Logs 1ºT e 2ºT não ingeridos</span>'
+              : ((ct.tem_log_1t === false)
+                ? `<span class="text-amber-400/90 font-mono text-[9px]">1ºT Sem Log</span> | 2ºT: ${tecT2} teclas`
+                : ((ct.tem_log_2t === false)
+                  ? `<span class="text-amber-400/90 font-mono text-[9px]">2ºT Sem Log</span> | 1ºT: ${tecT1} teclas`
+                  : `Δ ${dTec >= 0 ? '+' + dTec : dTec} teclas | Tít. Inv: ${idInvT1}→${idInvT2}`))}
           </div>
         </div>
         `;
@@ -8805,9 +8811,9 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         },
         {
           label: "Teclas Indevidas Pressionadas pelo Eleitor na Cabine",
-          v1: tecT1.toLocaleString("pt-BR"),
-          v2: tecT2.toLocaleString("pt-BR"),
-          delta: fmtVar(dTec, " teclas")
+          v1: (ct.tem_log_1t === false || ct.teclas_indevidas_t1 === "XXX") ? '<span class="text-amber-400 font-mono">XXX (Sem Log)</span>' : tecT1.toLocaleString("pt-BR"),
+          v2: (ct.tem_log_2t === false || ct.teclas_indevidas_t2 === "XXX") ? '<span class="text-amber-400 font-mono">XXX (Sem Log)</span>' : tecT2.toLocaleString("pt-BR"),
+          delta: (ct.tem_log_1t === false || ct.tem_log_2t === false) ? '<span class="text-slate-500">N/D</span>' : fmtVar(dTec, " teclas")
         },
         {
           label: "Títulos de Eleitor Inválidos Digitados no Terminal do Mesário",
@@ -9066,11 +9072,13 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
                 <td class="py-1.5">${mesaS}s</td>
                 <td class="py-1.5 font-bold text-white">${cabineS}s</td>
                 <td class="py-1.5">
-                  ${teclasPres > 0
-                    ? `<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/50 font-extrabold text-[10px]" title="Total no ciclo: ${teclasTot} tecla(s)">🎯 ${teclasPres} Pres. (${teclasTot} tot)</span>`
-                    : (teclasTot > 0
-                      ? `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-medium text-[10px]">0 Pres. (${teclasTot} outros)</span>`
-                      : `<span class="text-slate-500 text-[10px]">0</span>`)}
+                  ${(c.log_disponivel === false || c.teclas_indevidas === "XXX")
+                    ? `<span class="px-1.5 py-0.5 rounded bg-slate-900 text-amber-400 border border-amber-500/30 font-mono font-bold text-[10px]" title="Arquivo de logd.dat da urna física não ingerido para este turno">XXX</span>`
+                    : (teclasPres > 0
+                      ? `<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/50 font-extrabold text-[10px]" title="Total no ciclo: ${teclasTot} tecla(s)">🎯 ${teclasPres} Pres. (${teclasTot} tot)</span>`
+                      : (teclasTot > 0
+                        ? `<span class="px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-medium text-[10px]">0 Pres. (${teclasTot} outros)</span>`
+                        : `<span class="text-slate-500 text-[10px]">0</span>`))}
                 </td>
                 <td class="py-1.5 text-slate-500 font-mono text-[10px]">${mac}</td>
               </tr>
@@ -9103,12 +9111,18 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         `${item.tempo_cabine_s} seg (Total: ${item.tempo_ciclo_total_s}s)`;
       document.getElementById("modalMacVoto").textContent = `MAC Conclusão: ${item.mac_voto}`;
 
-      const qTeclasTot = item.teclas_indevidas || 0;
-      const qTeclasPres = item.teclas_indevidas_presidente !== undefined ? item.teclas_indevidas_presidente : (window.currentTseTurnoGrafico === 2 ? qTeclasTot : 0);
+      const logDisp = item.log_disponivel !== false && item.teclas_indevidas !== "XXX";
+      const qTeclasTot = logDisp ? (item.teclas_indevidas || 0) : 0;
+      const qTeclasPres = logDisp ? (item.teclas_indevidas_presidente !== undefined ? item.teclas_indevidas_presidente : (window.currentTseTurnoGrafico === 2 ? qTeclasTot : 0)) : 0;
 
       const elTeclas = document.getElementById("modalTeclasIndevidas");
       if (elTeclas) {
-        if (qTeclasPres > 0) {
+        if (!logDisp) {
+          elTeclas.innerHTML = `
+            <div class="text-amber-400 font-bold font-mono">XXX (Sem Log)</div>
+            <div class="text-[9px] text-slate-400">logd.dat físico deste turno não ingerido</div>
+          `;
+        } else if (qTeclasPres > 0) {
           elTeclas.innerHTML = `
             <div class="text-amber-300 font-extrabold flex items-center gap-1">
               <span>🎯 ${qTeclasPres} Pres.</span>

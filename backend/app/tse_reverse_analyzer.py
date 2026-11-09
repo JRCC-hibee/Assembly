@@ -2461,6 +2461,7 @@ def reconstruir_ciclos_eleitores_secao(
     zona: int = 0,
     secao: int = 0,
     hora_encerramento: str = "",
+    log_disponivel: bool = True,
 ) -> list[dict]:
     """
     Reconstrói de forma pericial e auditável todos os ciclos de eleitores da seção eleitoral
@@ -2500,16 +2501,9 @@ def reconstruir_ciclos_eleitores_secao(
     rng = random.Random(seed_val)
     rng.shuffle(tipos_hab)
 
-    # 2. Teclas indevidas distribuídas (com filtro estrito de sanidade forense)
-    t_tot = max(0, int(teclas_total or 0))
-    t_pres = max(0, int(teclas_pres or 0))
-
-    # Sanidade forense: Em nenhuma urna real o número de teclas indevidas supera 25% do comparecimento.
-    # Se t_tot ou t_pres >= (n * 0.25), trata-se de vazamento do comparecimento ou corrupção de índice -> zera.
-    if t_tot >= max(6, int(n * 0.25)):
-        t_tot = 0
-    if t_pres >= max(6, int(n * 0.25)):
-        t_pres = 0
+    # 2. Teclas indevidas distribuídas quando arquivo de log está disponível
+    t_tot = max(0, int(teclas_total or 0)) if log_disponivel else 0
+    t_pres = max(0, int(teclas_pres or 0)) if log_disponivel else 0
 
     if t_tot == 0 and t_pres > 0:
         t_tot = t_pres
@@ -2634,9 +2628,26 @@ def reconstruir_ciclos_eleitores_secao(
             h_ini_str = f"{sec_ini//3600:02d}:{(sec_ini%3600)//60:02d}:{sec_ini%60:02d}"
             h_agu_str = f"{sec_agu//3600:02d}:{(sec_agu%3600)//60:02d}:{sec_agu%60:02d}"
 
-            # Horário do alerta de tecla indevida (dentro da cabine de votação)
-            sec_tecla = min(total_sec, max(sec_hab, sec_hab + max(1, int(round(cabine_s * 0.4)))))
-            h_tecla_str = f"{sec_tecla//3600:02d}:{(sec_tecla%3600)//60:02d}:{sec_tecla%60:02d}"
+            # Distribuição cronológica pericial e estritamente crescente dos votos na cabine
+            # Evita o erro de confirmação de múltiplos cargos no mesmo segundo
+            K = len(cargos_seq)
+            dur_cabine = max(K + 1, total_sec - sec_hab)
+            passo_cargo = (dur_cabine - 1) / float(K)
+            tempos_cargos_sec = []
+            cur_sec = sec_hab
+            for k in range(K):
+                alvo_sec = sec_hab + int(round((k + 1) * passo_cargo))
+                sec_c = min(total_sec - (K - 1 - k), max(cur_sec + 1, alvo_sec))
+                tempos_cargos_sec.append(sec_c)
+                cur_sec = sec_c
+
+            # Horário do alerta de tecla indevida (dentro da cabine, antes do cargo respectivo)
+            if teve_tecla:
+                if teve_tecla_pres and K > 1:
+                    sec_tecla = max(tempos_cargos_sec[-2] + 1, tempos_cargos_sec[-1] - 1)
+                else:
+                    sec_tecla = max(sec_hab + 1, tempos_cargos_sec[0] - 1)
+                h_tecla_str = f"{sec_tecla//3600:02d}:{(sec_tecla%3600)//60:02d}:{sec_tecla%60:02d}"
 
             mac_hex = hashlib.sha256(f"{uf}_{mun_cod}_{zona}_{secao}_{turno}_{seq}_{h_comp_str}".encode()).hexdigest()[:16].upper()
 
@@ -2663,22 +2674,30 @@ def reconstruir_ciclos_eleitores_secao(
             eventos.append({"linha": linha_base + ev_i, "hora": h_hab_str, "nivel": "INFO", "mensagem": "Eleitor foi habilitado", "mac": mac_hex})
             ev_i += 1
 
-            if teve_tecla:
-                eventos.append({
-                    "linha": linha_base + ev_i,
-                    "hora": h_tecla_str,
-                    "nivel": "ALERTA",
-                    "mensagem": "Tecla indevida pressionada",
-                    "cargo": cargo_tecla,
-                    "e_presidente": teve_tecla_pres,
-                    "mac": mac_hex,
-                })
-                ev_i += 1
+            # Registra eventos dos cargos na cabine com seus respectivos horários progressivos
+            tecla_inserida = False
+            for k_idx, (c_nome, sec_c) in enumerate(zip(cargos_seq, tempos_cargos_sec)):
+                h_c_str = f"{sec_c//3600:02d}:{(sec_c%3600)//60:02d}:{sec_c%60:02d}"
+                deve_inserir_tecla = teve_tecla and not tecla_inserida and (
+                    (teve_tecla_pres and (c_nome == "Presidente" or k_idx == K - 1))
+                    or (not teve_tecla_pres and k_idx == 0)
+                )
+                if deve_inserir_tecla:
+                    eventos.append({
+                        "linha": linha_base + ev_i,
+                        "hora": h_tecla_str,
+                        "nivel": "ALERTA",
+                        "mensagem": "Tecla indevida pressionada",
+                        "cargo": cargo_tecla,
+                        "e_presidente": teve_tecla_pres,
+                        "mac": mac_hex,
+                    })
+                    ev_i += 1
+                    tecla_inserida = True
 
-            for c_nome in cargos_seq:
                 eventos.append({
                     "linha": linha_base + ev_i,
-                    "hora": h_comp_str,
+                    "hora": h_c_str,
                     "nivel": "INFO",
                     "mensagem": f"Voto confirmado para [{c_nome}]",
                     "mac": mac_hex,
@@ -2699,10 +2718,11 @@ def reconstruir_ciclos_eleitores_secao(
                 "documento": doc,
                 "tipo_habilitacao": t_hab,
                 "tentativas_digital": tentativas if t_hab == "BIOMETRICA" else 0,
-                "teclas_indevidas": 1 if teve_tecla else 0,
-                "teclas_indevidas_presidente": 1 if teve_tecla_pres else 0,
-                "teclas_indevidas_outros": 1 if (teve_tecla and not teve_tecla_pres) else 0,
-                "teclas_por_cargo": {cargo_tecla: 1} if teve_tecla else {},
+                "teclas_indevidas": ("XXX" if not log_disponivel else (1 if teve_tecla else 0)),
+                "teclas_indevidas_presidente": ("XXX" if not log_disponivel else (1 if teve_tecla_pres else 0)),
+                "teclas_indevidas_outros": ("XXX" if not log_disponivel else (1 if (teve_tecla and not teve_tecla_pres) else 0)),
+                "teclas_por_cargo": ({} if not log_disponivel else ({cargo_tecla: 1} if teve_tecla else {})),
+                "log_disponivel": log_disponivel,
                 "cargos": list(cargos_seq),
                 "tempo_mesa_bio_s": mesa_s,
                 "tempo_cabine_s": cabine_s,
@@ -2738,7 +2758,7 @@ def validar_e_sanitizar_ciclos_eleitores(ciclos: list, turno: int = 2, hora_ence
     """
     Higieniza e valida os ciclos de eleitores carregados do banco ou sintetizados.
     Garante:
-      1. Eliminação de anomalias estatísticas impossíveis (ex: mais de 25% dos eleitores com tecla indevida).
+      1. Eliminação de anomalias cronológicas (redistribuição de múltiplos cargos confirmados no mesmo segundo).
       2. Inclusão garantida do número de linha (#linha) em 100% dos eventos detalhados, evitando '#undefined'.
       3. Atribuição precisa de cargo e e_presidente nos eventos de alerta de tecla indevida.
       4. Fidelidade cronológica estrita ao horário oficial de encerramento da urna (nenhum voto após encerramento).
@@ -2749,11 +2769,6 @@ def validar_e_sanitizar_ciclos_eleitores(ciclos: list, turno: int = 2, hora_ence
     n = len(ciclos)
     if n == 0:
         return []
-
-    tot_teclas = sum(int(c.get("teclas_indevidas") or 0) for c in ciclos if isinstance(c, dict))
-    # Se total de teclas atingir patamar absurdo (ex: 25% ou mais de todos os eleitores),
-    # trata-se de vazamento do comparecimento ou corrupção de índice -> zera teclas espúrias.
-    corrompido_teclas = tot_teclas >= max(6, int(n * 0.25))
 
     # Verifica se há votos registrados após o encerramento oficial da urna
     corrompido_horario = False
@@ -2789,28 +2804,55 @@ def validar_e_sanitizar_ciclos_eleitores(ciclos: list, turno: int = 2, hora_ence
         linha_base = int(c_novo.get("linha_log") or (2000 + (seq - 1) * 12))
         c_novo["linha_log"] = linha_base
 
-        if corrompido_teclas:
-            c_novo["teclas_indevidas"] = 0
-            c_novo["teclas_indevidas_presidente"] = 0
-            c_novo["teclas_indevidas_outros"] = 0
-            c_novo["teclas_por_cargo"] = {}
-
         evs = c_novo.get("eventos_detalhados") or []
         evs_limpos = []
         ev_counter = 1
+
+        # Detecção e reparo de anomalia cronológica: múltiplos cargos com o mesmo segundo
+        cargos_voto_evs = [ev for ev in evs if isinstance(ev, dict) and "Voto confirmado para" in str(ev.get("mensagem", ""))]
+        redistribuir_horarios_cargos = False
+        if len(cargos_voto_evs) > 1:
+            horas_cargos = {ev.get("hora") for ev in cargos_voto_evs if ev.get("hora")}
+            if len(horas_cargos) == 1:
+                redistribuir_horarios_cargos = True
+
+        tempos_cargos_map = {}
+        if redistribuir_horarios_cargos:
+            h_hab = c_novo.get("hora_habilitacao") or ""
+            h_comp = c_novo.get("hora_computado") or ""
+            sec_hab = 8 * 3600
+            sec_comp = 8 * 3600 + 30
+            if h_hab and ":" in h_hab:
+                pts = [int(p) for p in h_hab.split(":")[:3]]
+                sec_hab = pts[0] * 3600 + pts[1] * 60 + (pts[2] if len(pts) > 2 else 0)
+            if h_comp and ":" in h_comp:
+                pts = [int(p) for p in h_comp.split(":")[:3]]
+                sec_comp = pts[0] * 3600 + pts[1] * 60 + (pts[2] if len(pts) > 2 else 0)
+            K = len(cargos_voto_evs)
+            dur_cab = max(K + 1, sec_comp - sec_hab)
+            passo = (dur_cab - 1) / float(K)
+            cur_s = sec_hab
+            for k_i in range(K):
+                alvo = sec_hab + int(round((k_i + 1) * passo))
+                sc = min(sec_comp - (K - 1 - k_i), max(cur_s + 1, alvo))
+                tempos_cargos_map[k_i] = f"{sc//3600:02d}:{(sc%3600)//60:02d}:{sc%60:02d}"
+                cur_s = sc
+
+        cargo_idx_cnt = 0
         for ev in evs:
             if not isinstance(ev, dict):
                 continue
             ev_dict = dict(ev)
             msg = str(ev_dict.get("mensagem") or "")
 
-            # Se estava corrompido, descarta o evento de alerta espúrio de tecla indevida
-            if corrompido_teclas and "Tecla indevida" in msg:
-                continue
-
             if not ev_dict.get("linha"):
                 ev_dict["linha"] = linha_base + ev_counter
             ev_counter += 1
+
+            if "Voto confirmado para" in msg and redistribuir_horarios_cargos:
+                if cargo_idx_cnt in tempos_cargos_map:
+                    ev_dict["hora"] = tempos_cargos_map[cargo_idx_cnt]
+                cargo_idx_cnt += 1
 
             if "Tecla indevida" in msg:
                 if not ev_dict.get("cargo"):
@@ -2877,23 +2919,51 @@ def gerar_espelho_bobina_completo_tse(
 
     ref_meta = {}
     if espelho_referencia_1t:
-        m_loc = re.search(r"Local de Vota[çc][ãa]o\s+(\d+)", espelho_referencia_1t, re.IGNORECASE)
-        m_ue = re.search(r"C[óo]digo identifica[çc][ãa]o UE\s+(\d+)", espelho_referencia_1t, re.IGNORECASE)
+        m_loc = re.search(r"Local de Vota[çc][ãa]o\s+([A-Za-z0-9\-]+)", espelho_referencia_1t, re.IGNORECASE)
+        m_ue = re.search(r"(?:C[óo]digo identifica[çc][ãa]o UE|URNA ELETRÔNICA EFETIVADA \(SÉRIE\):?)\s+([A-Za-z0-9\-]+)", espelho_referencia_1t, re.IGNORECASE)
         m_res = re.search(r"RESUMO DA CORRESPOND[ÊE]NCIA\s+([\d\.]+)", espelho_referencia_1t, re.IGNORECASE)
-        m_car = re.search(r"Histórico de código de carga[\s\S]*?1:\s*([\d\.]+)", espelho_referencia_1t, re.IGNORECASE)
+        m_car = re.search(r"(?:Histórico de código de carga[\s\S]*?1:\s*|CÓDIGO DE CARGA:\s*)([\d\.\s]+)", espelho_referencia_1t, re.IGNORECASE)
         m_cv_res = re.search(r"RESUMO DA CORRESPOND[ÊE]NCIA[\s\S]*?Código Verificador:\s*([\d\.]+)", espelho_referencia_1t, re.IGNORECASE)
         m_cv_car = re.search(r"Histórico de código de carga[\s\S]*?Código Verificador:\s*([\d\.]+)", espelho_referencia_1t, re.IGNORECASE)
+        m_hab_ab = re.search(r"(?:Horário de abertura|DATA/HORA ABERTURA:?)\s*([0-9:\- ]{8,19})", espelho_referencia_1t, re.IGNORECASE)
+        m_hab_fc = re.search(r"(?:Horário de fechamento|DATA/HORA ENCERRAMENTO:?)\s*([0-9:\- ]{8,19})", espelho_referencia_1t, re.IGNORECASE)
         m_bio = re.search(r"Habilita[çc][ãa]o biom[ée]trica\s+(\d+)", espelho_referencia_1t, re.IGNORECASE)
         m_graf = re.search(r"Habilita[çc][ãa]o biogr[áa]fica\s+(\d+)", espelho_referencia_1t, re.IGNORECASE)
         m_sem = re.search(r"Habilita[çc][ãa]o sem biometria\s+(\d+)", espelho_referencia_1t, re.IGNORECASE)
         m_comp1 = re.search(r"Comparecimento\s+(\d+)", espelho_referencia_1t, re.IGNORECASE)
+
+        hora_ab_val = None
+        if m_hab_ab:
+            raw_ab = m_hab_ab.group(1).strip()
+            pts = raw_ab.split()
+            hora_ab_val = pts[-1] if len(pts) > 1 else pts[0]
+
+        hora_fc_val = None
+        if m_hab_fc:
+            raw_fc = m_hab_fc.group(1).strip()
+            pts = raw_fc.split()
+            hora_fc_val = pts[-1] if len(pts) > 1 else pts[0]
+
+        ue_val = m_ue.group(1).strip() if m_ue else None
+        res_val = m_res.group(1).strip() if m_res else None
+        car_val = m_car.group(1).strip() if m_car else None
+        cv_res_val = m_cv_res.group(1).strip() if m_cv_res else None
+        cv_car_val = m_cv_car.group(1).strip() if m_cv_car else None
+
+        if res_val == "983.294": res_val = None
+        if cv_res_val == "5.474.978.923": cv_res_val = None
+        if cv_car_val == "2.768.343.531": cv_car_val = None
+        if car_val and "987.379.467.680" in car_val: car_val = None
+
         ref_meta = {
             "loc": m_loc.group(1) if m_loc else None,
-            "ue": m_ue.group(1) if m_ue else None,
-            "res": m_res.group(1) if m_res else None,
-            "car": m_car.group(1) if m_car else None,
-            "cv_res": m_cv_res.group(1) if m_cv_res else None,
-            "cv_car": m_cv_car.group(1) if m_cv_car else None,
+            "ue": ue_val,
+            "res": res_val,
+            "car": car_val,
+            "cv_res": cv_res_val,
+            "cv_car": cv_car_val,
+            "hora_abertura": hora_ab_val,
+            "hora_fechamento": hora_fc_val,
             "bio": int(m_bio.group(1)) if m_bio else None,
             "graf": int(m_graf.group(1)) if m_graf else None,
             "sem": int(m_sem.group(1)) if m_sem else None,
@@ -2947,43 +3017,24 @@ def gerar_espelho_bobina_completo_tse(
         hab_graf = int(round(comp * 0.062))
         hab_sem = max(0, comp - hab_bio - hab_graf)
 
-    # Identificação da Urna (Hardware UE)
+    # Identificação da Urna (Hardware UE) — Somente dados reais ou XXX
     cod_ue = ref_meta.get("ue")
     if not cod_ue:
-        mod = str(getattr(secao_db, "modelo_urna", "") or "")
-        if mod.isdigit() and len(mod) == 8:
+        mod = str(getattr(secao_db, "modelo_urna", "") or "").strip()
+        if mod.isdigit() and len(mod) in (7, 8):
             cod_ue = mod
         else:
-            h_ue = int(hashlib.md5(f"{uf}_{mun_cod}_{zona_int}_{secao_int}".encode()).hexdigest()[:8], 16)
-            cod_ue = f"{10000000 + (h_ue % 90000000):08d}"
+            cod_ue = "XXX"
 
-    hora_abertura = "08:00:00"
-    hora_fechamento = "17:00:15"
-    if ciclos and len(ciclos) > 0:
-        c_last = ciclos[-1].get("hora_computado", "")
-        if len(c_last) >= 8 and c_last >= "17:00:00":
-            hora_fechamento = c_last
+    # Horários oficiais de abertura e fechamento — Somente reais ou XXX
+    hora_abertura = ref_meta.get("hora_abertura") or "XXX"
+    hora_fechamento = ref_meta.get("hora_fechamento") or "XXX"
 
-    res_corr = ref_meta.get("res")
-    if not res_corr:
-        h_rc = hashlib.sha256(f"{uf}{mun_cod}{zona_int}{secao_int}_res".encode()).hexdigest()
-        res_corr = f"{int(h_rc[:3], 16) % 900 + 100}.{int(h_rc[3:6], 16) % 900 + 100}"
-
-    cv_res = ref_meta.get("cv_res")
-    if not cv_res:
-        h_cvr = hashlib.sha256(f"{res_corr}_verif".encode()).hexdigest()
-        cv_res = f"{int(h_cvr[:1], 16) % 9}.{int(h_cvr[1:4], 16) % 900 + 100:03d}.{int(h_cvr[4:7], 16) % 900 + 100:03d}.{int(h_cvr[7:10], 16) % 900 + 100:03d}"
-
-    cod_carga = ref_meta.get("car")
-    if not cod_carga:
-        h_cc = hashlib.sha256(f"{uf}{mun_cod}{zona_int}{secao_int}_carga".encode()).hexdigest()
-        pts = [f"{int(h_cc[i*3:(i+1)*3], 16) % 900 + 100:03d}" for i in range(8)]
-        cod_carga = ".".join(pts)
-
-    cv_car = ref_meta.get("cv_car")
-    if not cv_car:
-        h_cvc = hashlib.sha256(f"{cod_carga}_verif".encode()).hexdigest()
-        cv_car = f"{int(h_cvc[:1], 16) % 9 + 1}.{int(h_cvc[1:4], 16) % 900 + 100:03d}.{int(h_cvc[4:7], 16) % 900 + 100:03d}.{int(h_cvc[7:10], 16) % 900 + 100:03d}"
+    # Resumo da correspondência e códigos de carga — Somente reais ou XXX
+    res_corr = ref_meta.get("res") or "XXX"
+    cv_res = ref_meta.get("cv_res") or "XXX"
+    cod_carga = ref_meta.get("car") or "XXX"
+    cv_car = ref_meta.get("cv_car") or "XXX"
 
     linhas = [
         "Justiça Eleitoral",
@@ -3070,8 +3121,7 @@ def gerar_espelho_bobina_completo_tse(
         if tot_ap_cg == 0 and comp > 0:
             tot_ap_cg = comp
 
-        h_cargo = hashlib.sha256(f"{tot_nom_cg}_{brancos_cg}_{nulos_cg}_{tot_ap_cg}_{turno}_{cg_nome}".encode()).hexdigest()
-        cv_cargo = f"{int(h_cargo[:1], 16) % 9 + 1}.{int(h_cargo[1:4], 16) % 900 + 100:03d}.{int(h_cargo[4:7], 16) % 900 + 100:03d}.{int(h_cargo[7:10], 16) % 900 + 100:03d}"
+        cv_cargo = ref_meta.get(f"cv_cargo_{cg_nome}") or "XXX"
 
         linhas.extend([
             "",
@@ -3113,14 +3163,21 @@ def gerar_espelho_bobina_completo_tse(
             "",
         ])
 
-    h_final = hashlib.sha256(f"{uf}_{mun_cod}_{zona_int}_{secao_int}_{turno}_{tot_ap}_{cod_ue}".encode()).hexdigest().upper()
+    hash_bu = getattr(bu_db, "hash_bu_sha256", None)
+    if hash_bu and len(str(hash_bu).strip()) >= 32 and not str(hash_bu).startswith("000"):
+        h_final = str(hash_bu).strip().upper()
+        h_l1 = f"  {h_final[:32]}"
+        h_l2 = f"  {h_final[32:]}"
+    else:
+        h_l1 = "  XXX"
+        h_l2 = "  (DADOS BRUTOS NÃO RECUPERADOS)"
     linhas.extend([
         "============= BU DIGITAL =============",
         "[BLOCO BINÁRIO QR CODE E CERTIFICADO ICP-BRASIL/TSE]",
         "Tamanho do Payload Binário : 3998 bytes",
         "Assinatura SHA-256 do Bloco QR/Certificado:",
-        f"  {h_final[:32]}",
-        f"  {h_final[32:]}",
+        h_l1,
+        h_l2,
         "======================================",
     ])
 
@@ -3471,12 +3528,24 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
 
                     pref_oficial = prefixo if prefixo else f"o03221{secao_db.uf.lower()}{secao_db.municipio_codigo}{secao_db.zona:04d}{secao_db.secao:04d}"
 
-                    # 1. Reconstrução dinâmica dos ciclos de eleitores se o arquivo -log.jez não veio fisicamente
-                    t_pres_2t = int(getattr(met2, "teclas_indevidas_pres", 0) or 0)
-                    t_tot_2t = int(getattr(met2, "teclas_indevidas_total", 0) or 0)
-                    if comp_2t_val > 0 and (t_tot_2t >= comp_2t_val or t_pres_2t >= comp_2t_val):
-                        t_tot_2t = 0
-                        t_pres_2t = 0
+                    # Verificação estrita se os arquivos de logd.dat da urna física foram ingeridos para cada turno
+                    tem_log_1t_real = bool(
+                        met1 is not None and (
+                            int(getattr(met1, "total_votos_computados", 0) or 0) > 0
+                            or int(getattr(met1, "teclas_indevidas_total", 0) or 0) > 0
+                            or met1.vazao_horaria_json is not None
+                        )
+                    )
+                    tem_log_2t_real = bool(
+                        met2 is not None and (
+                            int(getattr(met2, "total_votos_computados", 0) or 0) > 0
+                            or int(getattr(met2, "teclas_indevidas_total", 0) or 0) > 0
+                            or met2.vazao_horaria_json is not None
+                        )
+                    )
+
+                    t_pres_2t = int(getattr(met2, "teclas_indevidas_pres", 0) or 0) if tem_log_2t_real else 0
+                    t_tot_2t = int(getattr(met2, "teclas_indevidas_total", 0) or 0) if tem_log_2t_real else 0
 
                     if tem_bu_2t and (not ciclos_2t or len(ciclos_2t) == 0) and comp_2t_val > 0:
                         ciclos_2t = reconstruir_ciclos_eleitores_secao(
@@ -3495,6 +3564,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             zona=secao_db.zona,
                             secao=secao_db.secao,
                             hora_encerramento=hora_enc_2t,
+                            log_disponivel=tem_log_2t_real,
                         )
                         if ciclos_2t:
                             vph_c2 = Counter()
@@ -3504,11 +3574,8 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                                     vph_c2[hc[:2] + "h"] += 1
                             vph_db = dict(sorted(vph_c2.items()))
 
-                    t_pres_1t = int(getattr(met1, "teclas_indevidas_pres", 0) or 0)
-                    t_tot_1t = int(getattr(met1, "teclas_indevidas_total", 0) or 0)
-                    if comp_1t_val > 0 and (t_tot_1t >= comp_1t_val or t_pres_1t >= comp_1t_val):
-                        t_tot_1t = 0
-                        t_pres_1t = 0
+                    t_pres_1t = int(getattr(met1, "teclas_indevidas_pres", 0) or 0) if tem_log_1t_real else 0
+                    t_tot_1t = int(getattr(met1, "teclas_indevidas_total", 0) or 0) if tem_log_1t_real else 0
 
                     if tem_bu_1t and (not ciclos_1t or len(ciclos_1t) == 0) and comp_1t_val > 0:
                         ciclos_1t = reconstruir_ciclos_eleitores_secao(
@@ -3527,6 +3594,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             zona=secao_db.zona,
                             secao=secao_db.secao,
                             hora_encerramento=hora_enc_1t,
+                            log_disponivel=tem_log_1t_real,
                         )
                         if ciclos_1t:
                             vph_c1 = Counter()
@@ -3540,18 +3608,21 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     espelho_2t = None
                     if tem_bu_2t:
                         if dossie_2t_db and dossie_2t_db.espelho_bobina and len(str(dossie_2t_db.espelho_bobina).strip().splitlines()) >= 15:
-                            m_c2 = re.search(r"Comparecimento:?\s+(\d+)", dossie_2t_db.espelho_bobina, re.I)
-                            if m_c2 and int(m_c2.group(1)) == comp_2t_val and ("2º Turno" in dossie_2t_db.espelho_bobina or "2º TURNO" in dossie_2t_db.espelho_bobina or "2° Turno" in dossie_2t_db.espelho_bobina) and "JAIR BOLSONARO" not in dossie_2t_db.espelho_bobina:
-                                espelho_2t = dossie_2t_db.espelho_bobina
+                            txt_esp_2t = str(dossie_2t_db.espelho_bobina)
+                            tem_fakes = any(f in txt_esp_2t for f in ("5.474.978.923", "983.294", "987.379.467.680", "2.768.343.531"))
+                            m_c2 = re.search(r"Comparecimento:?\s+(\d+)", txt_esp_2t, re.I)
+                            if not tem_fakes and m_c2 and int(m_c2.group(1)) == comp_2t_val and ("2º Turno" in txt_esp_2t or "2º TURNO" in txt_esp_2t or "2° Turno" in txt_esp_2t) and "JAIR BOLSONARO" not in txt_esp_2t:
+                                espelho_2t = txt_esp_2t
 
                         if not espelho_2t:
+                            ref_txt_1t = dossie_1t_db.espelho_bobina if (dossie_1t_db and dossie_1t_db.espelho_bobina) else ""
                             espelho_2t = gerar_espelho_bobina_completo_tse(
                                 secao_db=secao_db,
                                 bu_db=bu2,
                                 met_db=met2,
                                 cands=cands,
                                 turno=2,
-                                espelho_referencia_1t="",
+                                espelho_referencia_1t=ref_txt_1t,
                                 ciclos=ciclos_2t,
                             )
                     else:
@@ -3574,9 +3645,11 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     espelho_1t = None
                     if tem_bu_1t:
                         if dossie_1t_db and dossie_1t_db.espelho_bobina and len(str(dossie_1t_db.espelho_bobina).strip().splitlines()) >= 15:
-                            m_c1 = re.search(r"Comparecimento:?\s+(\d+)", dossie_1t_db.espelho_bobina, re.I)
-                            if m_c1 and int(m_c1.group(1)) == comp_1t_val and ("1º Turno" in dossie_1t_db.espelho_bobina or "1º TURNO" in dossie_1t_db.espelho_bobina or "1° Turno" in dossie_1t_db.espelho_bobina) and "JAIR BOLSONARO" not in dossie_1t_db.espelho_bobina:
-                                espelho_1t = dossie_1t_db.espelho_bobina
+                            txt_esp_1t = str(dossie_1t_db.espelho_bobina)
+                            tem_fakes_1t = any(f in txt_esp_1t for f in ("5.474.978.923", "983.294", "987.379.467.680", "2.768.343.531"))
+                            m_c1 = re.search(r"Comparecimento:?\s+(\d+)", txt_esp_1t, re.I)
+                            if not tem_fakes_1t and m_c1 and int(m_c1.group(1)) == comp_1t_val and ("1º Turno" in txt_esp_1t or "1º TURNO" in txt_esp_1t or "1° Turno" in txt_esp_1t) and "JAIR BOLSONARO" not in txt_esp_1t:
+                                espelho_1t = txt_esp_1t
 
                         if not espelho_1t:
                             espelho_1t = gerar_espelho_bobina_completo_tse(
@@ -3706,32 +3779,22 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     cands_ativos = cands if tem_bu_2t else cands_1t_fmt
                     votos_nom_tot = sum(c["votos"] for c in cands_ativos)
 
-                    # Teclas Indevidas
+                    # Teclas Indevidas (Fidelidade estrita aos arquivos reais ingeridos)
                     cic_tec_2t = extrair_teclas_de_ciclos(ciclos_2t)
-                    teclas_t2_val = int(getattr(met2, "teclas_indevidas_total", 0) or 0)
-                    if comp_2t_val > 0 and teclas_t2_val >= comp_2t_val:
-                        teclas_t2_val = 0
-                    if teclas_t2_val == 0:
-                        teclas_t2_val = cic_tec_2t["teclas_total"]
-
-                    teclas_pres_t2_val = int(getattr(met2, "teclas_indevidas_pres", 0) or 0)
-                    if comp_2t_val > 0 and teclas_pres_t2_val >= comp_2t_val:
-                        teclas_pres_t2_val = 0
-                    if teclas_pres_t2_val == 0:
-                        teclas_pres_t2_val = cic_tec_2t["teclas_pres"] or (teclas_t2_val if turno_ativo == 2 else 0)
+                    if tem_log_2t_real:
+                        teclas_t2_val = int(getattr(met2, "teclas_indevidas_total", 0) or 0)
+                        teclas_pres_t2_val = int(getattr(met2, "teclas_indevidas_pres", 0) or 0)
+                    else:
+                        teclas_t2_val = "XXX"
+                        teclas_pres_t2_val = "XXX"
 
                     cic_tec_1t = extrair_teclas_de_ciclos(ciclos_1t)
-                    teclas_t1_val = int(getattr(met1, "teclas_indevidas_total", 0) or 0)
-                    if comp_1t_val > 0 and teclas_t1_val >= comp_1t_val:
-                        teclas_t1_val = 0
-                    if teclas_t1_val == 0:
-                        teclas_t1_val = cic_tec_1t["teclas_total"]
-
-                    teclas_pres_t1_val = int(getattr(met1, "teclas_indevidas_pres", 0) or 0)
-                    if comp_1t_val > 0 and teclas_pres_t1_val >= comp_1t_val:
-                        teclas_pres_t1_val = 0
-                    if teclas_pres_t1_val == 0:
-                        teclas_pres_t1_val = cic_tec_1t["teclas_pres"]
+                    if tem_log_1t_real:
+                        teclas_t1_val = int(getattr(met1, "teclas_indevidas_total", 0) or 0)
+                        teclas_pres_t1_val = int(getattr(met1, "teclas_indevidas_pres", 0) or 0)
+                    else:
+                        teclas_t1_val = "XXX"
+                        teclas_pres_t1_val = "XXX"
 
                     batimentos = [
                         {
@@ -3918,15 +3981,17 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "hab_sem_bio_t1": sem_1t,
                         "hab_sem_bio_t2": sem_2t,
                         "delta_hab_sem_bio": sem_2t - sem_1t,
+                        "tem_log_1t": tem_log_1t_real,
+                        "tem_log_2t": tem_log_2t_real,
                         "teclas_indevidas_t1": teclas_t1_val,
                         "teclas_indevidas_t2": teclas_t2_val,
-                        "delta_teclas_indevidas": teclas_t2_val - teclas_t1_val,
+                        "delta_teclas_indevidas": "XXX" if (teclas_t1_val == "XXX" or teclas_t2_val == "XXX") else (teclas_t2_val - teclas_t1_val),
                         "teclas_presidente_t1": teclas_pres_t1_val,
                         "teclas_presidente_t2": teclas_pres_t2_val,
-                        "delta_teclas_presidente": teclas_pres_t2_val - teclas_pres_t1_val,
-                        "delta_teclas_presidente_pct": round(((teclas_pres_t2_val - teclas_pres_t1_val) / max(teclas_pres_t1_val, 1)) * 100.0, 1) if teclas_pres_t1_val else "0.0",
-                        "teclas_outros_t1": max(0, teclas_t1_val - teclas_pres_t1_val),
-                        "teclas_outros_t2": max(0, teclas_t2_val - teclas_pres_t2_val),
+                        "delta_teclas_presidente": "XXX" if (teclas_pres_t1_val == "XXX" or teclas_pres_t2_val == "XXX") else (teclas_pres_t2_val - teclas_pres_t1_val),
+                        "delta_teclas_presidente_pct": round(((teclas_pres_t2_val - teclas_pres_t1_val) / max(teclas_pres_t1_val, 1)) * 100.0, 1) if (isinstance(teclas_pres_t1_val, int) and isinstance(teclas_pres_t2_val, int) and teclas_pres_t1_val > 0) else "0.0",
+                        "teclas_outros_t1": "XXX" if teclas_t1_val == "XXX" else max(0, teclas_t1_val - (teclas_pres_t1_val if isinstance(teclas_pres_t1_val, int) else 0)),
+                        "teclas_outros_t2": "XXX" if teclas_t2_val == "XXX" else max(0, teclas_t2_val - (teclas_pres_t2_val if isinstance(teclas_pres_t2_val, int) else 0)),
                         "id_invalido_t1": id_inv_t1_val,
                         "id_invalido_t2": id_inv_t2_val,
                         "delta_id_invalido": id_inv_t2_val - id_inv_t1_val,
@@ -4026,10 +4091,12 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "total_id_invalido": id_inv_t2_val,
                         "total_id_invalido_t2": id_inv_t2_val,
                         "total_id_invalido_t1": id_inv_t1_val,
-                        "tem_comparativo_1t_log": met1 is not None or len(ciclos_1t) > 0,
+                        "tem_comparativo_1t_log": tem_log_1t_real,
                         "tempo_medio_cabine_s": float(getattr(met2, "tempo_medio_voto_segundos", 0.0) or 0.0),
                         "tempo_medio_cabine_t1_s": float(getattr(met1, "tempo_medio_voto_segundos", 0.0) or 0.0),
-                        "tem_log_jez": met2 is not None or len(ciclos_2t) > 0,
+                        "tem_log_jez": tem_log_2t_real or tem_log_1t_real,
+                        "tem_log_1t": tem_log_1t_real,
+                        "tem_log_2t": tem_log_2t_real,
                         "tem_imgbu": bu2 is not None or espelho_2t is not None or espelho_1t is not None,
                         "tem_rdv": len(cands) > 0,
                         "votos_por_hora": vph_db,
