@@ -8308,25 +8308,6 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       const urnas2T = Number(cc.urnas_pareadas_bu_2t || ct.urnas_com_bu_2_turno || 0);
       const faltam2T = Math.max(0, urnas1T - urnas2T);
 
-      if (badge) {
-        if (faltam2T > 0 && urnas2T > 0) {
-          badge.innerHTML = `
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="text-emerald-400 font-bold">✅ ${urnas1T.toLocaleString('pt-BR')} BU(s) do 1ºT</span>
-              <span class="text-slate-500">•</span>
-              <span class="text-amber-300 font-bold">⚠️ 2º Turno: ${urnas2T.toLocaleString('pt-BR')} de ${urnas1T.toLocaleString('pt-BR')} (faltam ${faltam2T.toLocaleString('pt-BR')} urnas — ${((faltam2T/urnas1T)*100).toFixed(1)}%)</span>
-              <button type="button" onclick="abrirModalAuditoriaCargaFaltantes2T()" class="px-2.5 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 rounded-lg text-[11px] font-extrabold cursor-pointer transition shadow-sm inline-flex items-center gap-1">
-                <span>🔍</span> <span>Ver Seções Faltantes</span>
-              </button>
-            </div>
-          `;
-        } else if (temBu1T) {
-          badge.innerHTML = `<span class="text-emerald-400 font-bold">✅ ${urnas1T.toLocaleString('pt-BR')} BU(s)/RDV(s) do 1º e 2º Turno pareados automaticamente (100% Carga Completa)</span>`;
-        } else {
-          badge.innerHTML = `<span class="text-indigo-300">💡 Digite abaixo os votos do 1ºT (ou suba o BU do 1ºT) para simular a transferência 1ºT → 2ºT</span>`;
-        }
-      }
-
       // Exibe todos os candidatos apurados (finalistas do 2ºT no topo ordenados por votos, seguidos pelos candidatos do 1ºT)
       const todosCands = cc.candidatos || [];
       const cands = [...todosCands].sort((a, b) => {
@@ -8359,6 +8340,69 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       const totalValidos1T = Math.max(1, somaCand1T + vOutros1T);
       const totalValidos2T = Math.max(1, somaCand2T);
+
+      // Identifica finalistas do 2º Turno e votos de terceiros eliminados no 1º Turno
+      const cands2T = linhasCands.filter(c => c.v2 > 0);
+      const candsOutros1T = linhasCands.filter(c => !cands2T.some(f => String(f.numero) === String(c.numero)));
+      const votosOutrosCands1T = candsOutros1T.reduce((acc, c) => acc + (c.v1 || 0), 0) + vOutros1T;
+      const deltaCompVal = ct.delta_comparecimento !== undefined ? Number(ct.delta_comparecimento) : (compT2Ref - compT1Ref);
+      const deltaBnVal = (br2 - br1) + (nu2 - nu1);
+      // Total de Novos Votos = 3ª via 1ºT + ΔComparecimento - ΔBrancos/Nulos
+      const totalNovosVotos = votosOutrosCands1T + deltaCompVal - deltaBnVal;
+
+      // Mapeia absorção de novos votos para os candidatos do 2º Turno (0% a 100%, sem valores negativos)
+      const mapaNovosCands = {};
+      if (cands2T.length === 2) {
+        const c1 = cands2T[0];
+        const c2 = cands2T[1];
+        const dv1 = c1.v2 - c1.v1;
+        const dv2 = c2.v2 - c2.v1;
+
+        if (dv1 <= 0 && dv2 <= 0) {
+          mapaNovosCands[String(c1.numero)] = { pct: 0.0, dv: dv1 };
+          mapaNovosCands[String(c2.numero)] = { pct: 0.0, dv: dv2 };
+        } else if (dv1 <= 0 && dv2 > 0) {
+          mapaNovosCands[String(c1.numero)] = { pct: 0.0, dv: dv1 };
+          mapaNovosCands[String(c2.numero)] = { pct: 100.0, dv: dv2 };
+        } else if (dv2 <= 0 && dv1 > 0) {
+          mapaNovosCands[String(c1.numero)] = { pct: 100.0, dv: dv1 };
+          mapaNovosCands[String(c2.numero)] = { pct: 0.0, dv: dv2 };
+        } else {
+          const baseDiv = totalNovosVotos > 0 ? totalNovosVotos : (dv1 + dv2);
+          const p1 = Math.min(100.0, Math.max(0.0, (dv1 / baseDiv) * 100.0));
+          const p2 = Math.min(100.0, Math.max(0.0, (dv2 / baseDiv) * 100.0));
+          mapaNovosCands[String(c1.numero)] = { pct: p1, dv: dv1 };
+          mapaNovosCands[String(c2.numero)] = { pct: p2, dv: dv2 };
+        }
+      } else if (cands2T.length > 0) {
+        cands2T.forEach(c => {
+          const dv = c.v2 - c.v1;
+          const p = dv <= 0 ? 0.0 : (totalNovosVotos > 0 ? Math.min(100.0, Math.max(0.0, (dv / totalNovosVotos) * 100.0)) : 0.0);
+          mapaNovosCands[String(c.numero)] = { pct: p, dv };
+        });
+      }
+
+      if (badge) {
+        if (faltam2T > 0 && urnas2T > 0) {
+          badge.innerHTML = `
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-emerald-400 font-bold">✅ ${urnas1T.toLocaleString('pt-BR')} BU(s) do 1ºT</span>
+              <span class="text-slate-500">•</span>
+              <span class="text-amber-300 font-bold">⚠️ 2º Turno: ${urnas2T.toLocaleString('pt-BR')} de ${urnas1T.toLocaleString('pt-BR')} (faltam ${faltam2T.toLocaleString('pt-BR')} urnas — ${((faltam2T/urnas1T)*100).toFixed(1)}%)</span>
+              <button type="button" onclick="abrirModalAuditoriaCargaFaltantes2T()" class="px-2.5 py-0.5 bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 rounded-lg text-[11px] font-extrabold cursor-pointer transition shadow-sm inline-flex items-center gap-1">
+                <span>🔍</span> <span>Ver Seções Faltantes</span>
+              </button>
+            </div>
+          `;
+        } else if (temBu1T) {
+          const pillNovos = totalNovosVotos > 0
+            ? `<span class="text-slate-500">•</span> <span class="px-2 py-0.5 rounded bg-cyan-950/80 border border-cyan-500/40 text-cyan-300 font-bold text-[11px]">🎯 Novos Votos Calculados: +${totalNovosVotos.toLocaleString('pt-BR')} (3ª Via: ${votosOutrosCands1T.toLocaleString('pt-BR')} • Comparecimento: ${deltaCompVal > 0 ? '+' : ''}${deltaCompVal.toLocaleString('pt-BR')} • Saldo Br/Nu: ${-deltaBnVal > 0 ? '+' : ''}${-deltaBnVal.toLocaleString('pt-BR')})</span>`
+            : "";
+          badge.innerHTML = `<div class="flex flex-wrap items-center gap-2"><span class="text-emerald-400 font-bold">✅ ${urnas1T.toLocaleString('pt-BR')} BU(s)/RDV(s) do 1º e 2º Turno pareados automaticamente (100% Carga Completa)</span>${pillNovos}</div>`;
+        } else {
+          badge.innerHTML = `<span class="text-indigo-300">💡 Digite abaixo os votos do 1ºT (ou suba o BU do 1ºT) para simular a transferência 1ºT → 2ºT</span>`;
+        }
+      }
 
       const fmtDelta = (d, p) => {
         if (d === 0) return `<span class="text-slate-400">0 (0%)</span>`;
@@ -8394,6 +8438,21 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           ? ((c.v1 > 0 || temBu1T) ? fmtDelta(dv, dp) : `<span class="text-slate-500 text-[10px]">Informe 1ºT</span>`)
           : `<span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-700/60 text-slate-400 text-[10px] font-semibold">Não foi ao 2ºT</span>`;
 
+        const infoNv = mapaNovosCands[String(c.numero)] || (c.novos_votos_pct !== undefined && c.novos_votos_pct !== null ? { pct: Number(c.novos_votos_pct), dv: Number(c.novos_votos_delta ?? dv) } : null);
+        let novosVotosHtml = `<span class="text-slate-500 text-xs">-</span>`;
+        if (foiAo2T && infoNv) {
+          const nvPct = infoNv.pct;
+          const nvdv = infoNv.dv;
+          const corNv = nvPct >= 50.0 ? "text-cyan-300 font-extrabold" : (nvPct > 0 ? "text-cyan-400 font-bold" : "text-slate-400 font-bold");
+          const signDv = nvdv > 0 ? "+" : "";
+          novosVotosHtml = `
+            <div class="inline-flex items-center gap-1.5 justify-end">
+              <span class="${corNv}">${nvPct.toFixed(1)}%</span>
+              <span class="text-[10px] text-slate-400 font-mono">(${signDv}${nvdv.toLocaleString("pt-BR")}/${totalNovosVotos > 0 ? totalNovosVotos.toLocaleString("pt-BR") : '-'})</span>
+            </div>
+          `;
+        }
+
         return `
           <tr class="hover:bg-slate-900/60">
             <td class="py-2 font-extrabold text-white">
@@ -8405,6 +8464,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             <td class="py-2">${col2Html}</td>
             <td class="py-2">${col2PctHtml}</td>
             <td class="py-2 text-right">${variacaoHtml}</td>
+            <td class="py-2 text-right">${novosVotosHtml}</td>
           </tr>
         `;
       }).join("");
@@ -8423,6 +8483,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             <td class="py-1.5 text-slate-500">0</td>
             <td class="py-1.5 text-slate-500">0.00%</td>
             <td class="py-1.5 text-right">${vOutros1T > 0 ? fmtDelta(-vOutros1T, -100) : `<span class="text-slate-500 text-[10px]">-</span>`}</td>
+            <td class="py-1.5 text-right text-slate-500 text-xs">-</td>
           </tr>
         `;
       }
@@ -8447,6 +8508,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           <td class="py-1.5 font-bold text-slate-200">${br2.toLocaleString("pt-BR")}</td>
           <td class="py-1.5 text-slate-500">-</td>
           <td class="py-1.5 text-right">${(br1 > 0 || temBu1T) ? fmtDelta(br2 - br1, br1 > 0 ? ((br2 - br1) / br1) * 100 : null) : "-"}</td>
+          <td class="py-1.5 text-right text-slate-500 text-xs">-</td>
         </tr>
         <tr class="text-slate-300">
           <td class="py-1.5">🚫 Votos Nulos</td>
@@ -8455,6 +8517,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           <td class="py-1.5 font-bold text-slate-200">${nu2.toLocaleString("pt-BR")}</td>
           <td class="py-1.5 text-slate-500">-</td>
           <td class="py-1.5 text-right">${(nu1 > 0 || temBu1T) ? fmtDelta(nu2 - nu1, nu1 > 0 ? ((nu2 - nu1) / nu1) * 100 : null) : "-"}</td>
+          <td class="py-1.5 text-right text-slate-500 text-xs">-</td>
         </tr>
         <tr class="border-t-2 border-slate-700 bg-slate-900/90 font-extrabold text-white">
           <td class="py-2">✅ Comparecimento Total Auditado no Log/BU</td>
@@ -8463,6 +8526,12 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           <td class="py-2 text-cyan-300">${compT2Ref.toLocaleString("pt-BR")}</td>
           <td class="py-2 text-cyan-300">${(ct.pct_comparecimento_t2 !== undefined && ct.pct_comparecimento_t2 !== null) ? `${ct.pct_comparecimento_t2}%` : (aptosRef > 0 ? `${((compT2Ref / aptosRef) * 100).toFixed(2)}%` : "-")}</td>
           <td class="py-2 text-right">${fmtDelta(ct.delta_comparecimento !== undefined ? ct.delta_comparecimento : (compT2Ref - compT1Ref), ct.delta_comparecimento_pct !== undefined ? Number(ct.delta_comparecimento_pct) : (compT1Ref > 0 ? (((compT2Ref - compT1Ref) / compT1Ref) * 100) : null))}</td>
+          <td class="py-2 text-right">
+            <div class="inline-flex items-center gap-1.5 justify-end">
+              <span class="font-extrabold text-cyan-300">${totalNovosVotos > 0 ? '+' : ''}${totalNovosVotos.toLocaleString("pt-BR")}</span>
+              <span class="text-[10px] text-slate-400 font-mono">novos</span>
+            </div>
+          </td>
         </tr>
         <tr class="bg-slate-900/50 text-slate-300">
           <td class="py-1.5">🚶 Eleitores Faltosos / Abstenção (Aptos: ${aptosRef.toLocaleString("pt-BR")})</td>
@@ -8471,6 +8540,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           <td class="py-1.5 text-amber-300 font-bold">${Number(ct.faltosos_t2 ?? Math.max(0, aptosRef - compT2Ref)).toLocaleString("pt-BR")}</td>
           <td class="py-1.5 text-amber-300">${(ct.pct_abstencao_t2 !== undefined && ct.pct_abstencao_t2 !== null) ? `${ct.pct_abstencao_t2}%` : (aptosRef > 0 ? `${((Number(ct.faltosos_t2 ?? Math.max(0, aptosRef - compT2Ref)) / aptosRef) * 100).toFixed(2)}%` : "-")}</td>
           <td class="py-1.5 text-right">${fmtDelta(ct.delta_faltosos !== undefined ? ct.delta_faltosos : (Number(ct.faltosos_t2 ?? Math.max(0, aptosRef - compT2Ref)) - Number(ct.faltosos_t1 ?? Math.max(0, aptosRef - compT1Ref))), ct.delta_faltosos_pct !== undefined ? Number(ct.delta_faltosos_pct) : (Number(ct.faltosos_t1 ?? Math.max(0, aptosRef - compT1Ref)) > 0 ? (((Number(ct.faltosos_t2 ?? Math.max(0, aptosRef - compT2Ref)) - Number(ct.faltosos_t1 ?? Math.max(0, aptosRef - compT1Ref))) / Number(ct.faltosos_t1 ?? Math.max(0, aptosRef - compT1Ref))) * 100) : null))}</td>
+          <td class="py-1.5 text-right text-slate-500 text-xs">-</td>
         </tr>
       `;
 
@@ -8492,6 +8562,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
               <th class="py-1.5 text-amber-300">Votos 2ºT (${ct.data_2_turno})</th>
               <th class="py-1.5 text-emerald-400">% 2ºT</th>
               <th class="py-1.5 text-right">Variação (2ºT - 1ºT)</th>
+              <th class="py-1.5 text-right text-cyan-300">Novos Votos</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-800/60">${rowsHtml}</tbody>

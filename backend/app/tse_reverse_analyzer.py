@@ -3809,6 +3809,37 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     tot_nom_1t = sum(c["votos"] for c in cands_1t_pres)
                     tot_nom_2t = sum(c["votos"] for c in cands_2t_pres)
 
+                    # Identifica candidatos do 2º Turno e votos de terceiros eliminados no 1º Turno
+                    finalistas_nums = [c["numero"] for c in cands_2t_pres if c.get("votos", 0) > 0]
+                    votos_outros_1t = sum(c["votos"] for c in cands_1t_pres if c["numero"] not in finalistas_nums)
+                    delta_comp_sec = comp_2t_val - comp_1t_val
+                    delta_bn_sec = (brancos_2t_val - brancos_1t_val) + (nulos_2t_val - nulos_1t_val)
+                    total_novos_sec = votos_outros_1t + delta_comp_sec - delta_bn_sec
+
+                    # Mapeia percentual de novos votos para os candidatos finalistas do 2º Turno
+                    mapa_novos_sec = {}
+                    if len(finalistas_nums) == 2:
+                        n1, n2 = finalistas_nums[0], finalistas_nums[1]
+                        c1_2t = next((c for c in cands_2t_pres if str(c["numero"]) == str(n1)), None)
+                        c2_2t = next((c for c in cands_2t_pres if str(c["numero"]) == str(n2)), None)
+                        c1_1t = next((c for c in cands_1t_pres if str(c["numero"]) == str(n1)), None)
+                        c2_1t = next((c for c in cands_1t_pres if str(c["numero"]) == str(n2)), None)
+                        dv1 = (c1_2t["votos"] if c1_2t else 0) - (c1_1t["votos"] if c1_1t else 0)
+                        dv2 = (c2_2t["votos"] if c2_2t else 0) - (c2_1t["votos"] if c2_1t else 0)
+                        if dv1 <= 0 and dv2 <= 0:
+                            mapa_novos_sec[str(n1)] = {"pct": 0.0, "dv": dv1}
+                            mapa_novos_sec[str(n2)] = {"pct": 0.0, "dv": dv2}
+                        elif dv1 <= 0 and dv2 > 0:
+                            mapa_novos_sec[str(n1)] = {"pct": 0.0, "dv": dv1}
+                            mapa_novos_sec[str(n2)] = {"pct": 100.0, "dv": dv2}
+                        elif dv2 <= 0 and dv1 > 0:
+                            mapa_novos_sec[str(n1)] = {"pct": 100.0, "dv": dv1}
+                            mapa_novos_sec[str(n2)] = {"pct": 0.0, "dv": dv2}
+                        else:
+                            base_div = total_novos_sec if total_novos_sec > 0 else (dv1 + dv2)
+                            mapa_novos_sec[str(n1)] = {"pct": round(min(100.0, max(0.0, (dv1 / base_div) * 100.0)), 1), "dv": dv1}
+                            mapa_novos_sec[str(n2)] = {"pct": round(min(100.0, max(0.0, (dv2 / base_div) * 100.0)), 1), "dv": dv2}
+
                     cands_comparativo_lista = []
                     for n_cand in todos_nums:
                         c1 = next((c for c in cands_1t_pres if str(c["numero"]) == n_cand), None)
@@ -3820,6 +3851,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         p2 = round((v2 / max(tot_nom_2t, 1)) * 100.0, 2) if tot_nom_2t else 0.0
                         dv = v2 - v1
                         dv_pct = round((dv / max(v1, 1)) * 100.0, 1) if v1 > 0 else 0.0
+                        info_nv = mapa_novos_sec.get(str(n_cand))
                         cands_comparativo_lista.append({
                             "numero": n_cand,
                             "nome": nm,
@@ -3832,6 +3864,9 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             "diferenca": dv,
                             "delta_votos": dv,
                             "delta_pct_crescimento": dv_pct,
+                            "novos_votos_pct": info_nv["pct"] if info_nv else None,
+                            "novos_votos_delta": info_nv["dv"] if info_nv else None,
+                            "total_novos_votos": total_novos_sec,
                         })
                     cands_comparativo_lista.sort(key=lambda x: (x["votos_t2"] > 0, x["votos_t2"], x["votos_t1"]), reverse=True)
 
@@ -3912,6 +3947,10 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             "nulos_t2": nulos_2t_val,
                             "nulos_2_turno": nulos_2t_val,
                             "delta_nulos": nulos_2t_val - nulos_1t_val,
+                            "total_novos_votos": total_novos_sec,
+                            "votos_outros_candidatos_1t": votos_outros_1t,
+                            "delta_comparecimento": delta_comp_sec,
+                            "delta_brancos_nulos": delta_bn_sec,
                         },
                         "votos_por_hora_comparativo": [
                             {
@@ -4414,13 +4453,41 @@ def _construir_comparativo_turnos(
             })
 
     # Placar comparativo de candidatos (1ºT vs 2ºT)
-    # No comparativo forense, listar ESTRITAMENTE quem disputou o 2º Turno
     finalistas_2t = [n for n, v2 in cands_t2_map.items() if v2 > 0]
     if not finalistas_2t and cands_t2_map:
         finalistas_2t = list(cands_t2_map.keys())
-    todos_nums_cand = sorted(finalistas_2t, key=lambda n: cands_t2_map.get(n, 0), reverse=True)
+    outros_1t = [n for n, v1 in cands_t1_map.items() if n not in finalistas_2t]
+    outros_1t_ordenados = sorted(outros_1t, key=lambda n: cands_t1_map.get(n, 0), reverse=True)
+    todos_nums_cand = sorted(finalistas_2t, key=lambda n: cands_t2_map.get(n, 0), reverse=True) + outros_1t_ordenados
     tot_nom_t1 = sum(cands_t1_map.values())
     tot_nom_t2 = sum(cands_t2_map.values())
+
+    # Identifica votos de terceiros eliminados no 1º Turno e calcula Novos Votos em disputa
+    votos_outros_1t_val = sum(cands_t1_map.get(n, 0) for n in outros_1t_ordenados)
+    delta_comp_val = comp_t2 - comp_t1
+    delta_bn_val = (brancos_t2 - brancos_t1) + (nulos_t2 - nulos_t1)
+    total_novos_val = votos_outros_1t_val + delta_comp_val - delta_bn_val
+
+    # Mapeia absorção de novos votos para os candidatos do 2º Turno (0% a 100%, sem valores negativos)
+    mapa_novos_val = {}
+    if len(finalistas_2t) == 2:
+        n1, n2 = finalistas_2t[0], finalistas_2t[1]
+        dv1 = cands_t2_map.get(n1, 0) - cands_t1_map.get(n1, 0)
+        dv2 = cands_t2_map.get(n2, 0) - cands_t1_map.get(n2, 0)
+        if dv1 <= 0 and dv2 <= 0:
+            mapa_novos_val[str(n1)] = {"pct": 0.0, "dv": dv1}
+            mapa_novos_val[str(n2)] = {"pct": 0.0, "dv": dv2}
+        elif dv1 <= 0 and dv2 > 0:
+            mapa_novos_val[str(n1)] = {"pct": 0.0, "dv": dv1}
+            mapa_novos_val[str(n2)] = {"pct": 100.0, "dv": dv2}
+        elif dv2 <= 0 and dv1 > 0:
+            mapa_novos_val[str(n1)] = {"pct": 100.0, "dv": dv1}
+            mapa_novos_val[str(n2)] = {"pct": 0.0, "dv": dv2}
+        else:
+            base_div = total_novos_val if total_novos_val > 0 else (dv1 + dv2)
+            mapa_novos_val[str(n1)] = {"pct": round(min(100.0, max(0.0, (dv1 / base_div) * 100.0)), 1), "dv": dv1}
+            mapa_novos_val[str(n2)] = {"pct": round(min(100.0, max(0.0, (dv2 / base_div) * 100.0)), 1), "dv": dv2}
+
     lista_cands_comp = []
     for num in todos_nums_cand:
         v1 = cands_t1_map.get(num, 0)
@@ -4429,6 +4496,7 @@ def _construir_comparativo_turnos(
         p2 = round((v2 / max(tot_nom_t2, 1)) * 100.0, 2) if tot_nom_t2 else 0.0
         dv = v2 - v1
         dv_pct = round((dv / max(v1, 1)) * 100.0, 2) if v1 > 0 else 0.0
+        info_nv = mapa_novos_val.get(str(num))
         lista_cands_comp.append({
             "numero": num,
             "nome": nomes_cands.get(num, f"CANDIDATO {num}"),
@@ -4438,6 +4506,9 @@ def _construir_comparativo_turnos(
             "pct_t2": p2,
             "delta_votos": dv,
             "delta_pct_crescimento": dv_pct,
+            "novos_votos_pct": info_nv["pct"] if info_nv else None,
+            "novos_votos_delta": info_nv["dv"] if info_nv else None,
+            "total_novos_votos": total_novos_val,
         })
 
     s0 = secoes_escopo[0] if len(secoes_escopo) == 1 else {}
@@ -4552,6 +4623,10 @@ def _construir_comparativo_turnos(
             "nulos_t1": nulos_t1,
             "nulos_t2": nulos_t2,
             "delta_nulos": nulos_t2 - nulos_t1,
+            "total_novos_votos": total_novos_val,
+            "votos_outros_candidatos_1t": votos_outros_1t_val,
+            "delta_comparecimento": delta_comp_val,
+            "delta_brancos_nulos": delta_bn_val,
             "candidatos": lista_cands_comp,
         },
     }
@@ -7273,6 +7348,31 @@ def _consolidar_secoes_tse_sql(
     if not todos_cands_comp:
         todos_cands_comp = list(dict.fromkeys(list(cands_t2_map.keys()) + list(cands_t1_map.keys())))
 
+    # Calculo de Novos Votos (3ª via eliminada no 1ºT + saldo comparecimento - saldo brancos/nulos)
+    votos_outros_1t_sql = sum(cands_t1_map.get(n, 0) for n in cands_1t_ordenados)
+    delta_comp_sql = comp_2 - comp_1
+    delta_bn_sql = (brancos_2 - brancos_1) + (nulos_2 - nulos_1)
+    total_novos_sql = votos_outros_1t_sql + delta_comp_sql - delta_bn_sql
+
+    mapa_novos_sql = {}
+    if len(cands_2t_ordenados) == 2:
+        n1, n2 = cands_2t_ordenados[0], cands_2t_ordenados[1]
+        dv1 = cands_t2_map.get(n1, 0) - cands_t1_map.get(n1, 0)
+        dv2 = cands_t2_map.get(n2, 0) - cands_t1_map.get(n2, 0)
+        if dv1 <= 0 and dv2 <= 0:
+            mapa_novos_sql[str(n1)] = {"pct": 0.0, "dv": dv1}
+            mapa_novos_sql[str(n2)] = {"pct": 0.0, "dv": dv2}
+        elif dv1 <= 0 and dv2 > 0:
+            mapa_novos_sql[str(n1)] = {"pct": 0.0, "dv": dv1}
+            mapa_novos_sql[str(n2)] = {"pct": 100.0, "dv": dv2}
+        elif dv2 <= 0 and dv1 > 0:
+            mapa_novos_sql[str(n1)] = {"pct": 100.0, "dv": dv1}
+            mapa_novos_sql[str(n2)] = {"pct": 0.0, "dv": dv2}
+        else:
+            base_div = total_novos_sql if total_novos_sql > 0 else (dv1 + dv2)
+            mapa_novos_sql[str(n1)] = {"pct": round(min(100.0, max(0.0, (dv1 / base_div) * 100.0)), 1), "dv": dv1}
+            mapa_novos_sql[str(n2)] = {"pct": round(min(100.0, max(0.0, (dv2 / base_div) * 100.0)), 1), "dv": dv2}
+
     lista_cands_comp = []
     for num in todos_cands_comp:
         v1 = cands_t1_map.get(num, 0)
@@ -7281,6 +7381,7 @@ def _consolidar_secoes_tse_sql(
         p2 = round((v2 / max(tot_t2_c, 1)) * 100.0, 2) if tot_t2_c else 0.0
         dv = v2 - v1
         dv_pct = round((dv / max(v1, 1)) * 100.0, 2) if v1 > 0 else 0.0
+        info_nv = mapa_novos_sql.get(str(num))
         lista_cands_comp.append({
             "numero": num,
             "nome": cands_nomes.get(num, f"CANDIDATO {num}"),
@@ -7293,6 +7394,9 @@ def _consolidar_secoes_tse_sql(
             "diferenca": dv,
             "delta_votos": dv,
             "delta_pct_crescimento": dv_pct,
+            "novos_votos_pct": info_nv["pct"] if info_nv else None,
+            "novos_votos_delta": info_nv["dv"] if info_nv else None,
+            "total_novos_votos": total_novos_sql,
         })
 
     # Agregação global da vazão horária dos logs (1º e 2º Turno)
@@ -7424,6 +7528,10 @@ def _consolidar_secoes_tse_sql(
             "nulos_t1": nulos_1,
             "nulos_t2": nulos_2,
             "delta_nulos": nulos_2 - nulos_1,
+            "total_novos_votos": total_novos_sql,
+            "votos_outros_candidatos_1t": votos_outros_1t_sql,
+            "delta_comparecimento": delta_comp_sql,
+            "delta_brancos_nulos": delta_bn_sql,
             "candidatos": lista_cands_comp,
         },
     }
