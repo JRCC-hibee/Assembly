@@ -485,11 +485,23 @@ def decodificar_espelho_bu_txt(espelho_bu_raw: str, imgbu_bytes: bytes = None) -
     cargo_atual = "GERAL"
     in_cand_block = False
     for line in clean_lines:
-        m_header_cargo = re.match(r"^\s*-{3,}\s*([A-Za-zÀ-ÖØ-öø-ÿ\s]+?)\s*-{3,}\s*$", line)
-        if m_header_cargo:
+        m_header_cargo = re.search(r"(?:CARGO\s*:\s*|-{3,}\s*)([A-Za-zÀ-ÖØ-öø-ÿ\s]+?)(?:\s*-{3,}|$)", line, re.IGNORECASE)
+        if m_header_cargo and ("CARGO" in line.upper() or "---" in line):
             hdr = m_header_cargo.group(1).strip().upper()
             if hdr not in ("BU DIGITAL", "FIM", "RESUMO DA CORRESPONDÊNCIA"):
-                cargo_atual = "PRESIDENTE" if "PRESIDENT" in hdr else hdr
+                if "PRESIDENT" in hdr:
+                    cargo_atual = "PRESIDENTE"
+                elif "GOVERNAD" in hdr:
+                    cargo_atual = "GOVERNADOR"
+                elif "SENAD" in hdr:
+                    cargo_atual = "SENADOR"
+                elif "FED" in hdr:
+                    cargo_atual = "DEPUTADO FEDERAL"
+                elif "EST" in hdr or "DIST" in hdr:
+                    cargo_atual = "DEPUTADO ESTADUAL"
+                else:
+                    cargo_atual = hdr
+
                 cargos_bu_map.setdefault(cargo_atual, {
                     "cargo": cargo_atual,
                     "candidatos": [],
@@ -502,7 +514,7 @@ def decodificar_espelho_bu_txt(espelho_bu_raw: str, imgbu_bytes: bytes = None) -
                 in_cand_block = False
             continue
 
-        if ("candidato" in line.lower() or "cand" in line.lower()) and "voto" in line.lower():
+        if "VOTAÇÃO NOMINAL" in line.upper() or (("candidato" in line.lower() or "cand" in line.lower()) and "voto" in line.lower()):
             in_cand_block = True
             cargos_bu_map.setdefault(cargo_atual, {
                 "cargo": cargo_atual,
@@ -516,10 +528,22 @@ def decodificar_espelho_bu_txt(espelho_bu_raw: str, imgbu_bytes: bytes = None) -
             continue
 
         if in_cand_block:
-            m_cand = re.match(r"^\s*([A-Za-zÀ-ÖØ-öø-ÿ0-9\s\.\-']+?)\s+(\d{2,5})\s+(\d{1,6})\s*$", line)
-            if m_cand:
-                num_c = m_cand.group(2).strip()
-                nome_c = m_cand.group(1).strip()
+            m_cand1 = re.match(r"^\s*(\d{2,5})\s*-\s*([A-Za-zÀ-ÖØ-öø-ÿ0-9\s\.\-']+?)(?:\s*\([^)]*\))?\s*:\s*(\d{1,6})\s*votos?.*$", line, re.IGNORECASE)
+            m_cand2 = re.match(r"^\s*([A-Za-zÀ-ÖØ-öø-ÿ0-9\s\.\-']+?)\s+(\d{2,5})\s+(\d{1,6})\s*$", line)
+            if m_cand1:
+                num_c = m_cand1.group(1).strip()
+                nome_c = m_cand1.group(2).strip()
+                vt_c = int(m_cand1.group(3))
+            elif m_cand2:
+                num_c = m_cand2.group(2).strip()
+                nome_c = m_cand2.group(1).strip()
+                vt_c = int(m_cand2.group(3))
+            else:
+                num_c = None
+                nome_c = None
+                vt_c = 0
+
+            if num_c:
                 cg_u = cargo_atual.upper()
                 if "PRESIDENT" in cg_u:
                     if num_c == "22" or "JAIR" in nome_c.upper():
@@ -532,9 +556,12 @@ def decodificar_espelho_bu_txt(espelho_bu_raw: str, imgbu_bytes: bytes = None) -
                 cargos_bu_map[cargo_atual]["candidatos"].append({
                     "nome": nome_c,
                     "numero": num_c,
-                    "votos": int(m_cand.group(3)),
+                    "votos": vt_c,
                 })
                 continue
+
+            if "TOTAL" in line.upper():
+                in_cand_block = False
 
         if cargo_atual in cargos_bu_map:
             m_nom = re.search(r"Total de votos Nominais\s+(\d+)", line, re.IGNORECASE)
@@ -3641,8 +3668,59 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         db.rollback()
                         print(f"[TSE-DB] Aviso ao persistir dossiês: {exc_save}")
 
-                    cargos_bu_2t = extrair_cargos_de_espelho_bobina(espelho_2t) if espelho_2t else []
-                    cargos_bu_1t = extrair_cargos_de_espelho_bobina(espelho_1t) if espelho_1t else []
+                    def _montar_blocos_cargos_secao(votos_lista, aptos_t, brancos_t, nulos_t):
+                        cargos_dict = {}
+                        for v in votos_lista:
+                            cg_raw = (v.cargo or "PRESIDENTE").strip().upper()
+                            if "PRESIDENT" in cg_raw:
+                                cg_nome = "PRESIDENTE"
+                            elif "GOVERNAD" in cg_raw:
+                                cg_nome = "GOVERNADOR"
+                            elif "SENAD" in cg_raw:
+                                cg_nome = "SENADOR"
+                            elif "DEPUTADO FED" in cg_raw:
+                                cg_nome = "DEPUTADO FEDERAL"
+                            elif "DEPUTADO EST" in cg_raw or "DEPUTADO DIST" in cg_raw:
+                                cg_nome = "DEPUTADO ESTADUAL"
+                            else:
+                                cg_nome = cg_raw
+
+                            if cg_nome not in cargos_dict:
+                                cargos_dict[cg_nome] = {
+                                    "cargo": cg_nome,
+                                    "eleitores_aptos": aptos_t,
+                                    "candidatos": [],
+                                    "brancos": brancos_t if cg_nome == "PRESIDENTE" else 0,
+                                    "nulos": nulos_t if cg_nome == "PRESIDENTE" else 0,
+                                }
+                            cargos_dict[cg_nome]["candidatos"].append({
+                                "cargo": cg_nome,
+                                "numero": str(v.numero_candidato),
+                                "nome": _resolver_nome_cand_secao(v),
+                                "votos": v.quantidade_votos,
+                                "votos_bu": v.votos_bu or v.quantidade_votos,
+                                "votos_rdv": v.votos_rdv or v.quantidade_votos,
+                            })
+
+                        for cg_info in cargos_dict.values():
+                            cg_info["candidatos"].sort(key=lambda c: max(c["votos_bu"], c["votos_rdv"], c["votos"]), reverse=True)
+                            cg_info["total_nominais"] = sum(c["votos_bu"] for c in cg_info["candidatos"])
+                            cg_info["total_apurado"] = cg_info["total_nominais"] + cg_info.get("brancos", 0) + cg_info.get("nulos", 0)
+
+                        ordem_cargos = ["PRESIDENTE", "GOVERNADOR", "SENADOR", "DEPUTADO FEDERAL", "DEPUTADO ESTADUAL"]
+                        blocos = []
+                        for cg_padrao in ordem_cargos:
+                            if cg_padrao in cargos_dict:
+                                blocos.append(cargos_dict[cg_padrao])
+                        for cg_extra, cg_info in cargos_dict.items():
+                            if cg_extra not in ordem_cargos:
+                                blocos.append(cg_info)
+                        return blocos
+
+                    cargos_db_2t = _montar_blocos_cargos_secao(cands_t2_db, aptos_2t_val, brancos_2t_val, nulos_2t_val)
+                    cargos_db_1t = _montar_blocos_cargos_secao(cands_1t_db, aptos_1t_val, brancos_1t_val, nulos_1t_val)
+                    cargos_bu_2t = cargos_db_2t if cargos_db_2t else (extrair_cargos_de_espelho_bobina(espelho_2t) if espelho_2t else [])
+                    cargos_bu_1t = cargos_db_1t if cargos_db_1t else (extrair_cargos_de_espelho_bobina(espelho_1t) if espelho_1t else [])
                     cargos_bu_unificado = cargos_bu_2t or cargos_bu_1t
 
                     turno_ativo = 2 if tem_bu_2t else 1
@@ -3748,6 +3826,43 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     linhas_1t_val = len(ciclos_1t) * 15 if ciclos_1t else (comp_1t_val * 15)
                     linhas_2t_val = len(ciclos_2t) * 15 if ciclos_2t else (comp_2t_val * 15)
 
+                    # Constrói comparativo dinâmico completo de todos os candidatos de Presidente
+                    cands_1t_pres = [c for c in cands_1t_fmt if "PRESIDENT" in str(c.get("cargo", "PRESIDENTE")).upper()]
+                    cands_2t_pres = [c for c in cands if "PRESIDENT" in str(c.get("cargo", "PRESIDENTE")).upper()]
+
+                    nums_2t = [c["numero"] for c in cands_2t_pres]
+                    nums_1t = [c["numero"] for c in cands_1t_pres if c["numero"] not in nums_2t]
+                    todos_nums = nums_2t + nums_1t
+
+                    tot_nom_1t = sum(c["votos"] for c in cands_1t_pres)
+                    tot_nom_2t = sum(c["votos"] for c in cands_2t_pres)
+
+                    cands_comparativo_lista = []
+                    for n_cand in todos_nums:
+                        c1 = next((c for c in cands_1t_pres if str(c["numero"]) == n_cand), None)
+                        c2 = next((c for c in cands_2t_pres if str(c["numero"]) == n_cand), None)
+                        v1 = c1["votos"] if c1 else 0
+                        v2 = c2["votos"] if c2 else 0
+                        nm = (c2["nome"] if c2 else None) or (c1["nome"] if c1 else None) or f"CANDIDATO {n_cand}"
+                        p1 = round((v1 / max(tot_nom_1t, 1)) * 100.0, 2) if tot_nom_1t else 0.0
+                        p2 = round((v2 / max(tot_nom_2t, 1)) * 100.0, 2) if tot_nom_2t else 0.0
+                        dv = v2 - v1
+                        dv_pct = round((dv / max(v1, 1)) * 100.0, 1) if v1 > 0 else 0.0
+                        cands_comparativo_lista.append({
+                            "numero": n_cand,
+                            "nome": nm,
+                            "votos_t1": v1,
+                            "votos_1_turno": v1,
+                            "pct_t1": p1,
+                            "votos_t2": v2,
+                            "votos_2_turno": v2,
+                            "pct_t2": p2,
+                            "diferenca": dv,
+                            "delta_votos": dv,
+                            "delta_pct_crescimento": dv_pct,
+                        })
+                    cands_comparativo_lista.sort(key=lambda x: (x["votos_t2"] > 0, x["votos_t2"], x["votos_t1"]), reverse=True)
+
                     comp_turnos_sec = {
                         "disponivel": True,
                         "escopo": f"Urna Individual — {secao_db.municipio_nome} • Zona {secao_db.zona:04d} / Seção {secao_db.secao:04d}",
@@ -3814,26 +3929,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             "tem_bu_1_turno": tem_bu_1t,
                             "urnas_pareadas_bu_1t": 1 if tem_bu_1t else 0,
                             "urnas_pareadas_bu_2t": 1 if tem_bu_2t else 0,
-                            "candidatos": [
-                                {
-                                    "numero": "22",
-                                    "nome": "FLÁVIO BOLSONARO",
-                                    "votos_t1": next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "22"), 0),
-                                    "votos_1_turno": next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "22"), 0),
-                                    "votos_t2": next((c["votos"] for c in cands if str(c["numero"]) == "22"), 0),
-                                    "votos_2_turno": next((c["votos"] for c in cands if str(c["numero"]) == "22"), 0),
-                                    "diferenca": next((c["votos"] for c in cands if str(c["numero"]) == "22"), 0) - next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "22"), 0),
-                                },
-                                {
-                                    "numero": "13",
-                                    "nome": "LULA",
-                                    "votos_t1": next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "13"), 0),
-                                    "votos_1_turno": next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "13"), 0),
-                                    "votos_t2": next((c["votos"] for c in cands if str(c["numero"]) == "13"), 0),
-                                    "votos_2_turno": next((c["votos"] for c in cands if str(c["numero"]) == "13"), 0),
-                                    "diferenca": next((c["votos"] for c in cands if str(c["numero"]) == "13"), 0) - next((c["votos"] for c in cands_1t_fmt if str(c["numero"]) == "13"), 0),
-                                },
-                            ],
+                            "candidatos": cands_comparativo_lista,
                             "brancos_t1": brancos_1t_val,
                             "brancos_1_turno": brancos_1t_val,
                             "brancos_t2": brancos_2t_val,
@@ -7174,13 +7270,15 @@ def _consolidar_secoes_tse_sql(
             "status": "CONFERE_100%",
         })
 
-    # No comparativo forense, listar ESTRITAMENTE quem disputou o 2º Turno
-    finalistas_2t = [num for num, v2 in cands_t2_map.items() if v2 > 0]
-    if not finalistas_2t and cands_t2_map:
-        finalistas_2t = list(cands_t2_map.keys())
+    # No comparativo forense, listar todos os candidatos que receberam votos no 1º ou 2º Turno
+    cands_2t_ordenados = sorted([n for n, v2 in cands_t2_map.items() if v2 > 0], key=lambda n: cands_t2_map.get(n, 0), reverse=True)
+    cands_1t_ordenados = sorted([n for n, v1 in cands_t1_map.items() if n not in cands_2t_ordenados], key=lambda n: cands_t1_map.get(n, 0), reverse=True)
+    todos_cands_comp = cands_2t_ordenados + cands_1t_ordenados
+    if not todos_cands_comp:
+        todos_cands_comp = list(dict.fromkeys(list(cands_t2_map.keys()) + list(cands_t1_map.keys())))
 
     lista_cands_comp = []
-    for num in sorted(finalistas_2t, key=lambda n: cands_t2_map.get(n, 0), reverse=True):
+    for num in todos_cands_comp:
         v1 = cands_t1_map.get(num, 0)
         v2 = cands_t2_map.get(num, 0)
         p1 = round((v1 / max(tot_t1_c, 1)) * 100.0, 2) if tot_t1_c else 0.0
@@ -7191,9 +7289,12 @@ def _consolidar_secoes_tse_sql(
             "numero": num,
             "nome": cands_nomes.get(num, f"CANDIDATO {num}"),
             "votos_t1": v1,
+            "votos_1_turno": v1,
             "pct_t1": p1,
             "votos_t2": v2,
+            "votos_2_turno": v2,
             "pct_t2": p2,
+            "diferenca": dv,
             "delta_votos": dv,
             "delta_pct_crescimento": dv_pct,
         })

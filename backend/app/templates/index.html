@@ -7792,6 +7792,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       const cargoAtual = window.arvoreTseState.cargo || "PRESIDENTE";
       const modoVisao = window.arvoreTseState.modo_visao || "COMPARATIVO";
+      const isVisao1T = (modoVisao === "1T") || (window.currentTseBobinaTurno === 1 && modoVisao !== "2T");
 
       const rotulosCargos = {
         "PRESIDENTE": "Presidente da República",
@@ -7801,7 +7802,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         "DEPUTADO ESTADUAL": "Deputado Estadual"
       };
       const cargoLabel = rotulosCargos[cargoAtual] || cargoAtual;
-      const turnoLabel = modoVisao === "1T" ? "1º Turno" : (modoVisao === "2T" ? "2º Turno" : "Consolidado / 2º Turno");
+      const turnoLabel = isVisao1T ? "1º Turno" : (modoVisao === "2T" ? "2º Turno" : "Consolidado / 2º Turno");
 
       const titleEl = document.getElementById("tsePlacarTitle");
       if (titleEl) {
@@ -7814,10 +7815,10 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       let brancosUrna = Number(bu.votos_brancos ?? resCons.brancos_bu ?? rdv.votos_brancos_rdv ?? 0);
       let nulosUrna = Number(bu.votos_nulos ?? resCons.nulos_bu ?? rdv.votos_nulos_rdv ?? 0);
 
-      if (modoVisao === "1T" && resCons.tem_bu_1_turno) {
-        compUrna = Number(resCons.comparecimento_t1 || compUrna);
-        brancosUrna = Number(resCons.brancos_bu_t1 ?? brancosUrna);
-        nulosUrna = Number(resCons.nulos_bu_t1 ?? nulosUrna);
+      if (isVisao1T && (resCons.tem_bu_1_turno || bu.espelho_bobina_1t || (bu.cargos_bu_1t && bu.cargos_bu_1t.length > 0))) {
+        compUrna = Number(resCons.comparecimento_t1 || bu.comparecimento_t1 || compUrna);
+        brancosUrna = Number(resCons.brancos_bu_t1 ?? bu.brancos_t1 ?? brancosUrna);
+        nulosUrna = Number(resCons.nulos_bu_t1 ?? bu.nulos_t1 ?? nulosUrna);
         faltososUrna = Math.max(0, aptosUrna - compUrna);
       }
 
@@ -7825,11 +7826,13 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       let candsUrna = [];
 
       // Verifica se há bloco específico do cargo em cargos_bu (1T ou 2T)
-      const blocosDisponiveis = [
-        ...(modoVisao === "1T" ? (bu.cargos_bu_1t || resCons.cargos_bu_1t || []) : (bu.cargos_bu_2t || resCons.cargos_bu_2t || [])),
-        ...(bu.cargos_bu || resCons.cargos_bu || []),
-        ...(bu.cargos_bu_1t || resCons.cargos_bu_1t || [])
-      ];
+      const blocosDisponiveis = isVisao1T
+        ? (bu.cargos_bu_1t || resCons.cargos_bu_1t || [])
+        : [
+            ...(bu.cargos_bu_2t || resCons.cargos_bu_2t || []),
+            ...(bu.cargos_bu || resCons.cargos_bu || []),
+            ...(bu.cargos_bu_1t || resCons.cargos_bu_1t || [])
+          ];
 
       const blocoCargo = blocosDisponiveis.find(b => {
         const cName = String(b.cargo || "").toUpperCase();
@@ -7851,7 +7854,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         if (blocoCargo.brancos !== undefined) brancosUrna = Number(blocoCargo.brancos);
         if (blocoCargo.nulos !== undefined) nulosUrna = Number(blocoCargo.nulos);
       } else if (cargoAtual === "PRESIDENTE") {
-        const candsFonte = (modoVisao === "1T" && Array.isArray(resCons.candidatos_1_turno) && resCons.candidatos_1_turno.length > 0)
+        const candsFonte = (isVisao1T && Array.isArray(resCons.candidatos_1_turno) && resCons.candidatos_1_turno.length > 0)
           ? resCons.candidatos_1_turno
           : (resCons.candidatos || []);
         if (Array.isArray(candsFonte) && candsFonte.length > 0) {
@@ -8143,10 +8146,10 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       window.currentTseEspelho1T = bu.espelho_bobina_1t || data.espelho_bobina_1t || resCons.espelho_bobina_1t || (bu.turno === 1 ? bu.espelho_bobina : "") || gerarBobinaClienteTse(data, 1);
       window.currentTseEspelho2T = bu.espelho_bobina_2t || data.espelho_bobina_2t || resCons.espelho_bobina_2t || (bu.turno === 2 ? bu.espelho_bobina : "") || (isUrnaPendente2T ? "" : gerarBobinaClienteTse(data, 2));
 
-      alternarBobinaTurnoTse(turnoPadrao);
+      alternarBobinaTurnoTse(turnoPadrao, true, false);
     }
 
-    function alternarBobinaTurnoTse(turnoNum, syncGrafico = true) {
+    function alternarBobinaTurnoTse(turnoNum, syncGrafico = true, syncPlacar = true) {
       window.currentTseBobinaTurno = turnoNum;
       const btn1T = document.getElementById("btnBobina1T");
       const btn2T = document.getElementById("btnBobina2T");
@@ -8182,6 +8185,10 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       if (syncGrafico && typeof alternarTurnoGraficoEleitoresTse === "function" && window.currentTseTurnoGrafico !== turnoNum) {
         alternarTurnoGraficoEleitoresTse(turnoNum, false);
+      }
+
+      if (syncPlacar && window.lastSecaoIndividualPayload) {
+        renderizarLaudoTseReverso(window.lastSecaoIndividualPayload);
       }
     }
 
@@ -8297,10 +8304,18 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         }
       }
 
-      // No comparativo forense, exibe ESTRITAMENTE quem disputou o 2º Turno (votos_t2 > 0)
+      // Exibe todos os candidatos apurados (finalistas do 2ºT no topo ordenados por votos, seguidos pelos candidatos do 1ºT)
       const todosCands = cc.candidatos || [];
-      const finalistas2T = todosCands.filter(c => Number(c.votos_t2 || 0) > 0);
-      const cands = finalistas2T.length > 0 ? finalistas2T : todosCands;
+      const cands = [...todosCands].sort((a, b) => {
+        const aV2 = Number(a.votos_t2 || 0);
+        const bV2 = Number(b.votos_t2 || 0);
+        if (aV2 > 0 && bV2 === 0) return -1;
+        if (bV2 > 0 && aV2 === 0) return 1;
+        if (aV2 > 0 && bV2 > 0) return bV2 - aV2;
+        const aV1 = Number(a.votos_t1 || 0);
+        const bV1 = Number(b.votos_t1 || 0);
+        return bV1 - aV1;
+      });
       let somaCand1T = 0;
       let somaCand2T = 0;
 
@@ -8330,9 +8345,12 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         return `<span class="${cls}">${sign}${d.toLocaleString("pt-BR")}${pctTxt}</span>`;
       };
 
+      const temFinalistas2T = cands.some(c => Number(c.votos_t2 || 0) > 0);
+
       let rowsHtml = linhasCands.map(c => {
         const p1 = (somaCand1T + vOutros1T) > 0 ? ((c.v1 / totalValidos1T) * 100).toFixed(2) + "%" : "-";
-        const p2 = somaCand2T > 0 ? ((c.v2 / totalValidos2T) * 100).toFixed(2) + "%" : "0.00%";
+        const foiAo2T = c.v2 > 0 || (!temFinalistas2T && c.v2 !== undefined);
+        const p2 = foiAo2T && somaCand2T > 0 ? ((c.v2 / totalValidos2T) * 100).toFixed(2) + "%" : "-";
         const dv = c.v2 - c.v1;
         const dp = c.v1 > 0 ? ((dv / c.v1) * 100) : null;
         const col1Html = temBu1T
@@ -8340,6 +8358,18 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           : `<input type="number" min="0" value="${c.v1 || ''}" placeholder="Votos 1ºT"
                onchange="atualizarVotoManual1Turno('${c.keyInput}', this.value)"
                class="w-24 bg-slate-900 border border-indigo-500/50 focus:border-cyan-400 rounded px-2 py-0.5 text-xs text-indigo-200 font-bold mono outline-none" />`;
+
+        const col2Html = foiAo2T
+          ? `<span class="font-extrabold text-amber-300">${c.v2.toLocaleString("pt-BR")}</span>`
+          : `<span class="text-slate-500 text-xs font-mono">-</span>`;
+
+        const col2PctHtml = foiAo2T
+          ? `<span class="font-bold text-emerald-400">${p2}</span>`
+          : `<span class="text-slate-500 text-xs">-</span>`;
+
+        const variacaoHtml = foiAo2T
+          ? ((c.v1 > 0 || temBu1T) ? fmtDelta(dv, dp) : `<span class="text-slate-500 text-[10px]">Informe 1ºT</span>`)
+          : `<span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-700/60 text-slate-400 text-[10px] font-semibold">Não foi ao 2ºT</span>`;
 
         return `
           <tr class="hover:bg-slate-900/60">
@@ -8349,9 +8379,9 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             </td>
             <td class="py-2">${col1Html}</td>
             <td class="py-2 text-indigo-300">${p1}</td>
-            <td class="py-2 font-extrabold text-amber-300">${c.v2.toLocaleString("pt-BR")}</td>
-            <td class="py-2 font-bold text-emerald-400">${p2}</td>
-            <td class="py-2 text-right">${c.v1 > 0 || temBu1T ? fmtDelta(dv, dp) : `<span class="text-slate-500 text-[10px]">Informe 1ºT</span>`}</td>
+            <td class="py-2">${col2Html}</td>
+            <td class="py-2">${col2PctHtml}</td>
+            <td class="py-2 text-right">${variacaoHtml}</td>
           </tr>
         `;
       }).join("");
