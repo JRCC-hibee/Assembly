@@ -1536,6 +1536,9 @@ o Boletim de Urna (apos encerramento da votacao).
         <!-- Veredito Geral (Consolidado ou Individual) -->
         <div id="tseVereditoBox" class="p-4 rounded-xl border-2 text-xs"></div>
 
+        <!-- PAINEL DE ALERTAS, ANOMALIAS & INDICADORES DE BI FORENSE -->
+        <div id="tseAnomaliasAlertasBox" class="hidden mb-3"></div>
+
         <!-- Cartões de Identificação / KPIs (Adaptáveis entre Consolidado e Urna Individual) -->
         <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 text-xs mono">
           <div class="bg-slate-900 border border-slate-800 p-3 rounded-lg">
@@ -7049,13 +7052,16 @@ o Boletim de Urna (apos encerramento da votacao).
         const q = (document.getElementById("searchSecaoTse")?.value || "").trim().toLowerCase();
         const secoes = (hier.secoes || []).filter(s => {
           if (!q) return true;
-          const statusTxt = s.nivel_risco === "BAIXO" ? "integra" : "alerta divergente";
+          const statusTxt = s.nivel_risco === "BAIXO"
+            ? "integra normal valida"
+            : (s.nivel_risco === "ALERTA" ? "alerta anomalia empate novos votos atipica bi" : "critico divergente erro");
           return (
             s.secao.toLowerCase().includes(q) ||
             s.zona.toLowerCase().includes(q) ||
             (s.municipio_nome || "").toLowerCase().includes(q) ||
             (s.serial_ue || "").toLowerCase().includes(q) ||
             s.prefixo.toLowerCase().includes(q) ||
+            (s.alerta_resumo || "").toLowerCase().includes(q) ||
             statusTxt.includes(q)
           );
         });
@@ -7081,10 +7087,12 @@ o Boletim de Urna (apos encerramento da votacao).
 
         html += secoes.slice(0, 500).map(s => {
           const active = sSel === s.prefixo;
-          const riscoBadge = s.nivel_risco !== "BAIXO" ? "🚨" : "🗳️";
+          const riscoBadge = s.nivel_risco === "CRITICO" ? "🚨" : (s.nivel_risco === "ALERTA" ? "⚠️" : "🗳️");
+          const resumoTxt = s.alerta_resumo ? ` | ${s.alerta_resumo}` : (s.nivel_risco === "BAIXO" ? " | 100% Íntegra" : "");
+          const tooltip = `Seção ${s.secao} | Zona ${s.zona} | ${s.municipio_nome} | UE #${s.serial_ue}${resumoTxt}`;
           return `<button onclick="selecionarNoArvoreTse('${s.regiao || rSel}','${s.uf || uSel}','${s.municipio_codigo || cSel}','${s.zona || zSel}','${s.prefixo}')" class="w-full text-left px-2.5 py-1.5 rounded-lg transition flex items-center justify-between ${
             active ? "bg-emerald-500 text-slate-950 font-extrabold" : "bg-slate-900 hover:bg-slate-800 text-slate-200"
-          }" title="Seção ${s.secao} | Zona ${s.zona} | ${s.municipio_nome} | UE #${s.serial_ue}">
+          }" title="${tooltip}">
             <span class="truncate">${riscoBadge} S:${s.secao} <span class="opacity-60">(Z:${s.zona})</span></span>
             <span class="text-[10px] opacity-80 ml-1 shrink-0">${s.votos}v</span>
           </button>`;
@@ -7124,6 +7132,10 @@ o Boletim de Urna (apos encerramento da votacao).
           compBox.classList.add("hidden");
         }
       }
+
+      // Oculta caixa de anomalias individuais no modo consolidado
+      const anomBoxCons = document.getElementById("tseAnomaliasAlertasBox");
+      if (anomBoxCons) anomBoxCons.classList.add("hidden");
 
       // Restaura rótulos dos 6 cartões superiores adaptados para o modo
       const fBarCons = document.getElementById("tseFiltroForenseBar");
@@ -7769,14 +7781,110 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }
 
       const verBox = document.getElementById("tseVereditoBox");
-      if (data.nivel_risco === "BAIXO") {
-        verBox.className = "p-4 rounded-xl border-2 bg-emerald-950/90 border-emerald-500 text-emerald-100 text-xs";
-        verBox.innerHTML = `<div class="font-extrabold text-sm text-emerald-300 uppercase">✅ ${data.veredito_geral}</div>
-          <div class="mt-1 mono">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos processados: <strong>${(data.arquivos_recebidos || []).join(", ")}</strong></div>`;
+      const anomBox = document.getElementById("tseAnomaliasAlertasBox");
+      const anoms = data.anomalias_forenses || [];
+
+      if (data.nivel_risco === "CRITICO") {
+        verBox.className = "p-4 rounded-xl border-2 bg-rose-950/90 border-rose-500 text-rose-100 text-xs shadow-lg";
+        verBox.innerHTML = `
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="font-extrabold text-sm text-rose-300 uppercase tracking-wide flex items-center gap-2">
+              <span>🚨</span>
+              <span>${data.veredito_geral}</span>
+            </div>
+            <span class="px-2.5 py-0.5 rounded-full bg-rose-900/80 text-rose-200 border border-rose-600 font-extrabold text-[10px] uppercase">Risco Crítico</span>
+          </div>
+          <div class="mt-1 mono text-rose-200/90">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos processados: <strong>${(data.arquivos_recebidos || []).join(", ")}</strong></div>
+        `;
+      } else if (data.nivel_risco === "ALERTA") {
+        verBox.className = "p-4 rounded-xl border-2 bg-amber-950/90 border-amber-500 text-amber-100 text-xs shadow-lg";
+        verBox.innerHTML = `
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="font-extrabold text-sm text-amber-300 uppercase tracking-wide flex items-center gap-2">
+              <span>⚠️</span>
+              <span>${data.veredito_geral}</span>
+            </div>
+            <span class="px-2.5 py-0.5 rounded-full bg-amber-900/80 text-amber-200 border border-amber-600 font-extrabold text-[10px] uppercase">Alerta Estatístico (BI)</span>
+          </div>
+          <div class="mt-1 mono text-amber-200/90">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos oficiais 100% íntegros (${(data.arquivos_recebidos || []).join(", ")}) com anomalia estatística sinalizada pela inteligência forense.</div>
+        `;
       } else {
-        verBox.className = "p-4 rounded-xl border-2 bg-rose-950/90 border-rose-500 text-rose-100 text-xs";
-        verBox.innerHTML = `<div class="font-extrabold text-sm text-rose-300 uppercase">🚨 ${data.veredito_geral}</div>
-          <div class="mt-1 mono">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos: <strong>${(data.arquivos_recebidos || []).join(", ")}</strong></div>`;
+        verBox.className = "p-4 rounded-xl border-2 bg-emerald-950/90 border-emerald-500 text-emerald-100 text-xs shadow-lg";
+        verBox.innerHTML = `
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="font-extrabold text-sm text-emerald-300 uppercase tracking-wide flex items-center gap-2">
+              <span>✅</span>
+              <span>${data.veredito_geral}</span>
+            </div>
+            <span class="px-2.5 py-0.5 rounded-full bg-emerald-900/80 text-emerald-200 border border-emerald-600 font-extrabold text-[10px] uppercase">100% Validada</span>
+          </div>
+          <div class="mt-1 mono text-emerald-200/90">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos processados: <strong>${(data.arquivos_recebidos || []).join(", ")}</strong></div>
+        `;
+      }
+
+      if (anomBox) {
+        anomBox.classList.remove("hidden");
+        if (anoms.length > 0) {
+          const itensHtml = anoms.map(a => {
+            let bgClass = "bg-slate-900/90 border-slate-700 text-slate-200";
+            let badgeHtml = "";
+            if (a.severidade === "CRITICA") {
+              bgClass = "bg-rose-950/40 border-rose-500/60 text-rose-100";
+              badgeHtml = `<span class="px-2 py-0.5 rounded bg-rose-900 text-rose-300 border border-rose-700 font-black text-[10px] uppercase">🚨 Divergência Crítica</span>`;
+            } else if (a.severidade === "ALERTA") {
+              bgClass = "bg-amber-950/40 border-amber-500/60 text-amber-100";
+              badgeHtml = `<span class="px-2 py-0.5 rounded bg-amber-900 text-amber-300 border border-amber-700 font-black text-[10px] uppercase">⚠️ Alerta Estatístico (BI)</span>`;
+            } else {
+              bgClass = "bg-cyan-950/40 border-cyan-500/60 text-cyan-100";
+              badgeHtml = `<span class="px-2 py-0.5 rounded bg-cyan-900 text-cyan-300 border border-cyan-700 font-black text-[10px] uppercase">ℹ️ Padrão Notável</span>`;
+            }
+            return `
+              <div class="border rounded-xl p-3.5 space-y-1.5 transition ${bgClass}">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                  <div class="font-extrabold text-xs text-white flex items-center gap-2">
+                    <span>${a.titulo || a.codigo}</span>
+                  </div>
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-[10px] mono text-slate-400 uppercase font-semibold">[${a.tipo || 'FORENSE'}]</span>
+                    ${badgeHtml}
+                  </div>
+                </div>
+                <div class="text-xs leading-relaxed opacity-90">${a.descricao}</div>
+              </div>
+            `;
+          }).join("");
+
+          anomBox.innerHTML = `
+            <div class="rounded-xl border border-slate-800 bg-slate-950/90 p-4 space-y-3 shadow-xl">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <div class="flex items-center gap-2">
+                  <span class="text-xl">📊</span>
+                  <div>
+                    <h4 class="text-xs font-black uppercase tracking-wider text-white">Auditoria de Alertas & Indicadores Forenses de BI Eleitoral</h4>
+                    <p class="text-[11px] text-slate-400">Detecção heurística de padrões atípicos, concentração de novos votos e batimentos documentais.</p>
+                  </div>
+                </div>
+                <span class="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[10px] font-black mono uppercase">
+                  ${anoms.length} ${anoms.length === 1 ? 'Indicador Detectado' : 'Indicadores Detectados'}
+                </span>
+              </div>
+              <div class="space-y-2 pt-1">${itensHtml}</div>
+            </div>
+          `;
+        } else {
+          anomBox.innerHTML = `
+            <div class="rounded-xl border border-emerald-500/30 bg-emerald-950/20 p-3.5 flex items-center justify-between gap-3 text-xs">
+              <div class="flex items-center gap-2.5">
+                <span class="text-xl">🛡️</span>
+                <div class="text-emerald-200">
+                  <strong class="text-emerald-300">Auditoria Forense Concluída:</strong> Nenhum alerta estatístico atípico e nenhuma divergência documental detectada nesta urna.
+                  <div class="text-[11px] text-emerald-400/80 mt-0.5">Todos os batimentos entre Boletim de Urna (BU), Registro Digital do Voto (RDV ASN.1) e Mídia Interna (logd.dat) conferem com 100% de rigor.</div>
+                </div>
+              </div>
+              <span class="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[10px] font-black mono whitespace-nowrap">100% Normal</span>
+            </div>
+          `;
+        }
       }
 
       const bu = data.imgbu || {};

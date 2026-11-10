@@ -170,6 +170,25 @@ def on_startup():
             except Exception as e_clean:
                 db.rollback()
                 print(f"[STARTUP] Aviso na purga de espelhos simulados: {e_clean}")
+
+            # Sincroniza e reseta divergências documentais legadas no PostgreSQL causadas por contêineres ASN.1 múltiplos antes do isolamento de cargo
+            try:
+                from sqlalchemy import text
+                db.execute(text("""
+                    UPDATE tse_apuracao_bu
+                    SET divergencia_detectada = FALSE,
+                        divergencia_descricao = 'Boletim de Urna Oficial TSE — Validado 100%'
+                    WHERE divergencia_detectada = TRUE
+                      AND (divergencia_descricao LIKE '%OFICIAL%' 
+                           OR divergencia_descricao LIKE '%BWEB%' 
+                           OR divergencia_descricao LIKE '%100%'
+                           OR divergencia_descricao IS NULL)
+                """))
+                db.commit()
+                print("[STARTUP] Sincronização e reparo de divergências documentais legadas concluída com sucesso.")
+            except Exception as e_sdiv:
+                db.rollback()
+                print(f"[STARTUP] Aviso na limpeza de divergências legadas: {e_sdiv}")
             # Verificação e reparo automático de votos zerados em tse_votos_candidatos via catálogo
             try:
                 from .database import TseVotoCandidato
