@@ -4082,8 +4082,8 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         except Exception:
                             db.rollback()
 
-                    # 5.2 Anomalia Estatística: Concentração Atípica de Novos Votos (Migração / Captação)
-                    if len(finalistas_nums) == 2 and total_novos_sec >= 10:
+                    # 5.2 Anomalia Estatística: Concentração Atípica de Novos Votos (Discrepância >= 70%)
+                    if len(finalistas_nums) == 2 and (total_novos_sec >= 5 or (dv1 + dv2) >= 5):
                         n1, n2 = finalistas_nums[0], finalistas_nums[1]
                         inf1 = mapa_novos_sec.get(str(n1), {})
                         inf2 = mapa_novos_sec.get(str(n2), {})
@@ -4097,18 +4097,18 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         nm1 = cand_1_obj["nome"] if cand_1_obj else f"Candidato {n1}"
                         nm2 = cand_2_obj["nome"] if cand_2_obj else f"Candidato {n2}"
 
-                        limiar_concentracao = 85.0
+                        limiar_concentracao = 70.0
                         if pct1 >= limiar_concentracao:
                             anomalias_forenses.append({
                                 "severidade": "ALERTA",
                                 "tipo": "ESTATISTICA",
                                 "codigo": "CONCENTRACAO_ATIPICA_NOVOS_VOTOS",
-                                "titulo": f"Concentração Atípica de Novos Votos: {pct1}% ({nm1})",
+                                "titulo": f"Discrepância na Absorção de Novos Votos: {pct1}% ({nm1})",
                                 "descricao": (
                                     f"No 2º Turno, o candidato {nm1} absorveu {dv1} dos {total_novos_sec} novos votos apurados ({pct1}%), "
                                     f"enquanto {nm2} capturou apenas {dv2} ({pct2}%). Novos votos englobam a migração de terceiros candidatos "
                                     f"do 1º Turno ({votos_outros_1t} votos), variação líquida de comparecimento ({delta_comp_sec:+d} eleitores) "
-                                    f"e saldo de brancos/nulos ({-delta_bn_sec:+d} votos). A taxa de captação superou o limiar estatístico de {limiar_concentracao}%."
+                                    f"e saldo de brancos/nulos ({-delta_bn_sec:+d} votos). A captação atingiu {pct1}%, superando a margem de discrepância (>= 70%)."
                                 ),
                             })
                         elif pct2 >= limiar_concentracao:
@@ -4116,12 +4116,24 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                                 "severidade": "ALERTA",
                                 "tipo": "ESTATISTICA",
                                 "codigo": "CONCENTRACAO_ATIPICA_NOVOS_VOTOS",
-                                "titulo": f"Concentração Atípica de Novos Votos: {pct2}% ({nm2})",
+                                "titulo": f"Discrepância na Absorção de Novos Votos: {pct2}% ({nm2})",
                                 "descricao": (
                                     f"No 2º Turno, o candidato {nm2} absorveu {dv2} dos {total_novos_sec} novos votos apurados ({pct2}%), "
                                     f"enquanto {nm1} capturou apenas {dv1} ({pct1}%). Novos votos englobam a migração de terceiros candidatos "
                                     f"do 1º Turno ({votos_outros_1t} votos), variação líquida de comparecimento ({delta_comp_sec:+d} eleitores) "
-                                    f"e saldo de brancos/nulos ({-delta_bn_sec:+d} votos). A taxa de captação superou o limiar estatístico de {limiar_concentracao}%."
+                                    f"e saldo de brancos/nulos ({-delta_bn_sec:+d} votos). A captação atingiu {pct2}%, superando a margem de discrepância (>= 70%)."
+                                ),
+                            })
+                        elif dv1 > 0 and dv2 > 0 and (abs(pct1 - pct2) <= 10.0 or abs(dv1 - dv2) <= 3):
+                            anomalias_forenses.append({
+                                "severidade": "INFO",
+                                "tipo": "ESTATISTICA",
+                                "codigo": "EMPATE_TECNICO_NOVOS_VOTOS",
+                                "titulo": f"Empate Técnico na Absorção de Novos Votos ({pct1}% × {pct2}%)",
+                                "descricao": (
+                                    f"No 2º Turno, a migração e absorção de novos votos deu-se de forma estritamente equilibrada "
+                                    f"entre os candidatos finalistas: {nm1} ({dv1} votos / {pct1}%) × {nm2} ({dv2} votos / {pct2}%), "
+                                    f"permanecendo dentro da margem de empate técnico (±5% de diferença)."
                                 ),
                             })
 
@@ -6857,10 +6869,83 @@ def _executar_complementacao_worker():
 def _secao_atende_filtro_forense(s: dict, filtro_forense: str) -> bool:
     if not filtro_forense or filtro_forense == "TODAS":
         return True
-    if filtro_forense == "APENAS_DIVERGENTES":
-        if s.get("nivel_risco") != "BAIXO":
+
+    # Extração de votos nominais de 2º e 1º turno
+    cands_2t = {str(c.get("numero")): int(c.get("votos_bu") or c.get("votos") or 0) for c in s.get("candidatos", [])}
+    cands_1t = {str(c.get("numero")): int(c.get("votos_bu") or c.get("votos") or 0) for c in s.get("candidatos_1_turno", [])}
+
+    v_flavio_2t = cands_2t.get("22", 0)
+    v_lula_2t = cands_2t.get("13", 0)
+    v_flavio_1t = cands_1t.get("22", 0)
+    v_lula_1t = cands_1t.get("13", 0)
+
+    # 1. Vitória do Flávio (22) no 2º Turno
+    if filtro_forense == "VITORIA_FLAVIO":
+        return v_flavio_2t > v_lula_2t and v_flavio_2t > 0
+
+    # 2. Vitória do Lula (13) no 2º Turno
+    if filtro_forense == "VITORIA_LULA":
+        return v_lula_2t > v_flavio_2t and v_lula_2t > 0
+
+    # 3. Empate no 2º Turno (48 a 48)
+    if filtro_forense == "EMPATE_2T":
+        return v_flavio_2t == v_lula_2t and v_flavio_2t > 0
+
+    # Variações e Novos Votos
+    dv_f = v_flavio_2t - v_flavio_1t
+    dv_l = v_lula_2t - v_lula_1t
+
+    pct_f = 0.0
+    pct_l = 0.0
+    if dv_f <= 0 and dv_l <= 0:
+        pct_f, pct_l = 0.0, 0.0
+    elif dv_f <= 0 and dv_l > 0:
+        pct_f, pct_l = 0.0, 100.0
+    elif dv_l <= 0 and dv_f > 0:
+        pct_f, pct_l = 100.0, 0.0
+    else:
+        tot_nv = dv_f + dv_l
+        pct_f = round((dv_f / tot_nv) * 100.0, 1)
+        pct_l = round((dv_l / tot_nv) * 100.0, 1)
+
+    # 4. Empate Técnico nos Novos Votos (±5% de diferença / 45% a 55%)
+    if filtro_forense == "NOVOS_EMPATE_TECNICO":
+        if dv_f > 0 and dv_l > 0:
+            return abs(pct_f - pct_l) <= 10.0 or abs(dv_f - dv_l) <= 3
+        return False
+
+    # 5. Discrepância nos Novos Votos (>= 70% para um candidato)
+    if filtro_forense == "NOVOS_DISCREPANCIA":
+        if (dv_f + dv_l) >= 5 or max(dv_f, dv_l) >= 5:
+            return pct_f >= 70.0 or pct_l >= 70.0
+        return False
+
+    if filtro_forense == "NOVOS_DISCREP_FLAVIO":
+        if (dv_f + dv_l) >= 5 or dv_f >= 5:
+            return pct_f >= 70.0
+        return False
+
+    if filtro_forense == "NOVOS_DISCREP_LULA":
+        if (dv_f + dv_l) >= 5 or dv_l >= 5:
+            return pct_l >= 70.0
+        return False
+
+    # 6. Todos os Alertas Forenses & BI
+    if filtro_forense == "ALERTAS_TODOS":
+        if s.get("nivel_risco") in ("CRITICO", "ALERTA"):
+            return True
+        if v_flavio_2t == v_lula_2t and v_flavio_2t > 0:
+            return True
+        if (dv_f + dv_l) >= 5 and (pct_f >= 70.0 or pct_l >= 70.0):
             return True
         return any(c.get("votos_bu", 0) != c.get("votos_rdv", 0) for c in s.get("candidatos", []))
+
+    # 7. Apenas Divergentes Documentais
+    if filtro_forense == "APENAS_DIVERGENTES":
+        if s.get("nivel_risco") == "CRITICO":
+            return True
+        return any(c.get("votos_bu", 0) != c.get("votos_rdv", 0) for c in s.get("candidatos", []))
+
     if filtro_forense.startswith("CAND:"):
         num_alvo = filtro_forense.split(":", 1)[1].strip()
         return any(
@@ -7001,9 +7086,207 @@ def _consolidar_secoes_tse_sql(
         except Exception:
             pass
 
+    filtro_geo = list(filtro_secao)
+
+    # 1.1 Contagens Forenses e Estatísticas no Escopo Geográfico Selecionado
+    filtros_contagens = {
+        "total_urnas": 0,
+        "vitoria_flavio": 0,
+        "vitoria_lula": 0,
+        "empate_2t": 0,
+        "novos_empate_tecnico": 0,
+        "novos_discrepancia": 0,
+        "novos_discrep_flavio": 0,
+        "novos_discrep_lula": 0,
+        "divergentes": 0,
+    }
+    try:
+        filtros_contagens["total_urnas"] = db.query(func.count(TseSecao.id)).filter(*filtro_geo).scalar() or 0
+        q_div_count = db.query(func.count(func.distinct(TseSecao.id))).select_from(TseSecao).join(
+            TseApuracaoBU, TseApuracaoBU.secao_id == TseSecao.id
+        ).filter(*filtro_geo, TseApuracaoBU.divergencia_detectada == True)
+        filtros_contagens["divergentes"] = int(q_div_count.scalar() or 0)
+    except Exception as exc_dc:
+        print(f"[TSE-COUNTS] Aviso contagem divergentes: {exc_dc}")
+
+    try:
+        sq_cand_counts = (
+            db.query(
+                TseVotoCandidato.secao_id.label("sec_id"),
+                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_2t"),
+                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_2t"),
+                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_1t"),
+                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_1t"),
+            )
+            .select_from(TseSecao)
+            .join(TseVotoCandidato, TseVotoCandidato.secao_id == TseSecao.id)
+            .filter(*filtro_geo, or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None))
+            .group_by(TseVotoCandidato.secao_id)
+            .subquery()
+        )
+        dv_f_c = sq_cand_counts.c.v22_2t - sq_cand_counts.c.v22_1t
+        dv_l_c = sq_cand_counts.c.v13_2t - sq_cand_counts.c.v13_1t
+        tot_nv_c = dv_f_c + dv_l_c
+
+        c_row = db.query(
+            func.count(case(((sq_cand_counts.c.v22_2t > sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0), 1), else_=None)).label("vit_f"),
+            func.count(case(((sq_cand_counts.c.v13_2t > sq_cand_counts.c.v22_2t) & (sq_cand_counts.c.v13_2t > 0), 1), else_=None)).label("vit_l"),
+            func.count(case(((sq_cand_counts.c.v22_2t == sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0), 1), else_=None)).label("emp_2t"),
+            func.count(case((
+                (dv_f_c > 0) & (dv_l_c > 0) & (
+                    (func.abs(dv_f_c - dv_l_c) <= 3) |
+                    ((func.abs(dv_f_c - dv_l_c) * 10) <= tot_nv_c)
+                ), 1
+            ), else_=None)).label("nv_emp"),
+            func.count(case((
+                or_(
+                    (dv_f_c >= 5) & (dv_l_c <= 0),
+                    (dv_l_c >= 5) & (dv_f_c <= 0),
+                    (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_f_c * 3) >= (dv_l_c * 7)),
+                    (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_l_c * 3) >= (dv_f_c * 7))
+                ), 1
+            ), else_=None)).label("nv_disc"),
+            func.count(case((
+                or_(
+                    (dv_f_c >= 5) & (dv_l_c <= 0),
+                    (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_f_c * 3) >= (dv_l_c * 7))
+                ), 1
+            ), else_=None)).label("nv_disc_f"),
+            func.count(case((
+                or_(
+                    (dv_l_c >= 5) & (dv_f_c <= 0),
+                    (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_l_c * 3) >= (dv_f_c * 7))
+                ), 1
+            ), else_=None)).label("nv_disc_l"),
+        ).first()
+        if c_row:
+            filtros_contagens["vitoria_flavio"] = int(c_row.vit_f or 0)
+            filtros_contagens["vitoria_lula"] = int(c_row.vit_l or 0)
+            filtros_contagens["empate_2t"] = int(c_row.emp_2t or 0)
+            filtros_contagens["novos_empate_tecnico"] = int(c_row.nv_emp or 0)
+            filtros_contagens["novos_discrepancia"] = int(c_row.nv_disc or 0)
+            filtros_contagens["novos_discrep_flavio"] = int(c_row.nv_disc_f or 0)
+            filtros_contagens["novos_discrep_lula"] = int(c_row.nv_disc_l or 0)
+    except Exception as exc_cand_c:
+        print(f"[TSE-COUNTS] Aviso contagem candidatos: {exc_cand_c}")
+
+    # 1.2 Aplicação Relacional do Filtro Forense Solicitado
+    filtro_forense_clauses = []
     if filtro_forense == "APENAS_DIVERGENTES":
         subq_div = db.query(TseApuracaoBU.secao_id).filter(TseApuracaoBU.divergencia_detectada == True)
-        filtro_secao.append(TseSecao.id.in_(subq_div))
+        filtro_forense_clauses.append(TseSecao.id.in_(subq_div))
+    elif filtro_forense == "VITORIA_FLAVIO":
+        subq_vf = (
+            db.query(TseVotoCandidato.secao_id)
+            .filter(
+                or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None),
+                TseVotoCandidato.turno == 2
+            )
+            .group_by(TseVotoCandidato.secao_id)
+            .having(
+                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0) >
+                 func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0)) &
+                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0) > 0)
+            )
+        )
+        filtro_forense_clauses.append(TseSecao.id.in_(subq_vf))
+    elif filtro_forense == "VITORIA_LULA":
+        subq_vl = (
+            db.query(TseVotoCandidato.secao_id)
+            .filter(
+                or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None),
+                TseVotoCandidato.turno == 2
+            )
+            .group_by(TseVotoCandidato.secao_id)
+            .having(
+                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0) >
+                 func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0)) &
+                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0) > 0)
+            )
+        )
+        filtro_forense_clauses.append(TseSecao.id.in_(subq_vl))
+    elif filtro_forense == "EMPATE_2T":
+        subq_emp = (
+            db.query(TseVotoCandidato.secao_id)
+            .filter(
+                or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None),
+                TseVotoCandidato.turno == 2
+            )
+            .group_by(TseVotoCandidato.secao_id)
+            .having(
+                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0) ==
+                 func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0)) &
+                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0) > 0)
+            )
+        )
+        filtro_forense_clauses.append(TseSecao.id.in_(subq_emp))
+    elif filtro_forense in ("NOVOS_EMPATE_TECNICO", "NOVOS_DISCREPANCIA", "NOVOS_DISCREP_FLAVIO", "NOVOS_DISCREP_LULA", "ALERTAS_TODOS"):
+        sq_cand = (
+            db.query(
+                TseVotoCandidato.secao_id.label("sec_id"),
+                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_2t"),
+                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_2t"),
+                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_1t"),
+                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_1t"),
+            )
+            .filter(or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None))
+            .group_by(TseVotoCandidato.secao_id)
+            .subquery()
+        )
+        dv_f = sq_cand.c.v22_2t - sq_cand.c.v22_1t
+        dv_l = sq_cand.c.v13_2t - sq_cand.c.v13_1t
+        tot_nv = dv_f + dv_l
+
+        if filtro_forense == "NOVOS_EMPATE_TECNICO":
+            cond_empate = (
+                (dv_f > 0) & (dv_l > 0) & (
+                    (func.abs(dv_f - dv_l) <= 3) |
+                    ((func.abs(dv_f - dv_l) * 10) <= tot_nv)
+                )
+            )
+            subq_nv = db.query(sq_cand.c.sec_id).filter(cond_empate)
+            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
+
+        elif filtro_forense == "NOVOS_DISCREPANCIA":
+            cond_disc_f = or_(
+                (dv_f >= 5) & (dv_l <= 0),
+                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7))
+            )
+            cond_disc_l = or_(
+                (dv_l >= 5) & (dv_f <= 0),
+                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_l * 7))
+            )
+            subq_nv = db.query(sq_cand.c.sec_id).filter(or_(cond_disc_f, cond_disc_l))
+            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
+
+        elif filtro_forense == "NOVOS_DISCREP_FLAVIO":
+            cond_disc_f = or_(
+                (dv_f >= 5) & (dv_l <= 0),
+                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7))
+            )
+            subq_nv = db.query(sq_cand.c.sec_id).filter(cond_disc_f)
+            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
+
+        elif filtro_forense == "NOVOS_DISCREP_LULA":
+            cond_disc_l = or_(
+                (dv_l >= 5) & (dv_f <= 0),
+                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7))
+            )
+            subq_nv = db.query(sq_cand.c.sec_id).filter(cond_disc_l)
+            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
+
+        elif filtro_forense == "ALERTAS_TODOS":
+            cond_disc_qualquer = or_(
+                (dv_f >= 5) & (dv_l <= 0),
+                (dv_l >= 5) & (dv_f <= 0),
+                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7)),
+                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7))
+            )
+            cond_empate_2t = (sq_cand.c.v22_2t == sq_cand.c.v13_2t) & (sq_cand.c.v22_2t > 0)
+            subq_alertas_cand = db.query(sq_cand.c.sec_id).filter(or_(cond_disc_qualquer, cond_empate_2t))
+            subq_div = db.query(TseApuracaoBU.secao_id).filter(TseApuracaoBU.divergencia_detectada == True)
+            filtro_forense_clauses.append(or_(TseSecao.id.in_(subq_alertas_cand), TseSecao.id.in_(subq_div)))
+
     elif filtro_forense.startswith("CAND:"):
         try:
             num_cand = int(filtro_forense.split(":", 1)[1].strip())
@@ -7011,9 +7294,21 @@ def _consolidar_secoes_tse_sql(
                 TseVotoCandidato.numero_candidato == num_cand,
                 TseVotoCandidato.quantidade_votos > 0
             )
-            filtro_secao.append(TseSecao.id.in_(subq_cand))
+            filtro_forense_clauses.append(TseSecao.id.in_(subq_cand))
         except Exception:
             pass
+    elif filtro_forense.startswith("DIV_CAND:"):
+        try:
+            num_cand = int(filtro_forense.split(":", 1)[1].strip())
+            subq_div_cand = db.query(TseVotoCandidato.secao_id).filter(
+                TseVotoCandidato.numero_candidato == num_cand,
+                TseVotoCandidato.votos_bu != TseVotoCandidato.votos_rdv
+            )
+            filtro_forense_clauses.append(TseSecao.id.in_(subq_div_cand))
+        except Exception:
+            pass
+
+    filtro_secao.extend(filtro_forense_clauses)
 
     # 2. Regiões (Nível 1)
     q_reg = (
@@ -7094,6 +7389,8 @@ def _consolidar_secoes_tse_sql(
         q_cid = q_cid.filter(TseSecao.uf == uf_filtro)
     elif regiao_filtro != "TODAS":
         q_cid = q_cid.filter(TseSecao.regiao == regiao_filtro.upper())
+    if filtro_forense_clauses:
+        q_cid = q_cid.filter(*filtro_forense_clauses)
     rows_cid = q_cid.group_by(
         TseSecao.municipio_codigo, TseSecao.municipio_nome, TseSecao.uf, TseSecao.regiao
     ).order_by(TseSecao.municipio_nome).all()
@@ -7129,6 +7426,8 @@ def _consolidar_secoes_tse_sql(
         q_zon = q_zon.filter(TseSecao.regiao == regiao_filtro.upper())
     if municipio_filtro != "TODAS":
         q_zon = q_zon.filter(TseSecao.municipio_codigo == municipio_filtro)
+    if filtro_forense_clauses:
+        q_zon = q_zon.filter(*filtro_forense_clauses)
     rows_zon = q_zon.group_by(TseSecao.zona).order_by(TseSecao.zona).all()
     lista_zonas = [
         {
@@ -7225,8 +7524,12 @@ def _consolidar_secoes_tse_sql(
         if v_lula_2t > 0 and v_flavio_2t > 0 and v_lula_2t == v_flavio_2t:
             alertas_resumo.append(f"Empate 2ºT ({v_lula_2t}x{v_flavio_2t})")
             is_alerta_estatistico = True
+        elif v_flavio_2t > v_lula_2t and v_flavio_2t > 0:
+            alertas_resumo.append(f"Vitória Flávio ({v_flavio_2t}x{v_lula_2t})")
+        elif v_lula_2t > v_flavio_2t and v_lula_2t > 0:
+            alertas_resumo.append(f"Vitória Lula ({v_lula_2t}x{v_flavio_2t})")
 
-        # Verifica Concentração Atípica de Novos Votos (>= 85%)
+        # Verifica Concentração Atípica de Novos Votos (>= 70%) ou Empate Técnico (±5%)
         if cands_2t and cands_1t:
             v_outros_1t = sum(v for num, v in cands_1t.items() if num not in ("13", "22"))
             comp1 = int(r.comp_1t or 0)
@@ -7238,7 +7541,7 @@ def _consolidar_secoes_tse_sql(
             dv_lula = v_lula_2t - v_lula_1t
             dv_flavio = v_flavio_2t - v_flavio_1t
 
-            if tot_novos >= 10:
+            if tot_novos >= 5 or (dv_lula + dv_flavio) >= 5 or max(dv_lula, dv_flavio) >= 5:
                 if dv_lula > 0 and dv_flavio <= 0:
                     alertas_resumo.append("100% Novos Votos (Lula)")
                     is_alerta_estatistico = True
@@ -7249,12 +7552,14 @@ def _consolidar_secoes_tse_sql(
                     base_div = tot_novos if tot_novos > 0 else (dv_lula + dv_flavio)
                     pct_l = round((dv_lula / base_div) * 100.0, 1)
                     pct_f = round((dv_flavio / base_div) * 100.0, 1)
-                    if pct_l >= 85.0:
-                        alertas_resumo.append(f"Absorção {pct_l}% Novos Votos (Lula)")
+                    if pct_l >= 70.0:
+                        alertas_resumo.append(f"Discrepância {pct_l}% Novos Votos (Lula)")
                         is_alerta_estatistico = True
-                    elif pct_f >= 85.0:
-                        alertas_resumo.append(f"Absorção {pct_f}% Novos Votos (Flávio)")
+                    elif pct_f >= 70.0:
+                        alertas_resumo.append(f"Discrepância {pct_f}% Novos Votos (Flávio)")
                         is_alerta_estatistico = True
+                    elif abs(pct_l - pct_f) <= 10.0 or abs(dv_lula - dv_flavio) <= 3:
+                        alertas_resumo.append(f"Empate Técnico Novos Votos ({pct_f}% x {pct_l}%)")
 
         desc_div2 = str(r.desc_div2 or "")
         desc_div1 = str(r.desc_div1 or "")
@@ -7299,6 +7604,7 @@ def _consolidar_secoes_tse_sql(
         "total_geral_urnas": total_geral_urnas,
         "total_secoes_no_filtro": total_secoes_no_filtro,
         "filtro_forense_selecionado": filtro_forense or "TODAS",
+        "filtros_contagens": filtros_contagens,
         "regiao_selecionada": regiao_filtro,
         "uf_selecionada": uf_filtro,
         "municipio_selecionado": municipio_filtro,
@@ -8045,6 +8351,7 @@ def _consolidar_secoes_tse_sql(
             "batimentos_cruzados": batimentos_consolidados,
             "votos_por_hora": dict(sorted(vph_t1_global.items())) if turno_filtro == "1" else dict(sorted(vph_t2_global.items())),
             "comparativo_turnos": comparativo_turnos_global,
+            "filtros_contagens": filtros_contagens,
             "lista_urnas": lista_urnas,
         },
     }

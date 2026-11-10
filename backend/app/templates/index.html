@@ -1357,6 +1357,17 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
 
+        <!-- Barra Superior de Filtros Forenses & Anomalias BI (Novos Votos / Vitórias / Empates / Divergências) -->
+        <div id="tseTreeFiltrosForensesContainer" class="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs mono flex flex-wrap items-center justify-between gap-2 shadow-inner">
+          <div class="flex items-center gap-2 shrink-0">
+            <span class="text-xs font-black text-cyan-400 uppercase tracking-wide flex items-center gap-1.5">
+              <span>🎯</span>
+              <span>Filtros Forenses & BI:</span>
+            </span>
+          </div>
+          <div id="tseTreeFiltrosForensesButtons" class="flex flex-wrap items-center gap-1.5"></div>
+        </div>
+
         <!-- 5 Colunas da Árvore (Região > Estado > Cidade > Zona > Seção) cada uma com Busca Textual -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
           <!-- Nível 1: Região do País -->
@@ -6081,7 +6092,90 @@ o Boletim de Urna (apos encerramento da votacao).
       atualizarConsolidacaoTse(true);
     }
 
+    function renderizarBotoesFiltrosForenses(hier, cons) {
+      const ffAtivo = window.arvoreTseState.filtro_forense || "TODAS";
+      const fc = hier?.filtros_contagens || cons?.filtros_contagens || {};
+      const totalUrnasEscopo = hier?.total_geral_urnas || cons?.total_secoes || 0;
+      const candsVisao = cons?.placar_candidatos || hier?.candidatos_t2 || [];
+
+      const defs = [
+        {
+          id: "TODAS",
+          label: "📋 Todas as Urnas",
+          count: fc.total_urnas !== undefined ? fc.total_urnas : totalUrnasEscopo,
+          colorActive: "bg-cyan-500 text-slate-950 font-black shadow ring-2 ring-cyan-300",
+          colorInactive: "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
+        },
+        {
+          id: "NOVOS_EMPATE_TECNICO",
+          label: "⚖️ Novos Votos: Empate Técnico (±5%)",
+          count: fc.novos_empate_tecnico,
+          colorActive: "bg-amber-400 text-slate-950 font-black shadow ring-2 ring-amber-300",
+          colorInactive: "bg-slate-800 text-amber-300 hover:bg-slate-700 hover:text-white"
+        },
+        {
+          id: "NOVOS_DISCREPANCIA",
+          label: "⚡ Novos Votos: Discrepância (≥70%)",
+          count: fc.novos_discrepancia,
+          colorActive: "bg-purple-500 text-white font-black shadow ring-2 ring-purple-300",
+          colorInactive: "bg-slate-800 text-purple-300 hover:bg-slate-700 hover:text-white"
+        },
+        {
+          id: "VITORIA_FLAVIO",
+          label: "🟢 Vitória do Flávio (22)",
+          count: fc.vitoria_flavio,
+          colorActive: "bg-emerald-500 text-slate-950 font-black shadow ring-2 ring-emerald-300",
+          colorInactive: "bg-slate-800 text-emerald-300 hover:bg-slate-700 hover:text-white"
+        },
+        {
+          id: "VITORIA_LULA",
+          label: "🔴 Vitória do Lula (13)",
+          count: fc.vitoria_lula,
+          colorActive: "bg-rose-600 text-white font-black shadow ring-2 ring-rose-400",
+          colorInactive: "bg-slate-800 text-rose-300 hover:bg-slate-700 hover:text-white"
+        },
+        {
+          id: "EMPATE_2T",
+          label: "🤝 Empate 2º Turno (48×48)",
+          count: fc.empate_2t,
+          colorActive: "bg-indigo-500 text-white font-black shadow ring-2 ring-indigo-300",
+          colorInactive: "bg-slate-800 text-indigo-300 hover:bg-slate-700 hover:text-white"
+        },
+        {
+          id: "APENAS_DIVERGENTES",
+          label: "🚨 Divergência Documental",
+          count: fc.divergentes !== undefined ? fc.divergentes : (cons?.urnas_com_alerta || 0),
+          colorActive: "bg-red-600 text-white font-black shadow ring-2 ring-red-400",
+          colorInactive: "bg-slate-800 text-red-300 hover:bg-slate-700 hover:text-white"
+        }
+      ];
+
+      let pillsHtml = defs.map(d => {
+        const active = ffAtivo === d.id;
+        const countBadge = d.count !== undefined && d.count !== null ? ` <span class="opacity-80 font-normal">(${d.count.toLocaleString("pt-BR")})</span>` : "";
+        return `<button onclick="aplicarFiltroForenseTse('${d.id}')" class="px-2.5 py-1 rounded-lg text-[11px] transition shrink-0 ${active ? d.colorActive : d.colorInactive}">${d.label}${countBadge}</button>`;
+      }).join("");
+
+      // Rastreamento adicional de divergências específicas por candidato
+      (candsVisao || []).forEach(c => {
+        if (c.urnas_divergentes > 0) {
+          const keyDiv = `DIV_CAND:${c.numero}`;
+          const active = ffAtivo === keyDiv;
+          pillsHtml += `<button onclick="aplicarFiltroForenseTse('${keyDiv}')" class="px-2.5 py-1 rounded-lg text-[11px] transition shrink-0 ${
+            active ? "bg-amber-500 text-slate-950 font-black shadow ring-2 ring-amber-300" : "bg-slate-800 text-amber-300 hover:bg-slate-700 hover:text-white"
+          }">🕵️ Divergência Nº ${c.numero} (${c.urnas_divergentes}u)</button>`;
+        }
+      });
+
+      const elPlacar = document.getElementById("tseFiltroForenseButtons");
+      if (elPlacar) elPlacar.innerHTML = pillsHtml;
+      const elTree = document.getElementById("tseTreeFiltrosForensesButtons");
+      if (elTree) elTree.innerHTML = pillsHtml;
+    }
+
     async function aplicarFiltroForenseTse(novoFiltroForense) {
+      if (window._tseCarregandoArvore) return;
+      window._tseCarregandoArvore = true;
       window.arvoreTseState.filtro_forense = novoFiltroForense || "TODAS";
       window.arvoreTseState.secao = "CONSOLIDADO";
       mostrarSinalizacaoCarregandoArvore(
@@ -6091,7 +6185,12 @@ o Boletim de Urna (apos encerramento da votacao).
         window.arvoreTseState.zona,
         "CONSOLIDADO"
       );
-      await atualizarConsolidacaoTse(true);
+      try {
+        await atualizarConsolidacaoTse(true);
+      } finally {
+        ocultarSinalizacaoCarregandoArvore();
+        window._tseCarregandoArvore = false;
+      }
     }
 
     async function repararVotosZeradosTse() {
@@ -6417,6 +6516,9 @@ o Boletim de Urna (apos encerramento da votacao).
       try {
         if (secao && secao !== "CONSOLIDADO") {
           await garantirLogJezSobDemanda(secao);
+        }
+        if (regiao === "TODAS" && uf === "TODAS" && municipio === "TODAS" && zona === "TODAS" && secao === "CONSOLIDADO") {
+          window.arvoreTseState.filtro_forense = "TODAS";
         }
         window.arvoreTseState.regiao = regiao || "TODAS";
         window.arvoreTseState.uf = uf || "TODAS";
@@ -6750,6 +6852,7 @@ o Boletim de Urna (apos encerramento da votacao).
       const rCont = document.getElementById("tseReversoResultContainer");
       if (rCont) rCont.classList.remove("hidden");
 
+      window.lastPayloadConsolidado = payload;
       popularSeletoresHierarquicosTse(hier);
 
       if (payload.modo_visao === "SECAO_INDIVIDUAL" && payload.secao_individual) {
@@ -6889,6 +6992,7 @@ o Boletim de Urna (apos encerramento da votacao).
       filtrarColunaArvoreTse("cidade");
       filtrarColunaArvoreTse("zona");
       filtrarColunaArvoreTse("secao");
+      renderizarBotoesFiltrosForenses(hier, window.lastPayloadConsolidado?.consolidado || hier);
     }
 
     function renderizarBreadcrumbArvoreTse(hier) {
@@ -7054,7 +7158,7 @@ o Boletim de Urna (apos encerramento da votacao).
           if (!q) return true;
           const statusTxt = s.nivel_risco === "BAIXO"
             ? "integra normal valida"
-            : (s.nivel_risco === "ALERTA" ? "alerta anomalia empate novos votos atipica bi" : "critico divergente erro");
+            : (s.nivel_risco === "ALERTA" ? "alerta anomalia empate novos votos atipica bi discrepancia tecnico vitoria flavio lula" : "critico divergente erro");
           return (
             s.secao.toLowerCase().includes(q) ||
             s.zona.toLowerCase().includes(q) ||
@@ -7266,29 +7370,7 @@ o Boletim de Urna (apos encerramento da votacao).
       document.getElementById("tsePlacarSubLabel").textContent =
         `Aptos: ${aptosVisao.toLocaleString("pt-BR")} • Comparecimento: ${compVisao.toLocaleString("pt-BR")} • Brancos: ${brancosVisao.toLocaleString("pt-BR")} • Nulos: ${nulosVisao.toLocaleString("pt-BR")} • Faltosos: ${faltososVisao.toLocaleString("pt-BR")}`;
 
-      const ffAtivo = window.arvoreTseState.filtro_forense || "TODAS";
-      const ffBarEl = document.getElementById("tseFiltroForenseButtons");
-      if (ffBarEl) {
-        const pills = [
-          `<button onclick="aplicarFiltroForenseTse('TODAS')" class="px-2.5 py-1 rounded-lg font-extrabold text-[11px] transition ${
-            ffAtivo === "TODAS" ? "bg-cyan-500 text-slate-950" : "bg-slate-800 text-slate-300 hover:bg-slate-700"
-          }">📋 Todas as Urnas</button>`,
-          `<button onclick="aplicarFiltroForenseTse('APENAS_DIVERGENTES')" class="px-2.5 py-1 rounded-lg font-extrabold text-[11px] transition ${
-            ffAtivo === "APENAS_DIVERGENTES" ? "bg-rose-500 text-white" : "bg-slate-800 text-rose-300 hover:bg-slate-700"
-          }">🚨 Apenas Urnas c/ Divergência (${cons.urnas_com_alerta || 0})</button>`
-        ];
-        (candsVisao || []).forEach(c => {
-          if (c.urnas_divergentes > 0 || (c.numero !== "13" && c.numero !== "22")) {
-            const keyDiv = `DIV_CAND:${c.numero}`;
-            pills.push(
-              `<button onclick="aplicarFiltroForenseTse('${keyDiv}')" class="px-2.5 py-1 rounded-lg font-extrabold text-[11px] transition ${
-                ffAtivo === keyDiv ? "bg-amber-500 text-slate-950" : "bg-slate-800 text-amber-300 hover:bg-slate-700"
-              }">🕵️ Rastrear Nº ${c.numero} (${c.urnas_divergentes || c.urnas_com_voto || 0}u)</button>`
-            );
-          }
-        });
-        ffBarEl.innerHTML = pills.join("");
-      }
+      renderizarBotoesFiltrosForenses(hier, cons);
 
       const todosZerados = candsVisao.length > 0 &&
         compVisao > 0 &&
