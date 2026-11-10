@@ -1357,15 +1357,34 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
 
-        <!-- Barra Superior de Filtros Forenses & Anomalias BI (Novos Votos / Vitórias / Empates / Divergências) -->
-        <div id="tseTreeFiltrosForensesContainer" class="p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs mono flex flex-wrap items-center justify-between gap-2 shadow-inner">
-          <div class="flex items-center gap-2 shrink-0">
-            <span class="text-xs font-black text-cyan-400 uppercase tracking-wide flex items-center gap-1.5">
+        <!-- Barra Superior de Filtros Forenses & Anomalias BI (Lista Suspensa / Dropdown) -->
+        <div id="tseTreeFiltrosForensesContainer" class="p-3 rounded-xl bg-slate-900/95 border border-cyan-500/30 text-xs mono flex flex-wrap items-center justify-between gap-3 shadow-lg">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="text-xs font-black text-cyan-400 uppercase tracking-wide flex items-center gap-1.5 shrink-0">
               <span>🎯</span>
-              <span>Filtros Forenses & BI:</span>
+              <span>Filtrar Urnas por Desempenho / BI:</span>
             </span>
+            <div class="relative min-w-[340px] max-w-full">
+              <select
+                id="selectFiltroForenseTse"
+                onchange="aplicarFiltroForenseTse(this.value)"
+                class="w-full bg-slate-950 text-cyan-200 border-2 border-cyan-500/50 hover:border-cyan-400 focus:border-cyan-300 focus:ring-2 focus:ring-cyan-500/20 rounded-lg px-3 py-1.5 text-xs font-bold outline-none cursor-pointer transition shadow-inner"
+              >
+                <option value="TODAS">📋 Todas as Urnas</option>
+              </select>
+            </div>
+            <div id="badgeFiltroForenseAtivo" class="hidden items-center gap-2 px-3 py-1 rounded-lg bg-cyan-950/80 border border-cyan-500/40 text-[11px] text-cyan-300 font-bold">
+              <span id="badgeFiltroForenseTexto">Todas as Urnas</span>
+              <button
+                onclick="aplicarFiltroForenseTse('TODAS')"
+                title="Limpar filtro e voltar a Todas as Urnas"
+                class="ml-1 text-slate-400 hover:text-white transition font-black text-xs"
+              >✕ Limpar</button>
+            </div>
           </div>
-          <div id="tseTreeFiltrosForensesButtons" class="flex flex-wrap items-center gap-1.5"></div>
+          <div class="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
+            <span id="labelContadorFiltroForense"></span>
+          </div>
         </div>
 
         <!-- 5 Colunas da Árvore (Região > Estado > Cidade > Zona > Seção) cada uma com Busca Textual -->
@@ -1589,7 +1608,16 @@ o Boletim de Urna (apos encerramento da votacao).
 
           <!-- Barra de Rastreamento Forense de Divergências / 2º Cargo / Consulta Popular -->
           <div id="tseFiltroForenseBar" class="flex flex-wrap items-center justify-between gap-2 pt-1 pb-2 border-b border-slate-800 text-xs mono">
-            <div id="tseFiltroForenseButtons" class="flex flex-wrap items-center gap-1.5"></div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold text-cyan-400 flex items-center gap-1">🎯 <span>Filtro Ativo:</span></span>
+              <select
+                id="selectFiltroForenseTsePlacar"
+                onchange="aplicarFiltroForenseTse(this.value)"
+                class="bg-slate-950 text-cyan-200 border border-cyan-500/40 rounded-lg px-2.5 py-1 text-xs font-bold outline-none cursor-pointer"
+              >
+                <option value="TODAS">📋 Todas as Urnas</option>
+              </select>
+            </div>
             <div class="flex flex-wrap items-center gap-2">
               <button
                 id="btnRepararVotosTse"
@@ -6096,81 +6124,117 @@ o Boletim de Urna (apos encerramento da votacao).
       const ffAtivo = window.arvoreTseState.filtro_forense || "TODAS";
       const fc = hier?.filtros_contagens || cons?.filtros_contagens || {};
       const totalUrnasEscopo = hier?.total_geral_urnas || cons?.total_secoes || 0;
+      const totalFiltrado = hier?.total_secoes_no_filtro !== undefined ? hier.total_secoes_no_filtro : (cons?.total_secoes || 0);
       const candsVisao = cons?.placar_candidatos || hier?.candidatos_t2 || [];
 
-      const defs = [
+      // Grupos estruturados para a lista suspensa (dropdown)
+      const grupos = [
         {
-          id: "TODAS",
-          label: "📋 Todas as Urnas",
-          count: fc.total_urnas !== undefined ? fc.total_urnas : totalUrnasEscopo,
-          colorActive: "bg-cyan-500 text-slate-950 font-black shadow ring-2 ring-cyan-300",
-          colorInactive: "bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white"
+          grupo: "🌐 Visão Geral",
+          opcoes: [
+            { id: "TODAS", label: "📋 Todas as Urnas", count: fc.total_urnas !== undefined ? fc.total_urnas : totalUrnasEscopo },
+            { id: "ALERTAS_TODOS", label: "⚠️ Todos os Alertas Forenses & BI", count: fc.alertas_todos },
+            { id: "APENAS_DIVERGENTES", label: "🚨 Divergência Documental BU × RDV", count: fc.divergentes !== undefined ? fc.divergentes : (cons?.urnas_com_alerta || 0) }
+          ]
         },
         {
-          id: "NOVOS_EMPATE_TECNICO",
-          label: "⚖️ Novos Votos: Empate Técnico (±5%)",
-          count: fc.novos_empate_tecnico,
-          colorActive: "bg-amber-400 text-slate-950 font-black shadow ring-2 ring-amber-300",
-          colorInactive: "bg-slate-800 text-amber-300 hover:bg-slate-700 hover:text-white"
+          grupo: "⚡ Votos Novos (Captação / Variação entre Turnos)",
+          opcoes: [
+            { id: "NOVOS_VITORIA_FLAVIO", label: "🟢 Vitória dos Votos Novos — Flávio Bolsonaro (22)", count: fc.novos_vitoria_flavio },
+            { id: "NOVOS_VITORIA_LULA", label: "🔴 Vitória dos Votos Novos — Lula (13)", count: fc.novos_vitoria_lula },
+            { id: "NOVOS_EMPATE_EXATO", label: "🤝 Empate Exato nos Votos Novos", count: fc.novos_empate_exato },
+            { id: "NOVOS_EMPATE_TECNICO", label: "⚖️ Empate Técnico nos Votos Novos (±5% ou ≤3v)", count: fc.novos_empate_tecnico },
+            { id: "NOVOS_DISCREPANCIA", label: "⚡ Discrepância nos Votos Novos (≥70% p/ um candidato)", count: fc.novos_discrepancia },
+            { id: "NOVOS_DISCREP_FLAVIO", label: "⚡ Discrepância: Flávio absorveu ≥70% dos Novos Votos", count: fc.novos_discrep_flavio },
+            { id: "NOVOS_DISCREP_LULA", label: "⚡ Discrepância: Lula absorveu ≥70% dos Novos Votos", count: fc.novos_discrep_lula }
+          ]
         },
         {
-          id: "NOVOS_DISCREPANCIA",
-          label: "⚡ Novos Votos: Discrepância (≥70%)",
-          count: fc.novos_discrepancia,
-          colorActive: "bg-purple-500 text-white font-black shadow ring-2 ring-purple-300",
-          colorInactive: "bg-slate-800 text-purple-300 hover:bg-slate-700 hover:text-white"
-        },
-        {
-          id: "VITORIA_FLAVIO",
-          label: "🟢 Vitória do Flávio (22)",
-          count: fc.vitoria_flavio,
-          colorActive: "bg-emerald-500 text-slate-950 font-black shadow ring-2 ring-emerald-300",
-          colorInactive: "bg-slate-800 text-emerald-300 hover:bg-slate-700 hover:text-white"
-        },
-        {
-          id: "VITORIA_LULA",
-          label: "🔴 Vitória do Lula (13)",
-          count: fc.vitoria_lula,
-          colorActive: "bg-rose-600 text-white font-black shadow ring-2 ring-rose-400",
-          colorInactive: "bg-slate-800 text-rose-300 hover:bg-slate-700 hover:text-white"
-        },
-        {
-          id: "EMPATE_2T",
-          label: "🤝 Empate 2º Turno (48×48)",
-          count: fc.empate_2t,
-          colorActive: "bg-indigo-500 text-white font-black shadow ring-2 ring-indigo-300",
-          colorInactive: "bg-slate-800 text-indigo-300 hover:bg-slate-700 hover:text-white"
-        },
-        {
-          id: "APENAS_DIVERGENTES",
-          label: "🚨 Divergência Documental",
-          count: fc.divergentes !== undefined ? fc.divergentes : (cons?.urnas_com_alerta || 0),
-          colorActive: "bg-red-600 text-white font-black shadow ring-2 ring-red-400",
-          colorInactive: "bg-slate-800 text-red-300 hover:bg-slate-700 hover:text-white"
+          grupo: "🏆 Totalização do Turno (Resultado Geral do 2º Turno)",
+          opcoes: [
+            { id: "TURNO_VITORIA_FLAVIO", label: "🟢 Vitória no Turno — Flávio Bolsonaro (22)", count: fc.turno_vitoria_flavio !== undefined ? fc.turno_vitoria_flavio : fc.vitoria_flavio },
+            { id: "TURNO_VITORIA_LULA", label: "🔴 Vitória no Turno — Lula (13)", count: fc.turno_vitoria_lula !== undefined ? fc.turno_vitoria_lula : fc.vitoria_lula },
+            { id: "TURNO_EMPATE_2T", label: "🤝 Empate no 2º Turno (50% × 50%)", count: fc.turno_empate_2t !== undefined ? fc.turno_empate_2t : fc.empate_2t }
+          ]
         }
       ];
 
-      let pillsHtml = defs.map(d => {
-        const active = ffAtivo === d.id;
-        const countBadge = d.count !== undefined && d.count !== null ? ` <span class="opacity-80 font-normal">(${d.count.toLocaleString("pt-BR")})</span>` : "";
-        return `<button onclick="aplicarFiltroForenseTse('${d.id}')" class="px-2.5 py-1 rounded-lg text-[11px] transition shrink-0 ${active ? d.colorActive : d.colorInactive}">${d.label}${countBadge}</button>`;
-      }).join("");
+      // Adiciona divergências específicas por candidato se houver
+      const candDivs = (candsVisao || []).filter(c => (c.urnas_divergentes || 0) > 0);
+      if (candDivs.length > 0) {
+        grupos.push({
+          grupo: "🕵️ Divergências por Candidato",
+          opcoes: candDivs.map(c => ({
+            id: `DIV_CAND:${c.numero}`,
+            label: `🕵️ Divergência Nº ${c.numero} (${c.nome || 'Candidato'})`,
+            count: c.urnas_divergentes
+          }))
+        });
+      }
 
-      // Rastreamento adicional de divergências específicas por candidato
-      (candsVisao || []).forEach(c => {
-        if (c.urnas_divergentes > 0) {
-          const keyDiv = `DIV_CAND:${c.numero}`;
-          const active = ffAtivo === keyDiv;
-          pillsHtml += `<button onclick="aplicarFiltroForenseTse('${keyDiv}')" class="px-2.5 py-1 rounded-lg text-[11px] transition shrink-0 ${
-            active ? "bg-amber-500 text-slate-950 font-black shadow ring-2 ring-amber-300" : "bg-slate-800 text-amber-300 hover:bg-slate-700 hover:text-white"
-          }">🕵️ Divergência Nº ${c.numero} (${c.urnas_divergentes}u)</button>`;
-        }
+      let optionsHtml = "";
+      let labelAtivo = "Todas as Urnas";
+      let countAtivo = null;
+
+      grupos.forEach(g => {
+        optionsHtml += `<optgroup label="${g.grupo}">`;
+        g.opcoes.forEach(op => {
+          const isSelected = (ffAtivo === op.id) ||
+            (ffAtivo === "VITORIA_FLAVIO" && op.id === "TURNO_VITORIA_FLAVIO") ||
+            (ffAtivo === "VITORIA_LULA" && op.id === "TURNO_VITORIA_LULA") ||
+            (ffAtivo === "EMPATE_2T" && op.id === "TURNO_EMPATE_2T");
+          if (isSelected) {
+            labelAtivo = op.label;
+            countAtivo = op.count;
+          }
+          const countBadge = (op.count !== undefined && op.count !== null) ? ` (${op.count.toLocaleString("pt-BR")} urnas)` : "";
+          optionsHtml += `<option value="${op.id}" ${isSelected ? "selected" : ""}>${op.label}${countBadge}</option>`;
+        });
+        optionsHtml += `</optgroup>`;
       });
 
-      const elPlacar = document.getElementById("tseFiltroForenseButtons");
-      if (elPlacar) elPlacar.innerHTML = pillsHtml;
-      const elTree = document.getElementById("tseTreeFiltrosForensesButtons");
-      if (elTree) elTree.innerHTML = pillsHtml;
+      // Atualiza Select na Árvore de Consolidação
+      const selectTree = document.getElementById("selectFiltroForenseTse");
+      if (selectTree) {
+        selectTree.innerHTML = optionsHtml;
+        selectTree.value = (ffAtivo === "VITORIA_FLAVIO") ? "TURNO_VITORIA_FLAVIO" :
+          (ffAtivo === "VITORIA_LULA") ? "TURNO_VITORIA_LULA" :
+          (ffAtivo === "EMPATE_2T") ? "TURNO_EMPATE_2T" : ffAtivo;
+      }
+
+      // Atualiza Select no Box de Placar
+      const selectPlacar = document.getElementById("selectFiltroForenseTsePlacar");
+      if (selectPlacar) {
+        selectPlacar.innerHTML = optionsHtml;
+        selectPlacar.value = (ffAtivo === "VITORIA_FLAVIO") ? "TURNO_VITORIA_FLAVIO" :
+          (ffAtivo === "VITORIA_LULA") ? "TURNO_VITORIA_LULA" :
+          (ffAtivo === "EMPATE_2T") ? "TURNO_EMPATE_2T" : ffAtivo;
+      }
+
+      // Atualiza Badge Ativo e Contador
+      const badgeContainer = document.getElementById("badgeFiltroForenseAtivo");
+      const badgeTexto = document.getElementById("badgeFiltroForenseTexto");
+      const labelContador = document.getElementById("labelContadorFiltroForense");
+
+      if (badgeContainer && badgeTexto) {
+        if (ffAtivo && ffAtivo !== "TODAS") {
+          badgeContainer.classList.remove("hidden");
+          badgeContainer.classList.add("flex");
+          const cStr = countAtivo !== null && countAtivo !== undefined ? ` • ${countAtivo.toLocaleString("pt-BR")} urnas` : "";
+          badgeTexto.textContent = `${labelAtivo}${cStr}`;
+        } else {
+          badgeContainer.classList.remove("flex");
+          badgeContainer.classList.add("hidden");
+        }
+      }
+
+      if (labelContador) {
+        if (ffAtivo && ffAtivo !== "TODAS") {
+          labelContador.innerHTML = `Exibindo <span class="text-cyan-400 font-bold">${totalFiltrado.toLocaleString("pt-BR")}</span> de <span class="text-slate-300 font-bold">${totalUrnasEscopo.toLocaleString("pt-BR")}</span> urnas`;
+        } else {
+          labelContador.innerHTML = `Total de <span class="text-cyan-400 font-bold">${totalUrnasEscopo.toLocaleString("pt-BR")}</span> urnas auditáveis`;
+        }
+      }
     }
 
     async function aplicarFiltroForenseTse(novoFiltroForense) {
