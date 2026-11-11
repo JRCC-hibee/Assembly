@@ -1597,6 +1597,9 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
 
+        <!-- CARDS ESTATÍSTICOS COMPARATIVO 2º TURNO (LULA × BOLSONARO) -->
+        <div id="tseCardsComparativo2T" class="hidden mb-4 space-y-2.5"></div>
+
         <!-- BLOCO DE PLACAR TOTALIZADO DE CANDIDATOS (EXIBIDO TANTO NO CONSOLIDADO QUANTO NA URNA INDIVIDUAL) -->
         <div id="tsePlacarConsolidadoBox" class="hidden bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-2">
@@ -6088,6 +6091,11 @@ o Boletim de Urna (apos encerramento da votacao).
         }
       }
 
+      const cards2tBox = document.getElementById("tseCardsComparativo2T");
+      if (cards2tBox && modo === "1T") {
+        cards2tBox.classList.add("hidden");
+      }
+
       if (typeof alternarBobinaTurnoTse === "function") {
         alternarBobinaTurnoTse(modo === "1T" ? 1 : 2);
       }
@@ -6110,6 +6118,10 @@ o Boletim de Urna (apos encerramento da votacao).
 
     function alterarFiltroCargoTse(cargo) {
       window.arvoreTseState.cargo = cargo || "PRESIDENTE";
+      const cards2tBox = document.getElementById("tseCardsComparativo2T");
+      if (cards2tBox && cargo !== "PRESIDENTE") {
+        cards2tBox.classList.add("hidden");
+      }
       mostrarSinalizacaoCarregandoArvore(
         window.arvoreTseState.regiao,
         window.arvoreTseState.uf,
@@ -6949,6 +6961,11 @@ o Boletim de Urna (apos encerramento da votacao).
         if (iSec) iSec.classList.add("hidden");
         renderizarVisaoConsolidadaTse(payload.consolidado, hier);
       }
+      try {
+        renderizarCardsComparativo2TTse(payload);
+      } catch (errCards) {
+        console.error("[TSE] Erro ao renderizar cards comparativo 2T:", errCards);
+      }
       return true;
     }
 
@@ -7606,6 +7623,13 @@ o Boletim de Urna (apos encerramento da votacao).
 
       // Renderiza Painel Comparativo 1º Turno (04/10/2026) x 2º Turno (25/10/2026) no Consolidado
       renderizarPainelComparativoTurnosTse(cons.comparativo_turnos || null, `${cidSel} • ${zonaSel} (${cons.total_urnas} urna[s])`);
+
+      // Renderiza Cards Estatísticos Comparativo 2º Turno (Lula × Bolsonaro)
+      try {
+        renderizarCardsComparativo2TTse({ consolidado: cons, hierarquia: hier, modo_visao: "CONSOLIDADO" });
+      } catch (errCardsCons) {
+        console.error("[TSE] Erro ao renderizar cards comparativo 2T no consolidado:", errCardsCons);
+      }
 
       // Renderiza Tabela de Todas as Urnas do Filtro
       window.listaUrnasConsolidadaAtual = cons.lista_urnas || [];
@@ -8380,6 +8404,13 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         console.error("[TSE] Erro ao renderizar painel comparativo da urna individual:", errComp);
       }
 
+      // Renderiza Cards Estatísticos Comparativo 2º Turno (Lula × Bolsonaro) na Urna Individual
+      try {
+        renderizarCardsComparativo2TTse({ secao_individual: data, modo_visao: "SECAO_INDIVIDUAL" });
+      } catch (errCardsInd) {
+        console.error("[TSE] Erro ao renderizar cards comparativo 2T da urna:", errCardsInd);
+      }
+
       // Espectrograma Individual de Eleitores Reais Separado Hora a Hora + Seletor 1º Turno vs 2º Turno
       window.currentTseData = data;
       const isUrnaPendente1T = Boolean(data.urna_pendente_1t || resCons.urna_pendente_1t || bu.urna_pendente_1t);
@@ -8819,6 +8850,483 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           <tbody class="divide-y divide-slate-800/60">${rowsHtml}</tbody>
         </table>
         ${avisoBatimento1T}
+      `;
+    }
+
+    // =========================================================================
+    // CARDS ESTATÍSTICOS COMPARATIVO 2º TURNO (LULA × BOLSONARO)
+    // =========================================================================
+    function renderizarCardsComparativo2TTse(payload) {
+      const container = document.getElementById("tseCardsComparativo2T");
+      if (!container) return;
+
+      const modo = window.arvoreTseState?.modo_visao || "COMPARATIVO";
+      const cargoAtual = window.arvoreTseState?.cargo || "PRESIDENTE";
+
+      // Exibe prioritariamente para o cargo PRESIDENTE e nos modos 2T ou COMPARATIVO
+      if (cargoAtual !== "PRESIDENTE" || modo === "1T") {
+        container.classList.add("hidden");
+        return;
+      }
+
+      if (!payload) {
+        if (window.arvoreTseState?.secao && window.arvoreTseState.secao !== "CONSOLIDADO" && window.lastSecaoIndividualPayload) {
+          payload = { modo_visao: "SECAO_INDIVIDUAL", secao_individual: window.lastSecaoIndividualPayload };
+        } else if (window.lastPayloadConsolidado) {
+          payload = window.lastPayloadConsolidado;
+        }
+      }
+
+      if (!payload) {
+        container.classList.add("hidden");
+        return;
+      }
+
+      container.classList.remove("hidden");
+      const ffAtivo = window.arvoreTseState?.filtro_forense || "TODAS";
+
+      if (payload.modo_visao === "SECAO_INDIVIDUAL" && payload.secao_individual) {
+        renderizarCardsIndividual2TTse(payload.secao_individual, container, ffAtivo);
+      } else {
+        const cons = payload.consolidado || window.lastPayloadConsolidado?.consolidado || {};
+        const hier = payload.hierarquia || window.lastPayloadConsolidado?.hierarquia || window.arvoreTseState?.hierarquia || {};
+        renderizarCardsConsolidados2TTse(cons, hier, container, ffAtivo);
+      }
+    }
+
+    function renderizarCardsConsolidados2TTse(cons, hier, container, ffAtivo) {
+      const fc = hier?.filtros_contagens || cons?.filtros_contagens || {};
+      const totalUrnasEscopo = Number(fc.total_urnas || hier?.total_secoes_no_filtro || cons?.total_urnas || 0);
+      const totalBase = Math.max(1, totalUrnasEscopo);
+
+      // 1. Vitórias no 2º Turno (Resultado Geral)
+      const vitF = Number(fc.turno_vitoria_flavio ?? fc.vitoria_flavio ?? 0);
+      const vitL = Number(fc.turno_vitoria_lula ?? fc.vitoria_lula ?? 0);
+      const emp2t = Number(fc.turno_empate_2t ?? fc.empate_2t ?? 0);
+      const totVit = Math.max(1, vitF + vitL + emp2t);
+      const pctVitF = ((vitF / totVit) * 100).toFixed(1);
+      const pctVitL = ((vitL / totVit) * 100).toFixed(1);
+      const pctEmp2t = ((emp2t / totVit) * 100).toFixed(1);
+
+      // 2. Captação de Novos Votos (Crescimento 1ºT -> 2ºT)
+      const novF = Number(fc.novos_vitoria_flavio ?? 0);
+      const novL = Number(fc.novos_vitoria_lula ?? 0);
+      const novEmpEx = Number(fc.novos_empate_exato ?? 0);
+      const pctNovF = ((novF / totalBase) * 100).toFixed(1);
+      const pctNovL = ((novL / totalBase) * 100).toFixed(1);
+      const pctNovEmpEx = ((novEmpEx / totalBase) * 100).toFixed(1);
+
+      // 3. Discrepâncias Atípicas (>= 70% novos votos)
+      const discTot = Number(fc.novos_discrepancia ?? 0);
+      const discF = Number(fc.novos_discrep_flavio ?? 0);
+      const discL = Number(fc.novos_discrep_lula ?? 0);
+      const pctDiscTot = ((discTot / totalBase) * 100).toFixed(1);
+      const totDiscSub = Math.max(1, discF + discL);
+      const pctDiscF = ((discF / totDiscSub) * 100).toFixed(1);
+      const pctDiscL = ((discL / totDiscSub) * 100).toFixed(1);
+
+      // 4. Empates Técnicos (+- 5% ou <= 3 votos)
+      const empTec = Number(fc.novos_empate_tecnico ?? 0);
+      const pctEmpTec = ((empTec / totalBase) * 100).toFixed(1);
+
+      // Destaques de filtro ativo
+      const isFiltroVit = ["TURNO_VITORIA_FLAVIO", "TURNO_VITORIA_LULA", "TURNO_EMPATE_2T", "VITORIA_FLAVIO", "VITORIA_LULA"].includes(ffAtivo);
+      const isFiltroNov = ["NOVOS_VITORIA_FLAVIO", "NOVOS_VITORIA_LULA", "NOVOS_EMPATE_EXATO"].includes(ffAtivo);
+      const isFiltroDisc = ["NOVOS_DISCREPANCIA", "NOVOS_DISCREP_FLAVIO", "NOVOS_DISCREP_LULA"].includes(ffAtivo);
+      const isFiltroEmp = (ffAtivo === "NOVOS_EMPATE_TECNICO");
+
+      // Rótulo do escopo atual
+      const ufNomeAtivo = hier.estados?.find(e => e.uf === hier.uf_selecionada)?.nome || hier.uf_selecionada || "Brasil";
+      let escopoStr = "Nacional (Brasil)";
+      if (hier.municipio_selecionado && hier.municipio_selecionado !== "TODAS") {
+        const cNome = hier.cidades?.find(c => c.codigo === hier.municipio_selecionado)?.nome || hier.municipio_selecionado;
+        escopoStr = `${cNome} / ${hier.uf_selecionada || ""}`;
+      } else if (hier.uf_selecionada && hier.uf_selecionada !== "TODAS") {
+        escopoStr = `${ufNomeAtivo} (${hier.uf_selecionada})`;
+      } else if (hier.regiao_selecionada && hier.regiao_selecionada !== "TODAS") {
+        escopoStr = `Região ${hier.regiao_selecionada}`;
+      }
+
+      // Rótulo amigável do filtro ativo
+      const labelsFiltros = {
+        "TURNO_VITORIA_FLAVIO": "Vitória Bolsonaro (22) no Turno",
+        "TURNO_VITORIA_LULA": "Vitória Lula (13) no Turno",
+        "TURNO_EMPATE_2T": "Empate no 2º Turno",
+        "NOVOS_VITORIA_FLAVIO": "Mais Novos Votos p/ Bolsonaro",
+        "NOVOS_VITORIA_LULA": "Mais Novos Votos p/ Lula",
+        "NOVOS_EMPATE_EXATO": "Empate Exato nos Novos Votos",
+        "NOVOS_EMPATE_TECNICO": "Empate Técnico nos Novos Votos",
+        "NOVOS_DISCREPANCIA": "Discrepâncias (≥70% p/ um candidato)",
+        "NOVOS_DISCREP_FLAVIO": "Discrepância Pró-Bolsonaro (≥70%)",
+        "NOVOS_DISCREP_LULA": "Discrepância Pró-Lula (≥70%)",
+        "APENAS_DIVERGENTES": "Divergência BU × RDV",
+        "ALERTAS_TODOS": "Todos os Alertas Forenses & BI"
+      };
+
+      const btnResetFiltro = (ffAtivo && ffAtivo !== "TODAS")
+        ? `<button onclick="aplicarFiltroForenseTse('TODAS')" class="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 text-[10px] font-black transition flex items-center gap-1 cursor-pointer shadow-sm">
+             <span>✕</span> <span>Resetar Filtro</span>
+           </button>`
+        : "";
+
+      const badgeFiltroAtivo = (ffAtivo && ffAtivo !== "TODAS")
+        ? `<span class="text-[10px] mono px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-500/50 font-extrabold flex items-center gap-1">
+             <span>🎯 Filtro Ativo:</span> <span class="text-white">${labelsFiltros[ffAtivo] || ffAtivo}</span>
+           </span>`
+        : "";
+
+      container.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 px-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-black text-white flex items-center gap-1.5 uppercase tracking-wide">
+              <span>📊</span>
+              <span>BI Comparativo 2º Turno — Lula (13) × Bolsonaro (22)</span>
+            </span>
+            <span class="text-[10px] mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-500/40 font-bold">
+              ${escopoStr}
+            </span>
+            ${badgeFiltroAtivo}
+          </div>
+          <div class="text-[11px] text-slate-400 mono flex items-center gap-2">
+            <span>Base: <strong class="text-white">${totalUrnasEscopo.toLocaleString('pt-BR')}</strong> urnas</span>
+            ${btnResetFiltro}
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <!-- CARD 1: URNAS VENCIDAS NO 2º TURNO (RESULTADO GERAL) -->
+          <div class="bg-gradient-to-b from-slate-900 to-slate-950 border ${isFiltroVit ? 'border-cyan-400 ring-2 ring-cyan-400/30' : 'border-slate-800'} hover:border-cyan-500/50 rounded-xl p-3.5 space-y-2.5 shadow-md flex flex-col justify-between transition">
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <span class="text-base">🏆</span> <span>Vitória no 2º Turno</span>
+                </span>
+                <span class="text-[10px] font-mono text-cyan-300 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-700/50 font-bold">Resultado</span>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-800/80">
+                <div class="bg-cyan-950/30 border border-cyan-500/30 rounded-lg p-2 text-center">
+                  <div class="text-[10px] font-bold text-cyan-400 uppercase tracking-wider truncate">Bolsonaro (22)</div>
+                  <div class="text-xl font-black text-white mt-0.5">${vitF.toLocaleString('pt-BR')}</div>
+                  <div class="text-[10px] font-mono text-cyan-300">${pctVitF}% das urnas</div>
+                </div>
+                <div class="bg-rose-950/30 border border-rose-500/30 rounded-lg p-2 text-center">
+                  <div class="text-[10px] font-bold text-rose-400 uppercase tracking-wider truncate">Lula (13)</div>
+                  <div class="text-xl font-black text-white mt-0.5">${vitL.toLocaleString('pt-BR')}</div>
+                  <div class="text-[10px] font-mono text-rose-300">${pctVitL}% das urnas</div>
+                </div>
+              </div>
+
+              <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800 flex mt-2">
+                <div style="width: ${pctVitF}%" class="bg-cyan-500 h-full" title="Bolsonaro: ${pctVitF}%"></div>
+                <div style="width: ${pctEmp2t}%" class="bg-amber-400 h-full" title="Empates: ${pctEmp2t}%"></div>
+                <div style="width: ${pctVitL}%" class="bg-rose-500 h-full" title="Lula: ${pctVitL}%"></div>
+              </div>
+              ${emp2t > 0 ? `<div class="text-[10px] text-slate-400 font-mono text-center mt-1">🤝 Empate (50/50): <strong class="text-amber-300">${emp2t.toLocaleString('pt-BR')}</strong> urna(s)</div>` : ''}
+            </div>
+
+            <div class="pt-2 border-t border-slate-800/60 flex items-center gap-1.5">
+              <button onclick="aplicarFiltroForenseTse('TURNO_VITORIA_FLAVIO')" class="flex-1 px-2 py-1.5 rounded-lg ${ffAtivo === 'TURNO_VITORIA_FLAVIO' ? 'bg-cyan-500 text-slate-950 font-black' : 'bg-cyan-950/70 hover:bg-cyan-900 text-cyan-200 border border-cyan-500/40 font-bold'} text-[10px] transition text-center shadow-sm cursor-pointer" title="Filtrar as ${vitF.toLocaleString('pt-BR')} urnas onde Bolsonaro venceu o 2ºT">
+                Filtrar 22 (${vitF.toLocaleString('pt-BR')})
+              </button>
+              <button onclick="aplicarFiltroForenseTse('TURNO_VITORIA_LULA')" class="flex-1 px-2 py-1.5 rounded-lg ${ffAtivo === 'TURNO_VITORIA_LULA' ? 'bg-rose-500 text-slate-950 font-black' : 'bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-500/40 font-bold'} text-[10px] transition text-center shadow-sm cursor-pointer" title="Filtrar as ${vitL.toLocaleString('pt-BR')} urnas onde Lula venceu o 2ºT">
+                Filtrar 13 (${vitL.toLocaleString('pt-BR')})
+              </button>
+              ${emp2t > 0 ? `
+              <button onclick="aplicarFiltroForenseTse('TURNO_EMPATE_2T')" class="px-2 py-1.5 rounded-lg ${ffAtivo === 'TURNO_EMPATE_2T' ? 'bg-amber-500 text-slate-950 font-black' : 'bg-amber-950/70 hover:bg-amber-900 text-amber-200 border border-amber-500/40 font-bold'} text-[10px] transition text-center shadow-sm cursor-pointer" title="Filtrar urnas empatadas no 2ºT">
+                🤝 ${emp2t}
+              </button>` : ''}
+            </div>
+          </div>
+
+          <!-- CARD 2: CAPTAÇÃO DE NOVOS VOTOS (CRESCIMENTO 1ºT -> 2ºT) -->
+          <div class="bg-gradient-to-b from-slate-900 to-slate-950 border ${isFiltroNov ? 'border-emerald-400 ring-2 ring-emerald-400/30' : 'border-slate-800'} hover:border-emerald-500/50 rounded-xl p-3.5 space-y-2.5 shadow-md flex flex-col justify-between transition">
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <span class="text-base">⚡</span> <span>Novos Votos (Captação)</span>
+                </span>
+                <span class="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-700/50 font-bold">1ºT → 2ºT</span>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-800/80">
+                <div class="bg-emerald-950/30 border border-emerald-500/30 rounded-lg p-2 text-center">
+                  <div class="text-[10px] font-bold text-emerald-400 uppercase tracking-wider truncate">Mais Novos p/ 22</div>
+                  <div class="text-xl font-black text-white mt-0.5">${novF.toLocaleString('pt-BR')}</div>
+                  <div class="text-[10px] font-mono text-emerald-300">${pctNovF}% das urnas</div>
+                </div>
+                <div class="bg-rose-950/30 border border-rose-500/30 rounded-lg p-2 text-center">
+                  <div class="text-[10px] font-bold text-rose-400 uppercase tracking-wider truncate">Mais Novos p/ 13</div>
+                  <div class="text-xl font-black text-white mt-0.5">${novL.toLocaleString('pt-BR')}</div>
+                  <div class="text-[10px] font-mono text-rose-300">${pctNovL}% das urnas</div>
+                </div>
+              </div>
+
+              <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800 flex mt-2">
+                <div style="width: ${pctNovF}%" class="bg-emerald-500 h-full" title="Mais Novos p/ Bolsonaro: ${pctNovF}%"></div>
+                <div style="width: ${pctNovEmpEx}%" class="bg-cyan-400 h-full" title="Empate exato: ${pctNovEmpEx}%"></div>
+                <div style="width: ${pctNovL}%" class="bg-rose-500 h-full" title="Mais Novos p/ Lula: ${pctNovL}%"></div>
+              </div>
+              ${novEmpEx > 0 ? `<div class="text-[10px] text-slate-400 font-mono text-center mt-1">🤝 Empate exato: <strong class="text-cyan-300">${novEmpEx.toLocaleString('pt-BR')}</strong> urna(s)</div>` : ''}
+            </div>
+
+            <div class="pt-2 border-t border-slate-800/60 flex items-center gap-1.5">
+              <button onclick="aplicarFiltroForenseTse('NOVOS_VITORIA_FLAVIO')" class="flex-1 px-2 py-1.5 rounded-lg ${ffAtivo === 'NOVOS_VITORIA_FLAVIO' ? 'bg-emerald-500 text-slate-950 font-black' : 'bg-emerald-950/70 hover:bg-emerald-900 text-emerald-200 border border-emerald-500/40 font-bold'} text-[10px] transition text-center shadow-sm cursor-pointer" title="Filtrar urnas onde Bolsonaro captou mais votos novos">
+                Novos 22 (${novF.toLocaleString('pt-BR')})
+              </button>
+              <button onclick="aplicarFiltroForenseTse('NOVOS_VITORIA_LULA')" class="flex-1 px-2 py-1.5 rounded-lg ${ffAtivo === 'NOVOS_VITORIA_LULA' ? 'bg-rose-500 text-slate-950 font-black' : 'bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-500/40 font-bold'} text-[10px] transition text-center shadow-sm cursor-pointer" title="Filtrar urnas onde Lula captou mais votos novos">
+                Novos 13 (${novL.toLocaleString('pt-BR')})
+              </button>
+            </div>
+          </div>
+
+          <!-- CARD 3: DISCREPÂNCIAS ATÍPICAS (>=70% DOS NOVOS VOTOS) -->
+          <div class="bg-gradient-to-b from-slate-900 to-slate-950 border ${isFiltroDisc ? 'border-amber-400 ring-2 ring-amber-400/30' : 'border-slate-800'} hover:border-amber-500/50 rounded-xl p-3.5 space-y-2.5 shadow-md flex flex-col justify-between transition">
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <span class="text-base">🚨</span> <span>Discrepâncias (≥70%)</span>
+                </span>
+                <span class="text-[10px] font-mono text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-700/50 font-bold">Alerta BI</span>
+              </div>
+
+              <div class="mt-2 pt-2 border-t border-slate-800/80 space-y-1.5">
+                <div class="flex items-baseline justify-between">
+                  <span class="text-2xl font-black text-amber-300">${discTot.toLocaleString('pt-BR')}</span>
+                  <span class="text-xs font-bold text-amber-400/90 font-mono">${pctDiscTot}% das urnas</span>
+                </div>
+
+                <div class="space-y-1 text-[11px] font-mono pt-0.5">
+                  <div class="flex items-center justify-between text-cyan-300">
+                    <span>Pró-Bolsonaro (22):</span>
+                    <span class="font-bold text-white">${discF.toLocaleString('pt-BR')} <span class="text-slate-400 text-[10px]">(${pctDiscF}%)</span></span>
+                  </div>
+                  <div class="flex items-center justify-between text-rose-300">
+                    <span>Pró-Lula (13):</span>
+                    <span class="font-bold text-white">${discL.toLocaleString('pt-BR')} <span class="text-slate-400 text-[10px]">(${pctDiscL}%)</span></span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800 flex mt-2">
+                <div style="width: ${pctDiscF}%" class="bg-cyan-500 h-full" title="Discrepância pró-Bolsonaro: ${pctDiscF}%"></div>
+                <div style="width: ${pctDiscL}%" class="bg-rose-500 h-full" title="Discrepância pró-Lula: ${pctDiscL}%"></div>
+              </div>
+            </div>
+
+            <div class="pt-2 border-t border-slate-800/60 flex items-center gap-1.5">
+              <button onclick="aplicarFiltroForenseTse('NOVOS_DISCREPANCIA')" class="flex-1 px-2 py-1.5 rounded-lg ${ffAtivo === 'NOVOS_DISCREPANCIA' ? 'bg-amber-500 text-slate-950 font-black' : 'bg-amber-950/70 hover:bg-amber-900 text-amber-200 border border-amber-500/40 font-bold'} text-[10px] transition text-center shadow-sm cursor-pointer" title="Filtrar todas as urnas com discrepância atípica">
+                Todas (${discTot.toLocaleString('pt-BR')})
+              </button>
+              <button onclick="aplicarFiltroForenseTse('NOVOS_DISCREP_FLAVIO')" class="flex-1 px-2 py-1.5 rounded-lg ${ffAtivo === 'NOVOS_DISCREP_FLAVIO' ? 'bg-cyan-500 text-slate-950 font-black' : 'bg-cyan-950/70 hover:bg-cyan-900 text-cyan-200 border border-cyan-500/40 font-bold'} text-[10px] transition text-center shadow-sm cursor-pointer" title="Filtrar discrepâncias pró-Bolsonaro">
+                Pró-22 (${discF.toLocaleString('pt-BR')})
+              </button>
+              <button onclick="aplicarFiltroForenseTse('NOVOS_DISCREP_LULA')" class="flex-1 px-2 py-1.5 rounded-lg ${ffAtivo === 'NOVOS_DISCREP_LULA' ? 'bg-rose-500 text-slate-950 font-black' : 'bg-rose-950/70 hover:bg-rose-900 text-rose-200 border border-rose-500/40 font-bold'} text-[10px] transition text-center shadow-sm cursor-pointer" title="Filtrar discrepâncias pró-Lula">
+                Pró-13 (${discL.toLocaleString('pt-BR')})
+              </button>
+            </div>
+          </div>
+
+          <!-- CARD 4: EMPATES TÉCNICOS (NOVOS VOTOS +-5% OU <=3 VOTOS) -->
+          <div class="bg-gradient-to-b from-slate-900 to-slate-950 border ${isFiltroEmp ? 'border-indigo-400 ring-2 ring-indigo-400/30' : 'border-slate-800'} hover:border-indigo-500/50 rounded-xl p-3.5 space-y-2.5 shadow-md flex flex-col justify-between transition">
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <span class="text-base">⚖️</span> <span>Empates Técnicos (Novos)</span>
+                </span>
+                <span class="text-[10px] font-mono text-indigo-300 bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-700/50 font-bold">±5% ou ≤3v</span>
+              </div>
+
+              <div class="mt-2 pt-2 border-t border-slate-800/80 space-y-1">
+                <div class="flex items-baseline justify-between">
+                  <span class="text-2xl font-black text-indigo-300">${empTec.toLocaleString('pt-BR')}</span>
+                  <span class="text-xs font-bold text-indigo-400/90 font-mono">${pctEmpTec}% das urnas</span>
+                </div>
+                <p class="text-[11px] text-slate-400 leading-snug mt-1">
+                  Urnas onde a captação de novos votos foi equilibrada, com variação não superior a 5% ou 3 votos nominais.
+                </p>
+              </div>
+            </div>
+
+            <div class="pt-2 border-t border-slate-800/60">
+              <button onclick="aplicarFiltroForenseTse('NOVOS_EMPATE_TECNICO')" class="w-full px-2.5 py-1.5 rounded-lg ${ffAtivo === 'NOVOS_EMPATE_TECNICO' ? 'bg-indigo-500 text-slate-950 font-black' : 'bg-indigo-950/70 hover:bg-indigo-900 text-indigo-200 border border-indigo-500/40 font-bold'} text-[10px] transition text-center shadow-sm cursor-pointer" title="Filtrar as ${empTec.toLocaleString('pt-BR')} urnas em empate técnico">
+                ⚖️ Filtrar Empates Técnicos (${empTec.toLocaleString('pt-BR')})
+              </button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderizarCardsIndividual2TTse(sec, container, ffAtivo) {
+      const bu = sec.bu || {};
+      const resCons = sec.resumo_consolidacao || {};
+      const ct = sec.comparativo_turnos || {};
+      const compCands = ct.comparativo_candidatos || {};
+      const cands = compCands.candidatos || [];
+
+      const c22 = cands.find(c => String(c.numero) === "22") || {};
+      const c13 = cands.find(c => String(c.numero) === "13") || {};
+
+      const v22_2t = Number(c22.votos_2_turno ?? c22.votos_t2 ?? 0);
+      const v13_2t = Number(c13.votos_2_turno ?? c13.votos_t2 ?? 0);
+      const v22_1t = Number(c22.votos_1_turno ?? c22.votos_t1 ?? 0);
+      const v13_1t = Number(c13.votos_1_turno ?? c13.votos_t1 ?? 0);
+
+      const pct22_2t = c22.pct_2_turno || "0.0%";
+      const pct13_2t = c13.pct_2_turno || "0.0%";
+
+      const dv22 = Number(c22.variacao_nominal ?? (v22_2t - v22_1t));
+      const dv13 = Number(c13.variacao_nominal ?? (v13_2t - v13_1t));
+
+      const totalNovos = Number(compCands.total_novos_votos ?? (Math.max(0, dv22) + Math.max(0, dv13)));
+      const pctNv22 = c22.votos_novos_pct || (totalNovos > 0 ? ((Math.max(0, dv22) / totalNovos) * 100).toFixed(1) + "%" : "0.0%");
+      const pctNv13 = c13.votos_novos_pct || (totalNovos > 0 ? ((Math.max(0, dv13) / totalNovos) * 100).toFixed(1) + "%" : "0.0%");
+
+      const munNome = bu.municipio_nome || resCons.municipio_nome || sec.municipio_nome || "-";
+      const zonaNum = bu.zona || resCons.zona || sec.zona || "-";
+      const secaoNum = bu.secao || resCons.secao || sec.secao || "-";
+
+      let vencedor2T = "Empate (50% / 50%)";
+      let corVencedor = "text-amber-300";
+      if (v22_2t > v13_2t) {
+        vencedor2T = "Bolsonaro (22) Venceu";
+        corVencedor = "text-cyan-300";
+      } else if (v13_2t > v22_2t) {
+        vencedor2T = "Lula (13) Venceu";
+        corVencedor = "text-rose-300";
+      }
+      const diffNominal2T = Math.abs(v22_2t - v13_2t);
+
+      let vencedorNovos = "Empate Exato";
+      let corNovos = "text-amber-300";
+      if (dv22 > dv13) {
+        vencedorNovos = "Bolsonaro (22)";
+        corNovos = "text-emerald-400";
+      } else if (dv13 > dv22) {
+        vencedorNovos = "Lula (13)";
+        corNovos = "text-rose-400";
+      }
+      const diffNovos = Math.abs(dv22 - dv13);
+
+      const pctNv22Num = parseFloat(pctNv22) || 0;
+      const pctNv13Num = parseFloat(pctNv13) || 0;
+      const isDiscrepante = (pctNv22Num >= 70 && dv22 >= 5) || (pctNv13Num >= 70 && dv13 >= 5);
+      const candDiscrepante = (pctNv22Num >= 70 && dv22 >= 5) ? "Bolsonaro (22)" : ((pctNv13Num >= 70 && dv13 >= 5) ? "Lula (13)" : null);
+
+      const isEmpateTecnico = (dv22 > 0 && dv13 > 0) && (diffNovos <= 3 || ((diffNovos * 10) <= (dv22 + dv13)));
+
+      container.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 px-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-xs font-black text-white flex items-center gap-1.5 uppercase tracking-wide">
+              <span>📊</span>
+              <span>BI Comparativo 2º Turno — Urna Individual</span>
+            </span>
+            <span class="text-[10px] mono px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 border border-emerald-500/40 font-bold">
+              ${munNome} • Z:${zonaNum} / S:${secaoNum}
+            </span>
+          </div>
+          <div class="text-[11px] text-slate-400 mono flex items-center gap-2">
+            <button onclick="voltarParaConsolidacaoFiltro()" class="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-[10px] transition cursor-pointer shadow">
+              ⬅ Voltar ao Consolidado
+            </button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <!-- CARD 1: VENCEDOR NA SEÇÃO (2º TURNO) -->
+          <div class="bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5 shadow-md flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <span class="text-base">🏆</span> <span>Vencedor na Seção</span>
+                </span>
+                <span class="text-[10px] font-mono text-cyan-300 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-700/50 font-bold">2º Turno</span>
+              </div>
+              <div class="mt-2 pt-2 border-t border-slate-800/80">
+                <div class="text-sm font-black ${corVencedor}">${vencedor2T}</div>
+                <div class="text-[11px] font-mono text-slate-300 mt-1">Diferença: <strong class="text-white">+${diffNominal2T.toLocaleString('pt-BR')} votos</strong></div>
+              </div>
+              <div class="grid grid-cols-2 gap-1.5 mt-2 pt-1.5 border-t border-slate-800/60 text-[10px] font-mono">
+                <div class="text-cyan-300">Bolsonaro: <strong>${v22_2t}</strong> (${pct22_2t})</div>
+                <div class="text-rose-300">Lula: <strong>${v13_2t}</strong> (${pct13_2t})</div>
+              </div>
+            </div>
+            <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800 flex">
+              <div style="width: ${parseFloat(pct22_2t) || 50}%" class="bg-cyan-500 h-full"></div>
+              <div style="width: ${parseFloat(pct13_2t) || 50}%" class="bg-rose-500 h-full"></div>
+            </div>
+          </div>
+
+          <!-- CARD 2: CAPTAÇÃO DE NOVOS VOTOS NESTA URNA -->
+          <div class="bg-gradient-to-b from-slate-900 to-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2.5 shadow-md flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <span class="text-base">⚡</span> <span>Novos Votos na Urna</span>
+                </span>
+                <span class="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded border border-emerald-700/50 font-bold">${totalNovos} novos</span>
+              </div>
+              <div class="mt-2 pt-2 border-t border-slate-800/80">
+                <div class="text-sm font-black ${corNovos}">Maior Captação: ${vencedorNovos}</div>
+                <div class="text-[11px] font-mono text-slate-300 mt-1">Vantagem: <strong class="text-white">+${diffNovos.toLocaleString('pt-BR')} voto(s)</strong></div>
+              </div>
+              <div class="grid grid-cols-2 gap-1.5 mt-2 pt-1.5 border-t border-slate-800/60 text-[10px] font-mono">
+                <div class="text-emerald-400">Bolsonaro: <strong>+${dv22}</strong> (${pctNv22})</div>
+                <div class="text-rose-400">Lula: <strong>+${dv13}</strong> (${pctNv13})</div>
+              </div>
+            </div>
+            <div class="w-full bg-slate-950 rounded-full h-2 overflow-hidden border border-slate-800 flex">
+              <div style="width: ${pctNv22Num}%" class="bg-emerald-500 h-full"></div>
+              <div style="width: ${pctNv13Num}%" class="bg-rose-500 h-full"></div>
+            </div>
+          </div>
+
+          <!-- CARD 3: STATUS DE DISCREPÂNCIA NA URNA -->
+          <div class="bg-gradient-to-b from-slate-900 to-slate-950 border ${isDiscrepante ? 'border-amber-400 ring-1 ring-amber-400/40' : 'border-slate-800'} rounded-xl p-3.5 space-y-2.5 shadow-md flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <span class="text-base">🚨</span> <span>Classificação BI</span>
+                </span>
+                <span class="text-[10px] font-mono ${isDiscrepante ? 'text-amber-300 bg-amber-950/80 border-amber-700/50' : 'text-slate-400 bg-slate-800'} px-2 py-0.5 rounded border font-bold">
+                  ${isDiscrepante ? 'Discrepância' : 'Plural'}
+                </span>
+              </div>
+              <div class="mt-2 pt-2 border-t border-slate-800/80">
+                ${isDiscrepante
+                  ? `<div class="text-sm font-black text-amber-300">🚨 Discrepância Atípica (≥70%)</div>
+                     <div class="text-[11px] text-amber-200/90 leading-snug mt-1">${candDiscrepante} absorveu ${candDiscrepante.includes("22") ? pctNv22 : pctNv13} de todos os votos novos da urna.</div>`
+                  : `<div class="text-sm font-black text-emerald-300">✅ Distribuição Equilibrada</div>
+                     <div class="text-[11px] text-slate-400 leading-snug mt-1">Nenhum candidato atingiu a faixa extrema de ≥70% dos votos novos.</div>`
+                }
+              </div>
+            </div>
+            <div class="text-[10px] font-mono text-slate-400 pt-1">Critério pericial: absorção ≥ 70% com mínimo 5 votos</div>
+          </div>
+
+          <!-- CARD 4: EQUILÍBRIO / EMPATE TÉCNICO NA URNA -->
+          <div class="bg-gradient-to-b from-slate-900 to-slate-950 border ${isEmpateTecnico ? 'border-indigo-400 ring-1 ring-indigo-400/40' : 'border-slate-800'} rounded-xl p-3.5 space-y-2.5 shadow-md flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between">
+                <span class="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <span class="text-base">⚖️</span> <span>Margem Técnica</span>
+                </span>
+                <span class="text-[10px] font-mono text-indigo-300 bg-indigo-950/80 px-2 py-0.5 rounded border border-indigo-700/50 font-bold">±5% ou ≤3v</span>
+              </div>
+              <div class="mt-2 pt-2 border-t border-slate-800/80">
+                ${isEmpateTecnico
+                  ? `<div class="text-sm font-black text-indigo-300">⚖️ Empate Técnico nos Novos Votos</div>
+                     <div class="text-[11px] text-indigo-200/90 leading-snug mt-1">Diferença de apenas ${diffNovos} voto(s) novo(s) entre os candidatos.</div>`
+                  : `<div class="text-sm font-black text-slate-300">Vantagem Definida</div>
+                     <div class="text-[11px] text-slate-400 leading-snug mt-1">Vantagem de ${diffNovos} voto(s) novo(s) p/ ${vencedorNovos}.</div>`
+                }
+              </div>
+            </div>
+            <div class="text-[10px] font-mono text-slate-400 pt-1">Margem estatística: diferença ≤ 5% ou ≤ 3 votos</div>
+          </div>
+        </div>
       `;
     }
 
