@@ -7209,6 +7209,175 @@ def _consolidar_secoes_tse_sql(
         except Exception:
             pass
 
+    # 1.1.B Distribuição Forense de Baixa Votação (0 a 20 Votos Nominais — 1ºT x 2ºT)
+    distribuicao_votos_0_20 = {
+        "candidato_22": {
+            "numero": 22,
+            "nome": "FLÁVIO BOLSONARO",
+            "urnas_zero_ambos_turnos": 0,
+            "total_urnas_ate_20": 0,
+            "pct_urnas_ate_20": 0.0,
+            "total_votos_2t_ate_20": 0,
+            "total_votos_1t_ate_20": 0,
+            "por_voto": [],
+            "faixas_resumo": {
+                "zero": {"faixa": "0 Votos (Zeradas)", "urnas": 0, "pct": 0.0, "soma_2t": 0, "soma_1t": 0, "media_1t": 0.0, "zero_ambos": 0},
+                "1_a_5": {"faixa": "1 a 5 Votos", "urnas": 0, "pct": 0.0, "soma_2t": 0, "soma_1t": 0, "media_1t": 0.0, "zero_ambos": 0},
+                "6_a_10": {"faixa": "6 a 10 Votos", "urnas": 0, "pct": 0.0, "soma_2t": 0, "soma_1t": 0, "media_1t": 0.0, "zero_ambos": 0},
+                "11_a_20": {"faixa": "11 a 20 Votos", "urnas": 0, "pct": 0.0, "soma_2t": 0, "soma_1t": 0, "media_1t": 0.0, "zero_ambos": 0},
+            }
+        },
+        "candidato_13": {
+            "numero": 13,
+            "nome": "LULA",
+            "urnas_zero_ambos_turnos": 0,
+            "total_urnas_ate_20": 0,
+            "pct_urnas_ate_20": 0.0,
+            "total_votos_2t_ate_20": 0,
+            "total_votos_1t_ate_20": 0,
+            "por_voto": [],
+            "faixas_resumo": {
+                "zero": {"faixa": "0 Votos (Zeradas)", "urnas": 0, "pct": 0.0, "soma_2t": 0, "soma_1t": 0, "media_1t": 0.0, "zero_ambos": 0},
+                "1_a_5": {"faixa": "1 a 5 Votos", "urnas": 0, "pct": 0.0, "soma_2t": 0, "soma_1t": 0, "media_1t": 0.0, "zero_ambos": 0},
+                "6_a_10": {"faixa": "6 a 10 Votos", "urnas": 0, "pct": 0.0, "soma_2t": 0, "soma_1t": 0, "media_1t": 0.0, "zero_ambos": 0},
+                "11_a_20": {"faixa": "11 a 20 Votos", "urnas": 0, "pct": 0.0, "soma_2t": 0, "soma_1t": 0, "media_1t": 0.0, "zero_ambos": 0},
+            }
+        },
+        "comparativo": {
+            "urnas_zero_22": 0,
+            "urnas_zero_13": 0,
+            "zero_ambos_22": 0,
+            "zero_ambos_13": 0,
+            "total_ate_20_22": 0,
+            "total_ate_20_13": 0,
+            "total_urnas_escopo": filtros_contagens.get("total_urnas", 0)
+        }
+    }
+
+    if sq_cand_counts is not None:
+        try:
+            map_22 = {k: {"votos_2t": k, "urnas": 0, "total_votos_2t": 0, "soma_votos_1t": 0, "media_votos_1t": 0.0, "urnas_zero_1t": 0, "pct_urnas": 0.0} for k in range(21)}
+            map_13 = {k: {"votos_2t": k, "urnas": 0, "total_votos_2t": 0, "soma_votos_1t": 0, "media_votos_1t": 0.0, "urnas_zero_1t": 0, "pct_urnas": 0.0} for k in range(21)}
+
+            rows_22 = (
+                db.query(
+                    sq_cand_counts.c.v22_2t.label("v2t"),
+                    func.count(sq_cand_counts.c.sec_id).label("qtd"),
+                    func.coalesce(func.sum(sq_cand_counts.c.v22_1t), 0).label("soma_1t"),
+                    func.count(case(((sq_cand_counts.c.v22_1t == 0), 1), else_=None)).label("qtd_z1")
+                )
+                .filter(sq_cand_counts.c.v22_2t <= 20)
+                .group_by(sq_cand_counts.c.v22_2t)
+                .all()
+            )
+            for r in rows_22:
+                v_val = int(r.v2t or 0)
+                if 0 <= v_val <= 20:
+                    q_u = int(r.qtd or 0)
+                    s_1 = int(r.soma_1t or 0)
+                    z_1 = int(r.qtd_z1 or 0)
+                    map_22[v_val]["urnas"] = q_u
+                    map_22[v_val]["total_votos_2t"] = v_val * q_u
+                    map_22[v_val]["soma_votos_1t"] = s_1
+                    map_22[v_val]["media_votos_1t"] = round(s_1 / q_u, 2) if q_u > 0 else 0.0
+                    map_22[v_val]["urnas_zero_1t"] = z_1
+
+            rows_13 = (
+                db.query(
+                    sq_cand_counts.c.v13_2t.label("v2t"),
+                    func.count(sq_cand_counts.c.sec_id).label("qtd"),
+                    func.coalesce(func.sum(sq_cand_counts.c.v13_1t), 0).label("soma_1t"),
+                    func.count(case(((sq_cand_counts.c.v13_1t == 0), 1), else_=None)).label("qtd_z1")
+                )
+                .filter(sq_cand_counts.c.v13_2t <= 20)
+                .group_by(sq_cand_counts.c.v13_2t)
+                .all()
+            )
+            for r in rows_13:
+                v_val = int(r.v2t or 0)
+                if 0 <= v_val <= 20:
+                    q_u = int(r.qtd or 0)
+                    s_1 = int(r.soma_1t or 0)
+                    z_1 = int(r.qtd_z1 or 0)
+                    map_13[v_val]["urnas"] = q_u
+                    map_13[v_val]["total_votos_2t"] = v_val * q_u
+                    map_13[v_val]["soma_votos_1t"] = s_1
+                    map_13[v_val]["media_votos_1t"] = round(s_1 / q_u, 2) if q_u > 0 else 0.0
+                    map_13[v_val]["urnas_zero_1t"] = z_1
+
+            tot_esc = max(1, filtros_contagens.get("total_urnas", 0))
+
+            for c_key, m_data in [("candidato_22", map_22), ("candidato_13", map_13)]:
+                lista_pv = []
+                tot_u_20 = 0
+                tot_v2_20 = 0
+                tot_v1_20 = 0
+                zero_ambos = m_data[0]["urnas_zero_1t"]
+
+                f_res = distribuicao_votos_0_20[c_key]["faixas_resumo"]
+
+                for k in range(21):
+                    item = m_data[k]
+                    item["pct_urnas"] = round((item["urnas"] / tot_esc) * 100.0, 2)
+                    lista_pv.append(item)
+                    tot_u_20 += item["urnas"]
+                    tot_v2_20 += item["total_votos_2t"]
+                    tot_v1_20 += item["soma_votos_1t"]
+
+                    if k == 0:
+                        fk = "zero"
+                    elif 1 <= k <= 5:
+                        fk = "1_a_5"
+                    elif 6 <= k <= 10:
+                        fk = "6_a_10"
+                    else:
+                        fk = "11_a_20"
+
+                    f_res[fk]["urnas"] += item["urnas"]
+                    f_res[fk]["soma_2t"] += item["total_votos_2t"]
+                    f_res[fk]["soma_1t"] += item["soma_votos_1t"]
+                    if k == 0:
+                        f_res[fk]["zero_ambos"] = zero_ambos
+
+                for fk in f_res:
+                    u_f = f_res[fk]["urnas"]
+                    f_res[fk]["pct"] = round((u_f / tot_esc) * 100.0, 2)
+                    f_res[fk]["media_1t"] = round(f_res[fk]["soma_1t"] / u_f, 2) if u_f > 0 else 0.0
+
+                distribuicao_votos_0_20[c_key]["por_voto"] = lista_pv
+                distribuicao_votos_0_20[c_key]["total_urnas_ate_20"] = tot_u_20
+                distribuicao_votos_0_20[c_key]["pct_urnas_ate_20"] = round((tot_u_20 / tot_esc) * 100.0, 2)
+                distribuicao_votos_0_20[c_key]["total_votos_2t_ate_20"] = tot_v2_20
+                distribuicao_votos_0_20[c_key]["total_votos_1t_ate_20"] = tot_v1_20
+                distribuicao_votos_0_20[c_key]["urnas_zero_ambos_turnos"] = zero_ambos
+
+            distribuicao_votos_0_20["comparativo"] = {
+                "urnas_zero_22": map_22[0]["urnas"],
+                "urnas_zero_13": map_13[0]["urnas"],
+                "zero_ambos_22": map_22[0]["urnas_zero_1t"],
+                "zero_ambos_13": map_13[0]["urnas_zero_1t"],
+                "total_ate_20_22": distribuicao_votos_0_20["candidato_22"]["total_urnas_ate_20"],
+                "total_ate_20_13": distribuicao_votos_0_20["candidato_13"]["total_urnas_ate_20"],
+                "total_urnas_escopo": filtros_contagens.get("total_urnas", 0),
+            }
+
+            # Enriquecimento dos contadores de filtro forense
+            filtros_contagens["baixa_22_zero"] = map_22[0]["urnas"]
+            filtros_contagens["baixa_13_zero"] = map_13[0]["urnas"]
+            filtros_contagens["zero_duplo_22"] = map_22[0]["urnas_zero_1t"]
+            filtros_contagens["zero_duplo_13"] = map_13[0]["urnas_zero_1t"]
+            filtros_contagens["baixa_22_ate_5"] = distribuicao_votos_0_20["candidato_22"]["faixas_resumo"]["zero"]["urnas"] + distribuicao_votos_0_20["candidato_22"]["faixas_resumo"]["1_a_5"]["urnas"]
+            filtros_contagens["baixa_13_ate_5"] = distribuicao_votos_0_20["candidato_13"]["faixas_resumo"]["zero"]["urnas"] + distribuicao_votos_0_20["candidato_13"]["faixas_resumo"]["1_a_5"]["urnas"]
+            filtros_contagens["baixa_22_ate_20"] = distribuicao_votos_0_20["candidato_22"]["total_urnas_ate_20"]
+            filtros_contagens["baixa_13_ate_20"] = distribuicao_votos_0_20["candidato_13"]["total_urnas_ate_20"]
+
+        except Exception as exc_dist:
+            print(f"[TSE-DIST] Erro ao calcular distribuição 0 a 20 votos: {exc_dist}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+
     # 1.2 Aplicação Relacional do Filtro Forense Solicitado
     filtro_forense_clauses = []
     if filtro_forense == "APENAS_DIVERGENTES":
@@ -7317,6 +7486,50 @@ def _consolidar_secoes_tse_sql(
                 TseVotoCandidato.votos_bu != TseVotoCandidato.votos_rdv
             )
             filtro_forense_clauses.append(TseSecao.id.in_(subq_div_cand))
+        except Exception:
+            pass
+    elif sq_cand_counts is not None and filtro_forense == "BAIXA_22_ZERO":
+        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t == 0)
+        filtro_forense_clauses.append(TseSecao.id.in_(subq))
+    elif sq_cand_counts is not None and filtro_forense == "BAIXA_13_ZERO":
+        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t == 0)
+        filtro_forense_clauses.append(TseSecao.id.in_(subq))
+    elif sq_cand_counts is not None and filtro_forense == "ZERO_DUPLO_22":
+        subq = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v22_2t == 0) & (sq_cand_counts.c.v22_1t == 0))
+        filtro_forense_clauses.append(TseSecao.id.in_(subq))
+    elif sq_cand_counts is not None and filtro_forense == "ZERO_DUPLO_13":
+        subq = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v13_2t == 0) & (sq_cand_counts.c.v13_1t == 0))
+        filtro_forense_clauses.append(TseSecao.id.in_(subq))
+    elif sq_cand_counts is not None and filtro_forense == "BAIXA_22_ATE_5":
+        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t <= 5)
+        filtro_forense_clauses.append(TseSecao.id.in_(subq))
+    elif sq_cand_counts is not None and filtro_forense == "BAIXA_13_ATE_5":
+        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t <= 5)
+        filtro_forense_clauses.append(TseSecao.id.in_(subq))
+    elif sq_cand_counts is not None and filtro_forense == "BAIXA_22_ATE_10":
+        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t <= 10)
+        filtro_forense_clauses.append(TseSecao.id.in_(subq))
+    elif sq_cand_counts is not None and filtro_forense == "BAIXA_13_ATE_10":
+        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t <= 10)
+        filtro_forense_clauses.append(TseSecao.id.in_(subq))
+    elif sq_cand_counts is not None and filtro_forense == "BAIXA_22_ATE_20":
+        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t <= 20)
+        filtro_forense_clauses.append(TseSecao.id.in_(subq))
+    elif sq_cand_counts is not None and filtro_forense == "BAIXA_13_ATE_20":
+        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t <= 20)
+        filtro_forense_clauses.append(TseSecao.id.in_(subq))
+    elif sq_cand_counts is not None and filtro_forense.startswith("VOTOS_EXATOS_22:"):
+        try:
+            k_val = int(filtro_forense.split(":", 1)[1])
+            subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t == k_val)
+            filtro_forense_clauses.append(TseSecao.id.in_(subq))
+        except Exception:
+            pass
+    elif sq_cand_counts is not None and filtro_forense.startswith("VOTOS_EXATOS_13:"):
+        try:
+            k_val = int(filtro_forense.split(":", 1)[1])
+            subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t == k_val)
+            filtro_forense_clauses.append(TseSecao.id.in_(subq))
         except Exception:
             pass
 
@@ -7612,6 +7825,7 @@ def _consolidar_secoes_tse_sql(
         "total_secoes_no_filtro": total_secoes_no_filtro,
         "filtro_forense_selecionado": filtro_forense or "TODAS",
         "filtros_contagens": filtros_contagens,
+        "distribuicao_votos_0_20": distribuicao_votos_0_20,
         "regiao_selecionada": regiao_filtro,
         "uf_selecionada": uf_filtro,
         "municipio_selecionado": municipio_filtro,
@@ -8210,6 +8424,7 @@ def _consolidar_secoes_tse_sql(
             "delta_comparecimento": delta_comp_sql,
             "delta_brancos_nulos": delta_bn_sql,
             "candidatos": lista_cands_comp,
+            "distribuicao_votos_0_20": distribuicao_votos_0_20,
         },
     }
 
@@ -8368,6 +8583,7 @@ def _consolidar_secoes_tse_sql(
             "votos_por_hora": dict(sorted(vph_t1_global.items())) if turno_filtro == "1" else dict(sorted(vph_t2_global.items())),
             "comparativo_turnos": comparativo_turnos_global,
             "filtros_contagens": filtros_contagens,
+            "distribuicao_votos_0_20": distribuicao_votos_0_20,
             "lista_urnas": lista_urnas,
         },
     }

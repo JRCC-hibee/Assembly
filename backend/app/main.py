@@ -92,8 +92,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-11-rev56"
-SYSTEM_COMMIT = "rev56-cards-estatisticos-comparativo-lula-bolsonaro-2t"
+SYSTEM_BUILD = "2026-11-11-rev57"
+SYSTEM_COMMIT = "rev57-bi-baixa-votacao-0-a-20-votos-cruzamento-turnos"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
