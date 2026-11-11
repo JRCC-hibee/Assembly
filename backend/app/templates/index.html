@@ -6903,18 +6903,15 @@ o Boletim de Urna (apos encerramento da votacao).
         }
       }
 
-      if (totalGeral === 0) {
-        const fCont = document.getElementById("tseFilterBarContainer");
-        if (fCont) fCont.classList.add("hidden");
-        const rCont = document.getElementById("tseReversoResultContainer");
-        if (rCont) rCont.classList.add("hidden");
-        return false;
-      }
-
       const fCont = document.getElementById("tseFilterBarContainer");
       if (fCont) fCont.classList.remove("hidden");
       const rCont = document.getElementById("tseReversoResultContainer");
       if (rCont) rCont.classList.remove("hidden");
+
+      if (totalGeral === 0) {
+        popularSeletoresHierarquicosTse(hier);
+        return false;
+      }
 
       window.lastPayloadConsolidado = payload;
       popularSeletoresHierarquicosTse(hier);

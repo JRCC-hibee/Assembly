@@ -7082,9 +7082,9 @@ def _consolidar_secoes_tse_sql(
     # 1. Filtros Geográficos
     filtro_secao = []
     if uf_filtro != "TODAS":
-        filtro_secao.append(func.upper(TseSecao.uf) == uf_filtro.upper())
+        filtro_secao.append(TseSecao.uf == uf_filtro.upper())
     elif regiao_filtro != "TODAS":
-        filtro_secao.append(func.upper(TseSecao.regiao) == regiao_filtro.upper())
+        filtro_secao.append(TseSecao.regiao == regiao_filtro.upper())
 
     if municipio_filtro != "TODAS":
         filtro_secao.append(TseSecao.municipio_codigo == municipio_filtro)
@@ -7123,6 +7123,10 @@ def _consolidar_secoes_tse_sql(
         filtros_contagens["divergentes"] = int(q_div_count.scalar() or 0)
     except Exception as exc_dc:
         print(f"[TSE-COUNTS] Aviso contagem divergentes: {exc_dc}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
     try:
         sq_cand_counts = (
@@ -7143,7 +7147,8 @@ def _consolidar_secoes_tse_sql(
         dv_l_c = sq_cand_counts.c.v13_2t - sq_cand_counts.c.v13_1t
         tot_nv_c = dv_f_c + dv_l_c
 
-        c_row = db.query(
+        c_row = (
+            db.query(
             # Totalização do Turno (Resultado Geral do 2º Turno)
             func.count(case(((sq_cand_counts.c.v22_2t > sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0), 1), else_=None)).label("vit_f"),
             func.count(case(((sq_cand_counts.c.v13_2t > sq_cand_counts.c.v22_2t) & (sq_cand_counts.c.v13_2t > 0), 1), else_=None)).label("vit_l"),
@@ -7178,7 +7183,10 @@ def _consolidar_secoes_tse_sql(
                     (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_l_c * 3) >= (dv_f_c * 7))
                 ), 1
             ), else_=None)).label("nv_disc_l"),
-        ).first()
+        )
+        .select_from(sq_cand_counts)
+        .first()
+    )
         if c_row:
             filtros_contagens["turno_vitoria_flavio"] = int(c_row.vit_f or 0)
             filtros_contagens["vitoria_flavio"] = int(c_row.vit_f or 0)
@@ -7196,58 +7204,26 @@ def _consolidar_secoes_tse_sql(
             filtros_contagens["alertas_todos"] = int(c_row.nv_disc or 0) + int(filtros_contagens.get("divergentes", 0))
     except Exception as exc_cand_c:
         print(f"[TSE-COUNTS] Aviso contagem candidatos: {exc_cand_c}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
     # 1.2 Aplicação Relacional do Filtro Forense Solicitado
     filtro_forense_clauses = []
     if filtro_forense == "APENAS_DIVERGENTES":
         subq_div = db.query(TseApuracaoBU.secao_id).filter(TseApuracaoBU.divergencia_detectada == True)
         filtro_forense_clauses.append(TseSecao.id.in_(subq_div))
-    elif filtro_forense in ("TURNO_VITORIA_FLAVIO", "VITORIA_FLAVIO"):
-        subq_vf = (
-            db.query(TseVotoCandidato.secao_id)
-            .filter(
-                or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None),
-                TseVotoCandidato.turno == 2
-            )
-            .group_by(TseVotoCandidato.secao_id)
-            .having(
-                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0) >
-                 func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0)) &
-                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0) > 0)
-            )
-        )
+    elif sq_cand_counts is not None and filtro_forense in ("TURNO_VITORIA_FLAVIO", "VITORIA_FLAVIO"):
+        subq_vf = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v22_2t > sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0))
         filtro_forense_clauses.append(TseSecao.id.in_(subq_vf))
-    elif filtro_forense in ("TURNO_VITORIA_LULA", "VITORIA_LULA"):
-        subq_vl = (
-            db.query(TseVotoCandidato.secao_id)
-            .filter(
-                or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None),
-                TseVotoCandidato.turno == 2
-            )
-            .group_by(TseVotoCandidato.secao_id)
-            .having(
-                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0) >
-                 func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0)) &
-                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0) > 0)
-            )
-        )
+    elif sq_cand_counts is not None and filtro_forense in ("TURNO_VITORIA_LULA", "VITORIA_LULA"):
+        subq_vl = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v13_2t > sq_cand_counts.c.v22_2t) & (sq_cand_counts.c.v13_2t > 0))
         filtro_forense_clauses.append(TseSecao.id.in_(subq_vl))
-    elif filtro_forense in ("TURNO_EMPATE_2T", "EMPATE_2T"):
-        subq_emp = (
-            db.query(TseVotoCandidato.secao_id)
-            .filter(
-                or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None),
-                TseVotoCandidato.turno == 2
-            )
-            .group_by(TseVotoCandidato.secao_id)
-            .having(
-                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0) ==
-                 func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0)) &
-                (func.coalesce(func.sum(case(((TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0) > 0)
-            )
-        )
+    elif sq_cand_counts is not None and filtro_forense in ("TURNO_EMPATE_2T", "EMPATE_2T"):
+        subq_emp = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v22_2t == sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0))
         filtro_forense_clauses.append(TseSecao.id.in_(subq_emp))
-    elif filtro_forense in (
+    elif sq_cand_counts is not None and filtro_forense in (
         "NOVOS_VITORIA_FLAVIO",
         "NOVOS_VITORIA_LULA",
         "NOVOS_EMPATE_EXATO",
@@ -7257,32 +7233,20 @@ def _consolidar_secoes_tse_sql(
         "NOVOS_DISCREP_LULA",
         "ALERTAS_TODOS",
     ):
-        sq_cand = (
-            db.query(
-                TseVotoCandidato.secao_id.label("sec_id"),
-                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_2t"),
-                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_2t"),
-                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_1t"),
-                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_1t"),
-            )
-            .filter(or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None))
-            .group_by(TseVotoCandidato.secao_id)
-            .subquery()
-        )
-        dv_f = sq_cand.c.v22_2t - sq_cand.c.v22_1t
-        dv_l = sq_cand.c.v13_2t - sq_cand.c.v13_1t
+        dv_f = sq_cand_counts.c.v22_2t - sq_cand_counts.c.v22_1t
+        dv_l = sq_cand_counts.c.v13_2t - sq_cand_counts.c.v13_1t
         tot_nv = dv_f + dv_l
 
         if filtro_forense == "NOVOS_VITORIA_FLAVIO":
-            subq_nv = db.query(sq_cand.c.sec_id).filter((dv_f > dv_l) & (dv_f > 0))
+            subq_nv = db.query(sq_cand_counts.c.sec_id).filter((dv_f > dv_l) & (dv_f > 0))
             filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
 
         elif filtro_forense == "NOVOS_VITORIA_LULA":
-            subq_nv = db.query(sq_cand.c.sec_id).filter((dv_l > dv_f) & (dv_l > 0))
+            subq_nv = db.query(sq_cand_counts.c.sec_id).filter((dv_l > dv_f) & (dv_l > 0))
             filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
 
         elif filtro_forense == "NOVOS_EMPATE_EXATO":
-            subq_nv = db.query(sq_cand.c.sec_id).filter((dv_f == dv_l) & (dv_f > 0))
+            subq_nv = db.query(sq_cand_counts.c.sec_id).filter((dv_f == dv_l) & (dv_f > 0))
             filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
 
         elif filtro_forense == "NOVOS_EMPATE_TECNICO":
@@ -7292,7 +7256,7 @@ def _consolidar_secoes_tse_sql(
                     ((func.abs(dv_f - dv_l) * 10) <= tot_nv)
                 )
             )
-            subq_nv = db.query(sq_cand.c.sec_id).filter(cond_empate)
+            subq_nv = db.query(sq_cand_counts.c.sec_id).filter(cond_empate)
             filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
 
         elif filtro_forense == "NOVOS_DISCREPANCIA":
@@ -7304,7 +7268,7 @@ def _consolidar_secoes_tse_sql(
                 (dv_l >= 5) & (dv_f <= 0),
                 (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7))
             )
-            subq_nv = db.query(sq_cand.c.sec_id).filter(or_(cond_disc_f, cond_disc_l))
+            subq_nv = db.query(sq_cand_counts.c.sec_id).filter(or_(cond_disc_f, cond_disc_l))
             filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
 
         elif filtro_forense == "NOVOS_DISCREP_FLAVIO":
@@ -7312,7 +7276,7 @@ def _consolidar_secoes_tse_sql(
                 (dv_f >= 5) & (dv_l <= 0),
                 (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7))
             )
-            subq_nv = db.query(sq_cand.c.sec_id).filter(cond_disc_f)
+            subq_nv = db.query(sq_cand_counts.c.sec_id).filter(cond_disc_f)
             filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
 
         elif filtro_forense == "NOVOS_DISCREP_LULA":
@@ -7320,7 +7284,7 @@ def _consolidar_secoes_tse_sql(
                 (dv_l >= 5) & (dv_f <= 0),
                 (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7))
             )
-            subq_nv = db.query(sq_cand.c.sec_id).filter(cond_disc_l)
+            subq_nv = db.query(sq_cand_counts.c.sec_id).filter(cond_disc_l)
             filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
 
         elif filtro_forense == "ALERTAS_TODOS":
@@ -7330,8 +7294,8 @@ def _consolidar_secoes_tse_sql(
                 (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7)),
                 (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7))
             )
-            cond_empate_2t = (sq_cand.c.v22_2t == sq_cand.c.v13_2t) & (sq_cand.c.v22_2t > 0)
-            subq_alertas_cand = db.query(sq_cand.c.sec_id).filter(or_(cond_disc_qualquer, cond_empate_2t))
+            cond_empate_2t = (sq_cand_counts.c.v22_2t == sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0)
+            subq_alertas_cand = db.query(sq_cand_counts.c.sec_id).filter(or_(cond_disc_qualquer, cond_empate_2t))
             subq_div = db.query(TseApuracaoBU.secao_id).filter(TseApuracaoBU.divergencia_detectada == True)
             filtro_forense_clauses.append(or_(TseSecao.id.in_(subq_alertas_cand), TseSecao.id.in_(subq_div)))
 
@@ -7364,13 +7328,9 @@ def _consolidar_secoes_tse_sql(
             TseSecao.regiao,
             func.count(func.distinct(TseSecao.uf)).label("tot_est"),
             func.count(func.distinct(TseSecao.municipio_codigo)).label("tot_cid"),
-            func.count(func.distinct(TseSecao.id)).label("tot_urnas"),
-            func.coalesce(func.sum(votos_col), 0).label("tot_votos"),
-            func.coalesce(func.sum(aptos_col), 0).label("tot_aptos"),
+            func.count(TseSecao.id).label("tot_urnas"),
         )
         .select_from(TseSecao)
-        .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
-        .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
         .group_by(TseSecao.regiao)
         .order_by(TseSecao.regiao)
         .all()
@@ -7381,8 +7341,8 @@ def _consolidar_secoes_tse_sql(
             "total_estados": int(r[1]),
             "total_cidades": int(r[2]),
             "total_urnas": int(r[3]),
-            "total_votos": int(r[4] or 0),
-            "total_aptos": int(r[5] or 0),
+            "total_votos": 0,
+            "total_aptos": 0,
         }
         for r in q_reg
     ]
@@ -7393,13 +7353,9 @@ def _consolidar_secoes_tse_sql(
             TseSecao.uf,
             TseSecao.regiao,
             func.count(func.distinct(TseSecao.municipio_codigo)).label("tot_cid"),
-            func.count(func.distinct(TseSecao.id)).label("tot_urnas"),
-            func.coalesce(func.sum(votos_col), 0).label("tot_votos"),
-            func.coalesce(func.sum(aptos_col), 0).label("tot_aptos"),
+            func.count(TseSecao.id).label("tot_urnas"),
         )
         .select_from(TseSecao)
-        .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
-        .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
     )
     if regiao_filtro != "TODAS":
         q_est = q_est.filter(TseSecao.regiao == regiao_filtro.upper())
@@ -7411,8 +7367,8 @@ def _consolidar_secoes_tse_sql(
             "regiao": r[1],
             "total_cidades": int(r[2]),
             "total_urnas": int(r[3]),
-            "total_votos": int(r[4] or 0),
-            "total_aptos": int(r[5] or 0),
+            "total_votos": 0,
+            "total_aptos": 0,
         }
         for r in rows_est
     ]
@@ -7425,16 +7381,12 @@ def _consolidar_secoes_tse_sql(
             TseSecao.uf,
             TseSecao.regiao,
             func.count(func.distinct(TseSecao.zona)).label("tot_zon"),
-            func.count(func.distinct(TseSecao.id)).label("tot_urnas"),
-            func.coalesce(func.sum(votos_col), 0).label("tot_votos"),
-            func.coalesce(func.sum(aptos_col), 0).label("tot_aptos"),
+            func.count(TseSecao.id).label("tot_urnas"),
         )
         .select_from(TseSecao)
-        .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
-        .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
     )
     if uf_filtro != "TODAS":
-        q_cid = q_cid.filter(TseSecao.uf == uf_filtro)
+        q_cid = q_cid.filter(TseSecao.uf == uf_filtro.upper())
     elif regiao_filtro != "TODAS":
         q_cid = q_cid.filter(TseSecao.regiao == regiao_filtro.upper())
     if filtro_forense_clauses:
@@ -7450,8 +7402,8 @@ def _consolidar_secoes_tse_sql(
             "regiao": r[3],
             "total_zonas": int(r[4]),
             "total_urnas": int(r[5]),
-            "total_votos": int(r[6] or 0),
-            "total_aptos": int(r[7] or 0),
+            "total_votos": 0,
+            "total_aptos": 0,
         }
         for r in rows_cid
     ]
@@ -7469,7 +7421,7 @@ def _consolidar_secoes_tse_sql(
         .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
     )
     if uf_filtro != "TODAS":
-        q_zon = q_zon.filter(TseSecao.uf == uf_filtro)
+        q_zon = q_zon.filter(TseSecao.uf == uf_filtro.upper())
     elif regiao_filtro != "TODAS":
         q_zon = q_zon.filter(TseSecao.regiao == regiao_filtro.upper())
     if municipio_filtro != "TODAS":
@@ -7810,7 +7762,8 @@ def _consolidar_secoes_tse_sql(
             TseVotoCandidato.secao_id,
             func.max(TseVotoCandidato.turno).label("turno_ativo")
         )
-        .filter(TseVotoCandidato.cargo == cargo_filtro)
+        .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
+        .filter(*filtro_secao, TseVotoCandidato.cargo == cargo_filtro)
         .group_by(TseVotoCandidato.secao_id)
         .subquery()
     )
@@ -8119,27 +8072,35 @@ def _consolidar_secoes_tse_sql(
     vph_t1_global = Counter()
     vph_t2_global = Counter()
     try:
-        metricas_vph = (
+        q_vph = (
             db.query(TseMetricasLog.turno, TseMetricasLog.vazao_horaria_json)
             .select_from(TseMetricasLog)
             .join(TseSecao, TseMetricasLog.secao_id == TseSecao.id)
             .filter(*filtro_secao)
-            .all()
         )
+        if total_secoes_no_filtro > 1000:
+            q_vph = q_vph.limit(1000)
+        metricas_vph = q_vph.all()
+        fator_escala = (total_secoes_no_filtro / 1000.0) if (total_secoes_no_filtro > 1000 and len(metricas_vph) > 0) else 1.0
         for t_val, v_json in metricas_vph:
             if v_json:
                 try:
                     d_vph = json.loads(v_json)
                     if isinstance(d_vph, dict):
                         for hh, cnt in d_vph.items():
+                            val_cnt = int(round(int(cnt or 0) * fator_escala))
                             if t_val == 1:
-                                vph_t1_global[hh] += int(cnt or 0)
+                                vph_t1_global[hh] += val_cnt
                             else:
-                                vph_t2_global[hh] += int(cnt or 0)
+                                vph_t2_global[hh] += val_cnt
                 except Exception:
                     pass
     except Exception as exc_vph:
         print(f"[TSE-SQL] Aviso ao agregar vazão horária global: {exc_vph}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
     faixas_horas_global = ["08h", "09h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h"]
     votos_por_hora_comp_global = []
