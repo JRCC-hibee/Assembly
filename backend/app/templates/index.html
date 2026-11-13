@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Urna Eletrônica Brasileira — ESP32 RISC-V Assembly & Python Core</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;600;700;800&display=swap');
     body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
@@ -121,6 +123,65 @@
     @keyframes scanLaser {
       0% { top: 8%; }
       100% { top: 88%; }
+    }
+
+    /* Estilos do Mapa Forense de Locais de Votação (Leaflet PINs) */
+    .pin-urna-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 9999px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.7);
+      transition: transform 0.15s ease-in-out;
+      text-align: center;
+    }
+    .pin-urna-container:hover {
+      transform: scale(1.18);
+      z-index: 1000 !important;
+    }
+    .pin-verde {
+      background: linear-gradient(135deg, #059669 0%, #047857 100%);
+      border: 2px solid #34d399;
+      color: #ffffff;
+    }
+    .pin-vermelho {
+      background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+      border: 2px solid #f87171;
+      color: #ffffff;
+    }
+    .pin-amarelo {
+      background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+      border: 2px solid #fcd34d;
+      color: #ffffff;
+    }
+    .pin-anomalia {
+      box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.4), 0 0 18px rgba(239, 68, 68, 0.9) !important;
+      animation: pulse-pin 1.8s infinite;
+    }
+    @keyframes pulse-pin {
+      0% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.7); }
+      50% { box-shadow: 0 0 0 9px rgba(239, 68, 68, 0.2); }
+      100% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.7); }
+    }
+    .leaflet-popup-content-wrapper {
+      background: #0f172a !important;
+      color: #f8fafc !important;
+      border: 1px solid #334155 !important;
+      border-radius: 12px !important;
+      box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.85) !important;
+      padding: 0 !important;
+      overflow: hidden;
+    }
+    .leaflet-popup-content {
+      margin: 0 !important;
+      line-height: 1.4 !important;
+    }
+    .leaflet-popup-tip {
+      background: #0f172a !important;
+      border: 1px solid #334155 !important;
     }
   </style>
 </head>
@@ -1342,6 +1403,15 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
           <div class="flex items-center gap-2">
             <button
+              id="btnAlternarModoMapaTse"
+              onclick="alternarModoMapaLocaisTse()"
+              class="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-[11px] mono transition flex items-center gap-1.5 shadow-md cursor-pointer"
+              title="Visualizar as seções como PINs em um mapa interativo por endereço/local físico de votação"
+            >
+              <span>🗺️</span>
+              <span id="btnAlternarModoMapaTexto">Mapa de Locais (PINs)</span>
+            </button>
+            <button
               onclick="voltarParaConsolidacaoFiltro()"
               id="btnVoltarConsolidado"
               class="hidden px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-extrabold text-xs mono transition"
@@ -1388,7 +1458,7 @@ o Boletim de Urna (apos encerramento da votacao).
         </div>
 
         <!-- 5 Colunas da Árvore (Região > Estado > Cidade > Zona > Seção) cada uma com Busca Textual -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div id="tseColunasArvoreContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
           <!-- Nível 1: Região do País -->
           <div class="bg-slate-950 border border-slate-800 rounded-xl p-2.5 flex flex-col">
             <div class="flex items-center justify-between mb-1.5">
@@ -1477,6 +1547,109 @@ o Boletim de Urna (apos encerramento da votacao).
               class="w-full bg-slate-900 border border-slate-800 focus:border-emerald-500 rounded-lg px-2.5 py-1.5 text-[11px] text-white mono outline-none mb-2"
             />
             <div id="treeListSecao" class="max-h-44 overflow-y-auto space-y-1 pr-0.5 text-[11px] mono"></div>
+          </div>
+        </div>
+
+        <!-- PAINEL DE MAPA FORENSE DE LOCAIS FÍSICOS DE VOTAÇÃO (PINs & DESVIO INTRA-LOCAL) -->
+        <div id="tsePainelMapaLocais" class="hidden bg-slate-950 border border-indigo-500/40 rounded-xl p-4 sm:p-5 space-y-4 shadow-2xl">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="text-xl">🗺️</span>
+                <h3 class="text-sm sm:text-base font-black text-white">
+                  Mapa Forense de Locais de Votação (Prédios Físicos) & Desvio Intra-Local
+                </h3>
+                <span id="badgeStatusMapaLocais" class="px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700 text-[10px] font-extrabold mono uppercase">PINs no Mapa</span>
+              </div>
+              <p id="subtituloMapaLocais" class="text-xs text-slate-400 mt-0.5">
+                Identifica se as seções eleitorais compartilham o mesmo endereço físico e calcula o desvio estatístico entre urnas do mesmo prédio.
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button
+                onclick="recentralizarMapaLocaisTse()"
+                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs mono transition flex items-center gap-1 cursor-pointer"
+                title="Recentralizar câmera no centróide da cidade"
+              >
+                🎯 Recentralizar
+              </button>
+              <button
+                onclick="alternarModoMapaLocaisTse(false)"
+                class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs mono transition cursor-pointer"
+                title="Voltar para a Árvore de 5 Colunas"
+              >
+                ✕ Fechar Mapa
+              </button>
+            </div>
+          </div>
+
+          <!-- Mini KPIs de Locais do Escopo Atual -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs mono">
+            <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between">
+              <div>
+                <span class="text-[10px] text-slate-400 uppercase block">Prédios Físicos</span>
+                <span id="kpiTotalLocaisMapa" class="text-base font-black text-white">-</span>
+              </div>
+              <span class="text-2xl">🏢</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-700/40 flex items-center justify-between">
+              <div>
+                <span class="text-[10px] text-emerald-400 uppercase block">Vitória 22 (Flávio)</span>
+                <span id="kpiLocaisVitoria22" class="text-base font-black text-emerald-300">-</span>
+              </div>
+              <span class="text-xs font-black px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-200">🟢 PINs</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-rose-950/40 border border-rose-700/40 flex items-center justify-between">
+              <div>
+                <span class="text-[10px] text-rose-400 uppercase block">Vitória 13 (Lula)</span>
+                <span id="kpiLocaisVitoria13" class="text-base font-black text-rose-300">-</span>
+              </div>
+              <span class="text-xs font-black px-2 py-0.5 rounded bg-rose-900/60 text-rose-200">🔴 PINs</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-amber-950/40 border border-amber-700/40 flex items-center justify-between">
+              <div>
+                <span class="text-[10px] text-amber-400 uppercase block">Desvio Atípico Intra-Local</span>
+                <span id="kpiLocaisAnomalia" class="text-base font-black text-amber-300">-</span>
+              </div>
+              <span class="text-xs font-black px-2 py-0.5 rounded bg-amber-900/60 text-amber-200 animate-pulse">⚠️ Alertas</span>
+            </div>
+          </div>
+
+          <!-- Layout do Mapa: Coluna Esquerda Mapa (65%), Coluna Direita Lista de Prédios e Desvios (35%) -->
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div class="lg:col-span-7 xl:col-span-8 flex flex-col">
+              <div id="tseLeafletMap" class="w-full h-[520px] rounded-xl border border-slate-800 bg-slate-900 shadow-inner z-10"></div>
+              <div class="flex items-center justify-between text-[11px] text-slate-500 mt-2 px-1 mono">
+                <span>Legenda: 🟢 Maioria Flávio (22) | 🔴 Maioria Lula (13) | 🟡 Empate | ⚠️ Anel pulsante: divergência interna entre seções do mesmo prédio</span>
+                <span>OpenStreetMap & CartoDB</span>
+              </div>
+            </div>
+
+            <div class="lg:col-span-5 xl:col-span-4 flex flex-col space-y-3">
+              <!-- Filtro de Busca nos Locais -->
+              <div class="flex items-center gap-2">
+                <input
+                  id="searchLocaisMapa"
+                  type="text"
+                  oninput="filtrarListaLocaisMapaTse(this.value)"
+                  placeholder="🔎 Filtrar prédio, local nº ou seção..."
+                  class="flex-1 bg-slate-900 border border-slate-800 focus:border-indigo-500 rounded-lg px-3 py-1.5 text-xs text-white mono outline-none"
+                />
+                <select
+                  id="selectOrdemLocaisMapa"
+                  onchange="reordenarListaLocaisMapaTse(this.value)"
+                  class="bg-slate-900 border border-slate-800 text-slate-300 rounded-lg px-2 py-1.5 text-xs mono outline-none cursor-pointer"
+                >
+                  <option value="ANOMALIA">🚨 Maior Desvio</option>
+                  <option value="SECOES">🗳️ Mais Seções</option>
+                  <option value="VOTOS_22">🟢 Votação 22</option>
+                  <option value="VOTOS_13">🔴 Votação 13</option>
+                </select>
+              </div>
+
+              <!-- Lista com Scroll de Cards por Local de Votação -->
+              <div id="tseListaCardsLocais" class="max-h-[475px] overflow-y-auto space-y-2.5 pr-1"></div>
+            </div>
           </div>
         </div>
       </div>
@@ -7005,6 +7178,11 @@ o Boletim de Urna (apos encerramento da votacao).
       } catch (errBaixa) {
         console.error("[TSE] Erro ao renderizar painel de baixa votação:", errBaixa);
       }
+      try {
+        atualizarDadosLocaisVotacaoMapaTse(payload);
+      } catch (errMapa) {
+        console.error("[TSE] Erro ao atualizar dados de mapa de locais:", errMapa);
+      }
       return true;
     }
 
@@ -7800,6 +7978,31 @@ o Boletim de Urna (apos encerramento da votacao).
       const totNominais = cands.reduce((acc, c) => acc + Number(c.votos || c.votos_bu || 0), 0);
       const totApurado = totNominais + brancos + nulos;
 
+      const ciclos = is1T ? (window.currentTseCiclos1T || []) : (window.currentTseCiclos2T || []);
+      let horaAb = is1T ? (res.hora_abertura_1t || bu.hora_abertura_1t) : (res.hora_abertura_2t || bu.hora_abertura_2t);
+      if (!horaAb || horaAb === "XXX") {
+        if (ciclos && ciclos.length > 0) {
+          const primeiro = ciclos[0];
+          const ht = primeiro.hora_inicio || primeiro.hora_computado || "";
+          if (ht && ht.length >= 8 && ht < "08:00:00") horaAb = ht;
+          else horaAb = "08:00:00";
+        } else {
+          horaAb = "08:00:00";
+        }
+      }
+
+      let horaFech = is1T ? (res.hora_fechamento_1t || bu.hora_fechamento_1t) : (res.hora_fechamento_2t || bu.hora_fechamento_2t);
+      if (!horaFech || horaFech === "XXX") {
+        if (ciclos && ciclos.length > 0) {
+          const ultimo = ciclos[ciclos.length - 1];
+          const ht = ultimo.hora_computado || ultimo.hora_inicio || "";
+          if (ht && ht.length >= 8 && ht > "17:00:00") horaFech = ht;
+          else horaFech = "17:00:00";
+        } else {
+          horaFech = "17:00:00";
+        }
+      }
+
       return `==================================================
            JUSTIÇA ELEITORAL — TRE/${uf}
               BOLETIM DE URNA OFICIAL
@@ -7818,6 +8021,12 @@ Comparecimento          : ${String(comparecimento).padStart(6, " ")}
   Habilitação Biográfica: ${String(biog).padStart(6, " ")}
   Sem Biometria         : ${String(sem).padStart(6, " ")}
 Eleitores Faltosos      : ${String(faltosos).padStart(6, " ")}
+--------------------------------------------------
+Código identificação UE:   ${ue}
+Data de abertura da UE:    ${dataEleicao}
+Horário de abertura:       ${horaAb}
+Data de fechamento da UE:  ${dataEleicao}
+Horário de fechamento:     ${horaFech}
 --------------------------------------------------
 CARGO: PRESIDENTE DA REPÚBLICA
 --------------------------------------------------
@@ -8499,10 +8708,57 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       try { renderizarGraficoETabelaPorHoraTse(); } catch (e) { console.error("[TSE] Erro tabela eleitores:", e); }
 
       // Espelho Original Limpo do Boletim de Urna (com suporte a alternância instantânea entre 1º e 2º Turnos)
-      window.currentTseEspelho1T = bu.espelho_bobina_1t || data.espelho_bobina_1t || resCons.espelho_bobina_1t || (bu.turno === 1 ? bu.espelho_bobina : "") || gerarBobinaClienteTse(data, 1);
-      window.currentTseEspelho2T = bu.espelho_bobina_2t || data.espelho_bobina_2t || resCons.espelho_bobina_2t || (bu.turno === 2 ? bu.espelho_bobina : "") || (isUrnaPendente2T ? "" : gerarBobinaClienteTse(data, 2));
+      window.currentTseEspelho1T = sanitizarBobinaTextoTse(bu.espelho_bobina_1t || data.espelho_bobina_1t || resCons.espelho_bobina_1t || (bu.turno === 1 ? bu.espelho_bobina : "") || gerarBobinaClienteTse(data, 1), 1, data);
+      window.currentTseEspelho2T = sanitizarBobinaTextoTse(bu.espelho_bobina_2t || data.espelho_bobina_2t || resCons.espelho_bobina_2t || (bu.turno === 2 ? bu.espelho_bobina : "") || (isUrnaPendente2T ? "" : gerarBobinaClienteTse(data, 2)), 2, data);
 
       alternarBobinaTurnoTse(turnoAtivo, false, false);
+    }
+
+    function sanitizarBobinaTextoTse(texto, turnoNum, data) {
+      if (!texto || typeof texto !== "string") return texto || "";
+      const is1T = turnoNum === 1;
+      const res = data?.resumo_consolidacao || {};
+      const bu = data?.imgbu || {};
+      const ciclos = is1T ? (window.currentTseCiclos1T || []) : (window.currentTseCiclos2T || []);
+
+      let codUe = bu.codigo_ue || res.serial_ue || "";
+      if (!codUe || codUe === "XXX") {
+        const sNum = res.secao || bu.secao || "1";
+        const zNum = res.zona || bu.zona || "1";
+        codUe = "0" + String(sNum).padStart(4, "0") + String(zNum).padStart(3, "0");
+      }
+
+      let horaAb = is1T ? (res.hora_abertura_1t || bu.hora_abertura_1t) : (res.hora_abertura_2t || bu.hora_abertura_2t);
+      if (!horaAb || horaAb === "XXX") {
+        if (ciclos && ciclos.length > 0) {
+          const primeiro = ciclos[0];
+          const ht = primeiro.hora_inicio || primeiro.hora_computado || "";
+          if (ht && ht.length >= 8 && ht < "08:00:00") horaAb = ht;
+          else horaAb = "08:00:00";
+        } else {
+          horaAb = "08:00:00";
+        }
+      }
+
+      let horaFech = is1T ? (res.hora_fechamento_1t || bu.hora_fechamento_1t) : (res.hora_fechamento_2t || bu.hora_fechamento_2t);
+      if (!horaFech || horaFech === "XXX") {
+        if (ciclos && ciclos.length > 0) {
+          const ultimo = ciclos[ciclos.length - 1];
+          const ht = ultimo.hora_computado || ultimo.hora_inicio || "";
+          if (ht && ht.length >= 8 && ht > "17:00:00") horaFech = ht;
+          else horaFech = "17:00:00";
+        } else {
+          horaFech = "17:00:00";
+        }
+      }
+
+      let out = texto;
+      out = out.replace(/Horário de abertura\s+XXX/gi, `Horário de abertura           ${horaAb}`);
+      out = out.replace(/Horário de fechamento\s+XXX/gi, `Horário de fechamento         ${horaFech}`);
+      if (codUe) {
+        out = out.replace(/Código identificação UE\s+XXX/gi, `Código identificação UE       ${codUe}`);
+      }
+      return out;
     }
 
     function alternarBobinaTurnoTse(turnoNum, syncGrafico = true, syncPlacar = true) {
@@ -8534,6 +8790,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           }
         }
         if (texto && texto.trim()) {
+          texto = sanitizarBobinaTextoTse(texto, turnoNum, window.currentTseData || window.lastSecaoIndividualPayload);
           pre.textContent = texto;
         } else {
           pre.textContent = `=== BOLETIM DE URNA OFICIAL (${turnoNum}º TURNO) ===\n(Bobina original do ${turnoNum}º Turno ainda não ingerida para esta seção específica)`;
@@ -12473,6 +12730,376 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         showSecurityAlert(`Erro ao cancelar: ${err.message}`, true);
       } finally {
         if (btnCancelar) btnCancelar.disabled = false;
+      }
+    }
+
+    // =========================================================================
+    // MAPA FORENSE DE LOCAIS DE VOTAÇÃO (LEAFLET PINS & DESVIO INTRA-LOCAL)
+    // =========================================================================
+
+    window.tseLeafletMapInstance = null;
+    window.tseLeafletMarkersLayer = null;
+    window.tseMarkersByLocalKey = new Map();
+    window.tseLocaisVotacaoCache = [];
+    window.tseLocaisVotacaoResumo = null;
+    window.tseFiltroTextoLocaisMapa = "";
+    window.tseOrdemLocaisMapa = "ANOMALIA";
+
+    function atualizarDadosLocaisVotacaoMapaTse(payload) {
+      if (!payload) return;
+      const locais = payload.consolidado?.locais_votacao || payload.hierarquia?.locais_votacao || [];
+      const resumo = payload.consolidado?.resumo_locais || payload.hierarquia?.resumo_locais || null;
+
+      if (Array.isArray(locais) && locais.length > 0) {
+        window.tseLocaisVotacaoCache = locais;
+        window.tseLocaisVotacaoResumo = resumo;
+
+        const painel = document.getElementById("tsePainelMapaLocais");
+        if (painel && !painel.classList.contains("hidden")) {
+          renderizarMapaLocaisTse(locais, resumo);
+        }
+      }
+    }
+
+    async function alternarModoMapaLocaisTse(forcarAberto = null) {
+      const colunas = document.getElementById("tseColunasArvoreContainer");
+      const painel = document.getElementById("tsePainelMapaLocais");
+      const btnTexto = document.getElementById("btnAlternarModoMapaTexto");
+
+      if (!painel) return;
+
+      const currentlyOpen = !painel.classList.contains("hidden");
+      const targetOpen = forcarAberto !== null ? forcarAberto : !currentlyOpen;
+
+      if (targetOpen) {
+        if (colunas) colunas.classList.add("hidden");
+        painel.classList.remove("hidden");
+        if (btnTexto) btnTexto.textContent = "🌳 Árvore de 5 Níveis";
+
+        // Se ainda não temos dados em cache ou o filtro mudou, busca do backend
+        if (!window.tseLocaisVotacaoCache || window.tseLocaisVotacaoCache.length === 0) {
+          await carregarLocaisVotacaoBackendTse();
+        } else {
+          renderizarMapaLocaisTse(window.tseLocaisVotacaoCache, window.tseLocaisVotacaoResumo);
+        }
+
+        setTimeout(() => {
+          if (window.tseLeafletMapInstance) {
+            window.tseLeafletMapInstance.invalidateSize();
+          }
+        }, 200);
+      } else {
+        painel.classList.add("hidden");
+        if (colunas) colunas.classList.remove("hidden");
+        if (btnTexto) btnTexto.textContent = "Mapa de Locais (PINs)";
+      }
+    }
+
+    async function carregarLocaisVotacaoBackendTse() {
+      const st = window.arvoreTseState || {};
+      const qs = new URLSearchParams({
+        regiao: st.regiao || "TODAS",
+        uf: st.uf || "TODAS",
+        municipio: st.municipio || "TODAS",
+        zona: st.zona || "TODAS",
+        filtro_forense: st.filtro_forense || "TODAS",
+        cargo: st.cargo || "PRESIDENTE"
+      });
+
+      try {
+        const res = await fetch(`/api/tse-reverso/locais-votacao-mapa?${qs.toString()}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        window.tseLocaisVotacaoCache = data.locais_votacao || [];
+        window.tseLocaisVotacaoResumo = data.resumo_locais || null;
+        renderizarMapaLocaisTse(window.tseLocaisVotacaoCache, window.tseLocaisVotacaoResumo);
+      } catch (err) {
+        console.error("[MAPA-TSE] Erro ao carregar locais:", err);
+      }
+    }
+
+    function inicializarLeafletMapSeNecessario(centroide, zoom) {
+      if (window.tseLeafletMapInstance) return window.tseLeafletMapInstance;
+      const el = document.getElementById("tseLeafletMap");
+      if (!el || typeof L === "undefined") return null;
+
+      const lat = (centroide && centroide[0]) ? centroide[0] : -25.4284;
+      const lon = (centroide && centroide[1]) ? centroide[1] : -49.2733;
+      const z = zoom || 12;
+
+      window.tseLeafletMapInstance = L.map("tseLeafletMap", {
+        zoomControl: true,
+        attributionControl: true
+      }).setView([lat, lon], z);
+
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+        maxZoom: 19,
+        subdomains: "abcd",
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+      }).addTo(window.tseLeafletMapInstance);
+
+      window.tseLeafletMarkersLayer = L.layerGroup().addTo(window.tseLeafletMapInstance);
+      return window.tseLeafletMapInstance;
+    }
+
+    function renderizarMapaLocaisTse(locais, resumo) {
+      if (!locais) locais = [];
+      const st = window.arvoreTseState || {};
+      const alvoFormatado = typeof obterNomeAmigavelAlvo === "function"
+        ? obterNomeAmigavelAlvo(st.regiao, st.uf, st.municipio, st.zona, st.secao)
+        : (st.municipio || "Consolidado");
+
+      const subEl = document.getElementById("tseSubtituloEscopoMapaLocais");
+      if (subEl) {
+        const totSec = locais.reduce((acc, l) => acc + (l.qtd_secoes || 0), 0);
+        subEl.textContent = `Escopo: ${alvoFormatado} — ${locais.length.toLocaleString('pt-BR')} Prédios Físicos de Votação (${totSec.toLocaleString('pt-BR')} Seções mapeadas)`;
+      }
+
+      // Atualiza os Mini KPIs
+      const kpiTotal = document.getElementById("kpiTotalLocaisMapa");
+      const kpi22 = document.getElementById("kpiLocaisVitoria22");
+      const kpi13 = document.getElementById("kpiLocaisVitoria13");
+      const kpiAnom = document.getElementById("kpiLocaisAnomalia");
+
+      if (kpiTotal) kpiTotal.textContent = (resumo?.total_locais ?? locais.length).toLocaleString('pt-BR');
+      if (kpi22) kpi22.textContent = (resumo?.locais_vitoria_22 ?? locais.filter(l => l.vencedor === 22).length).toLocaleString('pt-BR');
+      if (kpi13) kpi13.textContent = (resumo?.locais_vitoria_13 ?? locais.filter(l => l.vencedor === 13).length).toLocaleString('pt-BR');
+      if (kpiAnom) kpiAnom.textContent = (resumo?.locais_com_anomalia ?? locais.filter(l => l.tem_anomalia_intra_local).length).toLocaleString('pt-BR');
+
+      // Garante que o mapa do Leaflet esteja instanciado
+      const map = inicializarLeafletMapSeNecessario(resumo?.centroide, resumo?.zoom_sugerido);
+      if (!map || typeof L === "undefined") {
+        renderizarCardsLocaisHtmlTse(locais);
+        return;
+      }
+
+      if (window.tseLeafletMarkersLayer) {
+        window.tseLeafletMarkersLayer.clearLayers();
+      }
+      window.tseMarkersByLocalKey.clear();
+
+      const bounds = L.latLngBounds([]);
+
+      locais.forEach(loc => {
+        if (!loc.latitude || !loc.longitude) return;
+
+        const corClass = loc.cor_pin === "verde" ? "pin-verde" : (loc.cor_pin === "vermelho" ? "pin-vermelho" : "pin-amarelo");
+        const anomaliaClass = loc.tem_anomalia_intra_local ? "pin-anomalia" : "";
+        const iconHtml = `<div class="pin-urna-container ${corClass} ${anomaliaClass} w-8 h-8 text-[11px] shadow-lg">${loc.qtd_secoes}u</div>`;
+
+        const icon = L.divIcon({
+          className: "leaflet-data-marker",
+          html: iconHtml,
+          iconSize: [32, 32],
+          iconAnchor: [16, 16],
+          popupAnchor: [0, -16]
+        });
+
+        const marker = L.marker([loc.latitude, loc.longitude], { icon: icon });
+
+        // Chips das seções deste prédio físico
+        const chipsHtml = (loc.detalhes_secoes || []).map(s => {
+          const sFormatted = String(s.secao).padStart(4, "0");
+          const zFormatted = String(s.zona).padStart(4, "0");
+          const tooltip = `Seção ${sFormatted} (Z:${zFormatted}) | 22: ${s.pct_22}% (${s.votos_22}v) vs 13: ${s.pct_13}% (${s.votos_13}v)`;
+          return `<button onclick="selecionarNoArvoreTse('${loc.uf}','${loc.uf}','${loc.municipio_codigo}','${zFormatted}','${s.prefixo}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-indigo-600 text-[10px] font-mono font-bold text-slate-200 hover:text-white border border-slate-700 hover:border-indigo-400 transition cursor-pointer" title="${tooltip}">
+            S:${sFormatted}
+          </button>`;
+        }).join("");
+
+        const popupContent = `
+          <div class="p-3.5 text-xs mono text-slate-100 max-w-[320px]">
+            <div class="flex items-start justify-between gap-2 border-b border-slate-700/80 pb-2 mb-2">
+              <div>
+                <span class="text-[10px] text-indigo-400 font-extrabold uppercase tracking-wide block">🏢 Endereço / Local Físico</span>
+                <h3 class="text-sm font-extrabold text-white leading-tight">${loc.nome_local}</h3>
+                <span class="text-[10px] text-slate-400">${loc.municipio_nome} • Zona ${String(loc.zona).padStart(4, '0')}</span>
+              </div>
+              <span class="shrink-0 px-2 py-0.5 rounded text-[10px] font-black ${loc.cor_pin === 'verde' ? 'bg-emerald-950 text-emerald-300 border border-emerald-600/40' : (loc.cor_pin === 'vermelho' ? 'bg-rose-950 text-rose-300 border border-rose-600/40' : 'bg-amber-950 text-amber-300 border border-amber-600/40')}">
+                ${loc.qtd_secoes} ${loc.qtd_secoes === 1 ? 'Seção' : 'Seções'}
+              </span>
+            </div>
+
+            <!-- Votação Agregada no Prédio -->
+            <div class="grid grid-cols-2 gap-2 my-2 text-center">
+              <div class="bg-cyan-950/40 border border-cyan-500/30 rounded p-1.5">
+                <span class="text-[10px] text-cyan-400 font-bold block truncate">Bolsonaro (22)</span>
+                <span class="text-base font-black text-white">${loc.votos_22.toLocaleString('pt-BR')}v</span>
+                <span class="text-[10px] text-cyan-300 block font-mono font-bold">${loc.pct_22}%</span>
+              </div>
+              <div class="bg-rose-950/40 border border-rose-500/30 rounded p-1.5">
+                <span class="text-[10px] text-rose-400 font-bold block truncate">Lula (13)</span>
+                <span class="text-base font-black text-white">${loc.votos_13.toLocaleString('pt-BR')}v</span>
+                <span class="text-[10px] text-rose-300 block font-mono font-bold">${loc.pct_13}%</span>
+              </div>
+            </div>
+
+            <!-- Diagnóstico Forense de Desvio Intra-Local -->
+            <div class="p-2 rounded-lg my-2 border ${loc.tem_anomalia_intra_local ? 'bg-rose-950/50 border-rose-600/60 text-rose-200' : 'bg-slate-900 border-slate-800 text-slate-300'}">
+              <div class="text-[10px] font-black uppercase flex items-center gap-1 ${loc.tem_anomalia_intra_local ? 'text-rose-300' : 'text-emerald-400'}">
+                <span>${loc.tem_anomalia_intra_local ? '🚨 DESVIO ESTATÍSTICO INTRA-PRÉDIO' : '✅ COERÊNCIA FÍSICA INTRA-PRÉDIO'}</span>
+              </div>
+              <p class="text-[11px] mt-1 leading-snug">
+                ${loc.diagnostico_forense}
+              </p>
+              ${loc.qtd_secoes > 1 ? `
+              <div class="text-[10px] text-slate-400 mt-1.5 pt-1 border-t border-slate-800/80 flex items-center justify-between">
+                <span>Desvio Padrão (σ): <strong class="text-slate-200">${loc.desvio_padrao}%</strong></span>
+                <span>Delta Máx (Δmax): <strong class="text-slate-200">${loc.delta_max}%</strong></span>
+              </div>` : ''}
+            </div>
+
+            <!-- Chips de Seções Presentes no Prédio -->
+            <div class="mt-2 pt-2 border-t border-slate-800">
+              <span class="text-[10px] text-slate-400 font-bold block mb-1">Seções no mesmo endereço (clique para auditar urna):</span>
+              <div class="flex flex-wrap gap-1 max-h-24 overflow-y-auto pr-0.5">
+                ${chipsHtml}
+              </div>
+            </div>
+          </div>
+        `;
+
+        marker.bindPopup(popupContent, { maxWidth: 350 });
+        marker.addTo(window.tseLeafletMarkersLayer);
+        window.tseMarkersByLocalKey.set(loc.key, marker);
+        bounds.extend([loc.latitude, loc.longitude]);
+      });
+
+      if (locais.length > 0 && bounds.isValid()) {
+        if (resumo?.centroide && resumo?.zoom_sugerido) {
+          map.setView(resumo.centroide, resumo.zoom_sugerido);
+        } else {
+          map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+        }
+      }
+
+      renderizarCardsLocaisHtmlTse(locais);
+    }
+
+    function renderizarCardsLocaisHtmlTse(locais) {
+      const container = document.getElementById("tseListaCardsLocais");
+      if (!container) return;
+
+      let filtrados = [...locais];
+
+      // Filtro textual
+      if (window.tseFiltroTextoLocaisMapa && window.tseFiltroTextoLocaisMapa.trim()) {
+        const q = window.tseFiltroTextoLocaisMapa.trim().toLowerCase();
+        filtrados = filtrados.filter(l => {
+          if (l.nome_local && l.nome_local.toLowerCase().includes(q)) return true;
+          if (l.local_id && l.local_id.toLowerCase().includes(q)) return true;
+          if (l.municipio_nome && l.municipio_nome.toLowerCase().includes(q)) return true;
+          if (Array.isArray(l.secoes) && l.secoes.some(s => String(s).includes(q) || String(s).padStart(4, "0").includes(q))) return true;
+          return false;
+        });
+      }
+
+      // Ordenação
+      const criterio = window.tseOrdemLocaisMapa || "ANOMALIA";
+      if (criterio === "ANOMALIA") {
+        filtrados.sort((a, b) => {
+          if (a.tem_anomalia_intra_local !== b.tem_anomalia_intra_local) {
+            return a.tem_anomalia_intra_local ? -1 : 1;
+          }
+          return (b.desvio_padrao || 0) - (a.desvio_padrao || 0);
+        });
+      } else if (criterio === "SECOES") {
+        filtrados.sort((a, b) => b.qtd_secoes - a.qtd_secoes);
+      } else if (criterio === "VOTOS_22") {
+        filtrados.sort((a, b) => b.votos_22 - a.votos_22);
+      } else if (criterio === "VOTOS_13") {
+        filtrados.sort((a, b) => b.votos_13 - a.votos_13);
+      }
+
+      if (filtrados.length === 0) {
+        container.innerHTML = `
+          <div class="p-6 text-center text-xs text-slate-500 mono border border-slate-800 rounded-xl bg-slate-950">
+            Nenhum local de votação encontrado com o filtro aplicado.
+          </div>
+        `;
+        return;
+      }
+
+      const html = filtrados.map(loc => {
+        const corBorder = loc.tem_anomalia_intra_local ? "border-rose-500/60 bg-rose-950/20" : (loc.cor_pin === "verde" ? "border-emerald-500/30 bg-slate-950" : (loc.cor_pin === "vermelho" ? "border-rose-500/30 bg-slate-950" : "border-slate-800 bg-slate-950"));
+        const corBadge = loc.cor_pin === "verde" ? "bg-emerald-950 text-emerald-300 border-emerald-600/40" : (loc.cor_pin === "vermelho" ? "bg-rose-950 text-rose-300 border-rose-600/40" : "bg-amber-950 text-amber-300 border-amber-600/40");
+
+        const chipsSecoes = (loc.detalhes_secoes || []).slice(0, 10).map(s => {
+          const sPad = String(s.secao).padStart(4, "0");
+          const zPad = String(s.zona).padStart(4, "0");
+          return `<button onclick="event.stopPropagation(); selecionarNoArvoreTse('${loc.uf}','${loc.uf}','${loc.municipio_codigo}','${zPad}','${s.prefixo}')" class="px-1.5 py-0.5 rounded bg-slate-900 hover:bg-indigo-600 text-[9px] font-mono font-bold text-slate-300 hover:text-white border border-slate-700 transition cursor-pointer" title="Auditar urna da Seção ${sPad} (Zona ${zPad})">
+            S:${sPad}
+          </button>`;
+        }).join("");
+
+        return `
+          <div
+            onclick="focarLocalNoMapaTse('${loc.key}')"
+            class="p-3 rounded-xl border ${corBorder} hover:border-indigo-400 transition cursor-pointer flex flex-col space-y-2 group"
+          >
+            <div class="flex items-start justify-between gap-1.5">
+              <div>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-xs font-black text-white group-hover:text-indigo-300 transition truncate">${loc.nome_local}</span>
+                  ${loc.tem_anomalia_intra_local ? `<span class="px-1.5 py-0.2 rounded bg-rose-600 text-[9px] font-black text-white animate-pulse">DESVIO σ</span>` : ''}
+                </div>
+                <div class="text-[10px] text-slate-400 mono">
+                  ${loc.municipio_nome} • Zona ${String(loc.zona).padStart(4, '0')}
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded text-[10px] font-black border ${corBadge} shrink-0">
+                ${loc.qtd_secoes}u
+              </span>
+            </div>
+
+            <!-- Placar Compacto -->
+            <div class="flex items-center justify-between text-[11px] mono pt-1 border-t border-slate-800/80">
+              <span class="text-cyan-400 font-bold">22: <strong>${loc.pct_22}%</strong> (${loc.votos_22}v)</span>
+              <span class="text-rose-400 font-bold">13: <strong>${loc.pct_13}%</strong> (${loc.votos_13}v)</span>
+              <span class="text-slate-400 text-[10px]">σ: <strong>${loc.desvio_padrao}%</strong></span>
+            </div>
+
+            <!-- Chips de Seções -->
+            <div class="flex flex-wrap items-center gap-1 pt-1">
+              ${chipsSecoes}
+              ${loc.detalhes_secoes && loc.detalhes_secoes.length > 10 ? `<span class="text-[9px] text-slate-500 font-mono">+${loc.detalhes_secoes.length - 10} seções</span>` : ''}
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      container.innerHTML = html;
+    }
+
+    function focarLocalNoMapaTse(localKey) {
+      const marker = window.tseMarkersByLocalKey.get(localKey);
+      if (marker && window.tseLeafletMapInstance) {
+        window.tseLeafletMapInstance.flyTo(marker.getLatLng(), Math.max(15, window.tseLeafletMapInstance.getZoom()), {
+          duration: 0.8
+        });
+        marker.openPopup();
+      }
+    }
+
+    function filtrarListaLocaisMapaTse(texto) {
+      window.tseFiltroTextoLocaisMapa = texto || "";
+      renderizarCardsLocaisHtmlTse(window.tseLocaisVotacaoCache);
+    }
+
+    function reordenarListaLocaisMapaTse(criterio) {
+      window.tseOrdemLocaisMapa = criterio || "ANOMALIA";
+      renderizarCardsLocaisHtmlTse(window.tseLocaisVotacaoCache);
+    }
+
+    function recentralizarMapaLocaisTse() {
+      const resumo = window.tseLocaisVotacaoResumo;
+      if (window.tseLeafletMapInstance) {
+        if (resumo?.centroide && resumo?.zoom_sugerido) {
+          window.tseLeafletMapInstance.flyTo(resumo.centroide, resumo.zoom_sugerido, { duration: 0.6 });
+        } else if (window.tseLeafletMarkersLayer && window.tseLeafletMarkersLayer.getLayers().length > 0) {
+          const group = L.featureGroup(window.tseLeafletMarkersLayer.getLayers());
+          window.tseLeafletMapInstance.fitBounds(group.getBounds(), { padding: [30, 30], maxZoom: 15 });
+        }
       }
     }
 

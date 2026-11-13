@@ -92,8 +92,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-11-rev57"
-SYSTEM_COMMIT = "rev57-bi-baixa-votacao-0-a-20-votos-cruzamento-turnos"
+SYSTEM_BUILD = "2026-11-13-rev58"
+SYSTEM_COMMIT = "rev58-horarios-abertura-fechamento-bu-e-mapa-locais-votacao-pins"
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -1413,6 +1413,30 @@ def api_tse_reverso_consolidar(
         filtro_forense=filtro_forense,
         cargo_filtro=cargo,
         turno_filtro=turno,
+    )
+
+
+@app.get("/api/tse-reverso/locais-votacao-mapa")
+def api_tse_reverso_locais_votacao_mapa(
+    regiao: str = "TODAS",
+    uf: str = "TODAS",
+    municipio: str = "TODAS",
+    zona: str = "TODAS",
+    filtro_forense: str = "TODAS",
+    db: Session = Depends(get_db),
+):
+    """
+    Retorna os locais físicos de votação (escolas/prédios) agrupados com PINs de mapa (lat/lon),
+    contagem de urnas por endereço e análise de desvio estatístico intra-local.
+    """
+    from .tse_reverse_analyzer import obter_locais_votacao_mapa_api
+    return obter_locais_votacao_mapa_api(
+        db=db,
+        regiao=regiao,
+        uf=uf,
+        municipio=municipio,
+        zona=zona,
+        filtro_forense=filtro_forense,
     )
 
 
