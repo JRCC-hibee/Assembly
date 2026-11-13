@@ -7185,9 +7185,24 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
 
         cands_sec = votos_cands_sec.get(r.id, {})
         cands_2t = cands_sec.get(2, {})
-        v_lula = int(cands_2t.get("13", 0) or 0)
-        v_flavio = int(cands_2t.get("22", 0) or 0)
-        comp = int(r.comp_2t or (v_lula + v_flavio) or 0)
+        cands_1t = cands_sec.get(1, {})
+
+        v_lula_2t = int(cands_2t.get("13", 0) or 0)
+        v_flavio_2t = int(cands_2t.get("22", 0) or 0)
+        v_lula_1t = int(cands_1t.get("13", 0) or 0)
+        v_flavio_1t = int(cands_1t.get("22", 0) or 0)
+
+        # Votos novos nesta urna individual
+        dv_flavio = v_flavio_2t - v_flavio_1t
+        dv_lula = v_lula_2t - v_lula_1t
+        tot_novos_sec = dv_flavio + dv_lula
+        pct_novos_22_sec = round((dv_flavio / max(1, tot_novos_sec)) * 100.0, 1) if tot_novos_sec > 0 else 0.0
+        pct_novos_13_sec = round((dv_lula / max(1, tot_novos_sec)) * 100.0, 1) if tot_novos_sec > 0 else 0.0
+
+        venc_total_sec = 22 if v_flavio_2t > v_lula_2t else (13 if v_lula_2t > v_flavio_2t else 0)
+        venc_novos_sec = 22 if dv_flavio > dv_lula else (13 if dv_lula > dv_flavio else 0)
+
+        comp = int(r.comp_2t or (v_lula_2t + v_flavio_2t) or 0)
         apt = int(r.aptos or 0)
 
         p_prefix = r.pleito or ("03221" if r.turno_ativo == 2 else ("03220" if r.turno_ativo == 1 else "03221"))
@@ -7212,6 +7227,16 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
                 "secoes": [],
                 "votos_22": 0,
                 "votos_13": 0,
+                "votos_1t_22": 0,
+                "votos_1t_13": 0,
+                "votos_novos_22": 0,
+                "votos_novos_13": 0,
+                "urnas_total_22": 0,
+                "urnas_total_13": 0,
+                "urnas_total_empate": 0,
+                "urnas_novos_22": 0,
+                "urnas_novos_13": 0,
+                "urnas_novos_empate": 0,
                 "comparecimento": 0,
                 "aptos": 0,
                 "detalhes_secoes": [],
@@ -7220,22 +7245,49 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
         loc = locais_dict[key_loc]
         loc["qtd_secoes"] += 1
         loc["secoes"].append(s_int)
-        loc["votos_22"] += v_flavio
-        loc["votos_13"] += v_lula
+        loc["votos_22"] += v_flavio_2t
+        loc["votos_13"] += v_lula_2t
+        loc["votos_1t_22"] += v_flavio_1t
+        loc["votos_1t_13"] += v_lula_1t
+        loc["votos_novos_22"] += dv_flavio
+        loc["votos_novos_13"] += dv_lula
+
+        if venc_total_sec == 22:
+            loc["urnas_total_22"] += 1
+        elif venc_total_sec == 13:
+            loc["urnas_total_13"] += 1
+        else:
+            loc["urnas_total_empate"] += 1
+
+        if venc_novos_sec == 22:
+            loc["urnas_novos_22"] += 1
+        elif venc_novos_sec == 13:
+            loc["urnas_novos_13"] += 1
+        else:
+            loc["urnas_novos_empate"] += 1
+
         loc["comparecimento"] += comp
         loc["aptos"] += apt
 
-        tot_v_sec = v_flavio + v_lula
-        pct_22_sec = round((v_flavio / max(1, tot_v_sec)) * 100.0, 1) if tot_v_sec > 0 else 0.0
-        pct_13_sec = round((v_lula / max(1, tot_v_sec)) * 100.0, 1) if tot_v_sec > 0 else 0.0
+        tot_v_sec = v_flavio_2t + v_lula_2t
+        pct_22_sec = round((v_flavio_2t / max(1, tot_v_sec)) * 100.0, 1) if tot_v_sec > 0 else 0.0
+        pct_13_sec = round((v_lula_2t / max(1, tot_v_sec)) * 100.0, 1) if tot_v_sec > 0 else 0.0
 
         loc["detalhes_secoes"].append({
             "secao": s_int,
             "zona": z_int,
-            "votos_22": v_flavio,
+            "votos_22": v_flavio_2t,
             "pct_22": pct_22_sec,
-            "votos_13": v_lula,
+            "votos_13": v_lula_2t,
             "pct_13": pct_13_sec,
+            "votos_1t_22": v_flavio_1t,
+            "votos_1t_13": v_lula_1t,
+            "votos_novos_22": dv_flavio,
+            "votos_novos_13": dv_lula,
+            "pct_novos_22": pct_novos_22_sec,
+            "pct_novos_13": pct_novos_13_sec,
+            "vencedor_total": venc_total_sec,
+            "vencedor_novos": venc_novos_sec,
             "comparecimento": comp,
             "prefixo": pref,
             "chave_secao": r.chave_secao,
@@ -7258,6 +7310,68 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
         else:
             loc["vencedor"] = 0
             loc["cor_pin"] = "amarelo"
+
+        # Totais e Percentuais de Votos Novos Agregados no Prédio
+        tot_novos_loc = loc["votos_novos_22"] + loc["votos_novos_13"]
+        loc["pct_novos_22"] = round((loc["votos_novos_22"] / max(1, tot_novos_loc)) * 100.0, 1) if tot_novos_loc > 0 else 0.0
+        loc["pct_novos_13"] = round((loc["votos_novos_13"] / max(1, tot_novos_loc)) * 100.0, 1) if tot_novos_loc > 0 else 0.0
+
+        if loc["votos_novos_22"] > loc["votos_novos_13"]:
+            loc["vencedor_novos"] = 22
+            loc["cor_pin_novos"] = "verde"
+        elif loc["votos_novos_13"] > loc["votos_novos_22"]:
+            loc["vencedor_novos"] = 13
+            loc["cor_pin_novos"] = "vermelho"
+        else:
+            loc["vencedor_novos"] = 0
+            loc["cor_pin_novos"] = "amarelo"
+
+        # Inversão: 22 ganhou no geral, mas perdeu nos votos novos (ou vice-versa)
+        loc["houve_inversao"] = bool(
+            (loc["vencedor"] == 22 and loc["vencedor_novos"] == 13) or
+            (loc["vencedor"] == 13 and loc["vencedor_novos"] == 22)
+        )
+        if loc["vencedor"] == 22 and loc["vencedor_novos"] == 13:
+            loc["tipo_inversao"] = "22_GERAL_13_NOVOS"
+            loc["diagnostico_inversao"] = f"🔄 Inversão: Flávio (22) venceu no total ({loc['pct_22']}%), mas Lula (13) absorveu mais votos novos ({loc['pct_novos_13']}% | +{loc['votos_novos_13']}v)"
+        elif loc["vencedor"] == 13 and loc["vencedor_novos"] == 22:
+            loc["tipo_inversao"] = "13_GERAL_22_NOVOS"
+            loc["diagnostico_inversao"] = f"🔄 Inversão: Lula (13) venceu no total ({loc['pct_13']}%), mas Flávio (22) absorveu mais votos novos ({loc['pct_novos_22']}% | +{loc['votos_novos_22']}v)"
+        else:
+            loc["tipo_inversao"] = "ALINHADO"
+            loc["diagnostico_inversao"] = "Alinhado: Mesmo vencedor no total geral e na captação de votos novos"
+
+        # Análise de Unanimidade e Divergência Interna entre as Urnas do Prédio
+        n_sec = loc["qtd_secoes"]
+        u_novos_22 = loc["urnas_novos_22"]
+        u_novos_13 = loc["urnas_novos_13"]
+        u_novos_emp = loc["urnas_novos_empate"]
+
+        if n_sec > 1:
+            loc["unanimidade_novos_22"] = bool(u_novos_22 == n_sec)
+            loc["unanimidade_novos_13"] = bool(u_novos_13 == n_sec)
+            loc["tem_unanimidade_novos"] = bool(loc["unanimidade_novos_22"] or loc["unanimidade_novos_13"])
+            # Divergência interna existe se as urnas do mesmo prédio não foram unânimes!
+            loc["tem_divergencia_interna_novos"] = not loc["tem_unanimidade_novos"]
+
+            partes_div = []
+            if u_novos_22 > 0: partes_div.append(f"{u_novos_22}u Flávio (22)")
+            if u_novos_13 > 0: partes_div.append(f"{u_novos_13}u Lula (13)")
+            if u_novos_emp > 0: partes_div.append(f"{u_novos_emp}u Empate")
+            loc["placar_urnas_novos"] = " × ".join(partes_div)
+
+            if loc["tem_divergencia_interna_novos"]:
+                loc["diagnostico_unanimidade"] = f"⚠️ Divergência Interna em Votos Novos: Não houve unanimidade ({loc['placar_urnas_novos']})"
+            else:
+                venc_u = "Flávio (22)" if u_novos_22 == n_sec else "Lula (13)"
+                loc["diagnostico_unanimidade"] = f"🏆 100% Unânime: Todas as {n_sec} urnas venceram para {venc_u} nos votos novos"
+        else:
+            loc["unanimidade_novos_22"] = bool(loc["vencedor_novos"] == 22)
+            loc["unanimidade_novos_13"] = bool(loc["vencedor_novos"] == 13)
+            loc["tem_unanimidade_novos"] = True
+            loc["tem_divergencia_interna_novos"] = False
+            loc["placar_urnas_novos"] = "1u única"
+            loc["diagnostico_unanimidade"] = "🏢 Seção Única no Local de Votação"
 
         # Cálculo do Desvio Estatístico Intra-Local (dentro do mesmo prédio físico)
         pcts_22 = [s["pct_22"] for s in loc["detalhes_secoes"] if (s["votos_22"] + s["votos_13"]) > 0]
@@ -7301,6 +7415,13 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
         "locais_vitoria_22": sum(1 for l in locais_lista if l["vencedor"] == 22),
         "locais_vitoria_13": sum(1 for l in locais_lista if l["vencedor"] == 13),
         "locais_empate": sum(1 for l in locais_lista if l["vencedor"] == 0),
+        "locais_vitoria_novos_22": sum(1 for l in locais_lista if l.get("vencedor_novos") == 22),
+        "locais_vitoria_novos_13": sum(1 for l in locais_lista if l.get("vencedor_novos") == 13),
+        "locais_empate_novos": sum(1 for l in locais_lista if l.get("vencedor_novos") == 0),
+        "locais_com_divergencia_novos": sum(1 for l in locais_lista if l.get("tem_divergencia_interna_novos")),
+        "locais_com_inversao": sum(1 for l in locais_lista if l.get("houve_inversao")),
+        "locais_inversao_22geral_13novos": sum(1 for l in locais_lista if l.get("tipo_inversao") == "22_GERAL_13_NOVOS"),
+        "locais_inversao_13geral_22novos": sum(1 for l in locais_lista if l.get("tipo_inversao") == "13_GERAL_22_NOVOS"),
         "locais_com_anomalia": sum(1 for l in locais_lista if l["tem_anomalia_intra_local"]),
         "centro_mapa": [c_lat, c_lon],
         "zoom_sugerido": zoom_sugerido,

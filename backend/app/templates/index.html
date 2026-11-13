@@ -166,6 +166,25 @@
       50% { box-shadow: 0 0 0 9px rgba(239, 68, 68, 0.2); }
       100% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.7); }
     }
+    /* Alerta Âmbar Piscante: Divergência Interna / Sem Unanimidade em Votos Novos */
+    .pin-divergencia-novos {
+      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.5), 0 0 18px rgba(245, 158, 11, 0.95) !important;
+      animation: pulse-pin-amber 1.5s infinite !important;
+    }
+    @keyframes pulse-pin-amber {
+      0% { box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.85), 0 0 8px rgba(245, 158, 11, 0.6); }
+      50% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0.25), 0 0 22px rgba(245, 158, 11, 1); }
+      100% { box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.85), 0 0 8px rgba(245, 158, 11, 0.6); }
+    }
+    /* Caso ocorra anomalia estatística E divergência interna de unanimidade */
+    .pin-anomalia-e-divergencia {
+      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.7), 0 0 0 7px rgba(239, 68, 68, 0.4), 0 0 22px rgba(245, 158, 11, 0.9) !important;
+      animation: pulse-pin-amber 1.5s infinite !important;
+    }
+    .pin-inversao {
+      outline: 2px dashed #38bdf8 !important;
+      outline-offset: 2px;
+    }
     .leaflet-popup-content-wrapper {
       background: #0f172a !important;
       color: #f8fafc !important;
@@ -1583,8 +1602,54 @@ o Boletim de Urna (apos encerramento da votacao).
             </div>
           </div>
 
+          <!-- Barra de Critério de Visualização & Legenda de Alertas -->
+          <div class="flex flex-wrap items-center justify-between gap-2.5 bg-slate-900/90 border border-slate-800 rounded-xl p-2.5 text-xs mono">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-slate-400 font-bold flex items-center gap-1">
+                <span>🎯</span> <span>Coloração dos PINs:</span>
+              </span>
+              <div class="inline-flex rounded-lg bg-slate-950 p-1 border border-slate-800 gap-1">
+                <button
+                  id="btnModoPinTotal"
+                  onclick="alternarCriterioCorPinsMapaTse('TOTAL')"
+                  class="px-2.5 py-1 rounded-md text-[11px] font-black bg-indigo-600 text-white shadow transition cursor-pointer"
+                  title="Colorir os PINs pelo resultado geral do 2º Turno (Total de Votos no Prédio)"
+                >
+                  🗳️ Total Geral (2ºT)
+                </button>
+                <button
+                  id="btnModoPinNovos"
+                  onclick="alternarCriterioCorPinsMapaTse('NOVOS')"
+                  class="px-2.5 py-1 rounded-md text-[11px] font-bold text-slate-400 hover:text-white transition cursor-pointer"
+                  title="Colorir os PINs pela captação de Votos Novos entre 1ºT e 2ºT"
+                >
+                  ⚡ Votos Novos (1ºT → 2ºT)
+                </button>
+                <button
+                  id="btnModoPinInversao"
+                  onclick="alternarCriterioCorPinsMapaTse('INVERSAO')"
+                  class="px-2.5 py-1 rounded-md text-[11px] font-bold text-slate-400 hover:text-white transition cursor-pointer"
+                  title="Destacar onde o candidato venceu no geral, mas perdeu nos votos novos (ou vice-versa)"
+                >
+                  🔄 Inversões de Vitória
+                </button>
+              </div>
+            </div>
+
+            <!-- Indicadores Visuais da Legenda -->
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="flex items-center gap-1.5 text-[11px] text-amber-300 font-bold bg-amber-950/80 px-2.5 py-1 rounded-lg border border-amber-500/50" title="Alerta âmbar pulsante: nem todas as urnas deste prédio votaram igualmente nos votos novos (houve divergência interna)">
+                <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping inline-block"></span>
+                <span>Âmbar Piscante: Sem Unanimidade</span>
+              </span>
+              <span class="flex items-center gap-1.5 text-[11px] text-cyan-300 font-bold bg-cyan-950/80 px-2.5 py-1 rounded-lg border border-cyan-500/50" title="Borda tracejada ciano: candidato ganhou no total, mas perdeu nos votos novos (ou vice-versa)">
+                <span>🔄 Borda Tracejada: Inversão</span>
+              </span>
+            </div>
+          </div>
+
           <!-- Mini KPIs de Locais do Escopo Atual -->
-          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs mono">
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs mono">
             <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between">
               <div>
                 <span class="text-[10px] text-slate-400 uppercase block">Prédios Físicos</span>
@@ -1595,23 +1660,36 @@ o Boletim de Urna (apos encerramento da votacao).
             <div class="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-700/40 flex items-center justify-between">
               <div>
                 <span class="text-[10px] text-emerald-400 uppercase block">Vitória 22 (Flávio)</span>
-                <span id="kpiLocaisVitoria22" class="text-base font-black text-emerald-300">-</span>
+                <div class="flex items-baseline gap-1.5">
+                  <span id="kpiLocaisVitoria22" class="text-base font-black text-emerald-300">-</span>
+                  <span id="kpiLocaisVitoria22Novos" class="text-[10px] text-emerald-400/90 font-mono" title="Vitória em Votos Novos">(novos: -)</span>
+                </div>
               </div>
               <span class="text-xs font-black px-2 py-0.5 rounded bg-emerald-900/60 text-emerald-200">🟢 PINs</span>
             </div>
             <div class="p-2.5 rounded-lg bg-rose-950/40 border border-rose-700/40 flex items-center justify-between">
               <div>
                 <span class="text-[10px] text-rose-400 uppercase block">Vitória 13 (Lula)</span>
-                <span id="kpiLocaisVitoria13" class="text-base font-black text-rose-300">-</span>
+                <div class="flex items-baseline gap-1.5">
+                  <span id="kpiLocaisVitoria13" class="text-base font-black text-rose-300">-</span>
+                  <span id="kpiLocaisVitoria13Novos" class="text-[10px] text-rose-400/90 font-mono" title="Vitória em Votos Novos">(novos: -)</span>
+                </div>
               </div>
               <span class="text-xs font-black px-2 py-0.5 rounded bg-rose-900/60 text-rose-200">🔴 PINs</span>
             </div>
-            <div class="p-2.5 rounded-lg bg-amber-950/40 border border-amber-700/40 flex items-center justify-between">
+            <div class="p-2.5 rounded-lg bg-amber-950/50 border border-amber-600/50 flex items-center justify-between">
               <div>
-                <span class="text-[10px] text-amber-400 uppercase block">Desvio Atípico Intra-Local</span>
-                <span id="kpiLocaisAnomalia" class="text-base font-black text-amber-300">-</span>
+                <span class="text-[10px] text-amber-300 uppercase block font-bold">Sem Unanimidade</span>
+                <span id="kpiLocaisDivergenciaNovos" class="text-base font-black text-amber-200">-</span>
               </div>
-              <span class="text-xs font-black px-2 py-0.5 rounded bg-amber-900/60 text-amber-200 animate-pulse">⚠️ Alertas</span>
+              <span class="text-xs font-black px-2 py-0.5 rounded bg-amber-900/80 text-amber-300 animate-pulse">⚠️ Âmbar</span>
+            </div>
+            <div class="p-2.5 rounded-lg bg-cyan-950/40 border border-cyan-700/40 flex items-center justify-between">
+              <div>
+                <span class="text-[10px] text-cyan-400 uppercase block">Inversão Geral × Novos</span>
+                <span id="kpiLocaisInversao" class="text-base font-black text-cyan-300">-</span>
+              </div>
+              <span class="text-xs font-black px-2 py-0.5 rounded bg-cyan-900/60 text-cyan-200">🔄 Inversões</span>
             </div>
           </div>
 
@@ -1619,8 +1697,8 @@ o Boletim de Urna (apos encerramento da votacao).
           <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
             <div class="lg:col-span-7 xl:col-span-8 flex flex-col">
               <div id="tseLeafletMap" class="w-full h-[520px] rounded-xl border border-slate-800 bg-slate-900 shadow-inner z-10"></div>
-              <div class="flex items-center justify-between text-[11px] text-slate-500 mt-2 px-1 mono">
-                <span>Legenda: 🟢 Maioria Flávio (22) | 🔴 Maioria Lula (13) | 🟡 Empate | ⚠️ Anel pulsante: divergência interna entre seções do mesmo prédio</span>
+              <div class="flex flex-wrap items-center justify-between text-[11px] text-slate-400 mt-2 px-1 mono gap-1">
+                <span>Legenda: 🟢 Flávio (22) | 🔴 Lula (13) | 🟡 Empate | <strong class="text-amber-300">⚠️ Âmbar pulsante: divergência interna nas urnas em novos votos</strong> | <strong class="text-cyan-300">🔄 Borda ciano: inversão</strong></span>
                 <span>OpenStreetMap & CartoDB</span>
               </div>
             </div>
@@ -1638,12 +1716,16 @@ o Boletim de Urna (apos encerramento da votacao).
                 <select
                   id="selectOrdemLocaisMapa"
                   onchange="reordenarListaLocaisMapaTse(this.value)"
-                  class="bg-slate-900 border border-slate-800 text-slate-300 rounded-lg px-2 py-1.5 text-xs mono outline-none cursor-pointer"
+                  class="bg-slate-900 border border-slate-800 text-slate-300 rounded-lg px-2 py-1.5 text-xs mono outline-none cursor-pointer max-w-[150px]"
                 >
-                  <option value="ANOMALIA">🚨 Maior Desvio</option>
+                  <option value="DIVERGENCIA_NOVOS">⚠️ Sem Unanimidade (Âmbar)</option>
+                  <option value="INVERSAO">🔄 Inversão (Geral × Novos)</option>
+                  <option value="ANOMALIA">🚨 Desvio Estatístico (σ)</option>
                   <option value="SECOES">🗳️ Mais Seções</option>
-                  <option value="VOTOS_22">🟢 Votação 22</option>
-                  <option value="VOTOS_13">🔴 Votação 13</option>
+                  <option value="NOVOS_22">🟢 Votos Novos 22</option>
+                  <option value="NOVOS_13">🔴 Votos Novos 13</option>
+                  <option value="VOTOS_22">🗳️ Votação Geral 22</option>
+                  <option value="VOTOS_13">🗳️ Votação Geral 13</option>
                 </select>
               </div>
 
@@ -12734,7 +12816,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
     }
 
     // =========================================================================
-    // MAPA FORENSE DE LOCAIS DE VOTAÇÃO (LEAFLET PINS & DESVIO INTRA-LOCAL)
+    // MAPA FORENSE DE LOCAIS DE VOTAÇÃO (LEAFLET PINS, VOTOS NOVOS & UNANIMIDADE)
     // =========================================================================
 
     window.tseLeafletMapInstance = null;
@@ -12743,7 +12825,25 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
     window.tseLocaisVotacaoCache = [];
     window.tseLocaisVotacaoResumo = null;
     window.tseFiltroTextoLocaisMapa = "";
-    window.tseOrdemLocaisMapa = "ANOMALIA";
+    window.tseOrdemLocaisMapa = "DIVERGENCIA_NOVOS";
+    window.tseCriterioCorPinsMapa = "TOTAL"; // "TOTAL" | "NOVOS" | "INVERSAO"
+
+    function alternarCriterioCorPinsMapaTse(criterio) {
+      window.tseCriterioCorPinsMapa = criterio || "TOTAL";
+
+      const btnTot = document.getElementById("btnModoPinTotal");
+      const btnNov = document.getElementById("btnModoPinNovos");
+      const btnInv = document.getElementById("btnModoPinInversao");
+
+      const clsActive = "px-2.5 py-1 rounded-md text-[11px] font-black bg-indigo-600 text-white shadow transition cursor-pointer";
+      const clsInactive = "px-2.5 py-1 rounded-md text-[11px] font-bold text-slate-400 hover:text-white transition cursor-pointer";
+
+      if (btnTot) btnTot.className = criterio === "TOTAL" ? clsActive : clsInactive;
+      if (btnNov) btnNov.className = criterio === "NOVOS" ? clsActive : clsInactive;
+      if (btnInv) btnInv.className = criterio === "INVERSAO" ? clsActive : clsInactive;
+
+      renderizarMapaLocaisTse(window.tseLocaisVotacaoCache, window.tseLocaisVotacaoResumo);
+    }
 
     function atualizarDadosLocaisVotacaoMapaTse(payload) {
       if (!payload) return;
@@ -12855,19 +12955,32 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         subEl.textContent = `Escopo: ${alvoFormatado} — ${locais.length.toLocaleString('pt-BR')} Prédios Físicos de Votação (${totSec.toLocaleString('pt-BR')} Seções mapeadas)`;
       }
 
-      // Atualiza os Mini KPIs
+      // Atualiza os Mini KPIs Executivos
       const kpiTotal = document.getElementById("kpiTotalLocaisMapa");
       const kpi22 = document.getElementById("kpiLocaisVitoria22");
+      const kpi22Nov = document.getElementById("kpiLocaisVitoria22Novos");
       const kpi13 = document.getElementById("kpiLocaisVitoria13");
-      const kpiAnom = document.getElementById("kpiLocaisAnomalia");
+      const kpi13Nov = document.getElementById("kpiLocaisVitoria13Novos");
+      const kpiDiverg = document.getElementById("kpiLocaisDivergenciaNovos");
+      const kpiInv = document.getElementById("kpiLocaisInversao");
+
+      const tot22Geral = resumo?.locais_vitoria_22 ?? locais.filter(l => l.vencedor === 22).length;
+      const tot22Novos = resumo?.locais_vitoria_novos_22 ?? locais.filter(l => l.vencedor_novos === 22).length;
+      const tot13Geral = resumo?.locais_vitoria_13 ?? locais.filter(l => l.vencedor === 13).length;
+      const tot13Novos = resumo?.locais_vitoria_novos_13 ?? locais.filter(l => l.vencedor_novos === 13).length;
+      const totDiverg = resumo?.locais_com_divergencia_novos ?? locais.filter(l => l.tem_divergencia_interna_novos).length;
+      const totInv = resumo?.locais_com_inversao ?? locais.filter(l => l.houve_inversao).length;
 
       if (kpiTotal) kpiTotal.textContent = (resumo?.total_locais ?? locais.length).toLocaleString('pt-BR');
-      if (kpi22) kpi22.textContent = (resumo?.locais_vitoria_22 ?? locais.filter(l => l.vencedor === 22).length).toLocaleString('pt-BR');
-      if (kpi13) kpi13.textContent = (resumo?.locais_vitoria_13 ?? locais.filter(l => l.vencedor === 13).length).toLocaleString('pt-BR');
-      if (kpiAnom) kpiAnom.textContent = (resumo?.locais_com_anomalia ?? locais.filter(l => l.tem_anomalia_intra_local).length).toLocaleString('pt-BR');
+      if (kpi22) kpi22.textContent = tot22Geral.toLocaleString('pt-BR');
+      if (kpi22Nov) kpi22Nov.textContent = `(novos: ${tot22Novos})`;
+      if (kpi13) kpi13.textContent = tot13Geral.toLocaleString('pt-BR');
+      if (kpi13Nov) kpi13Nov.textContent = `(novos: ${tot13Novos})`;
+      if (kpiDiverg) kpiDiverg.textContent = totDiverg.toLocaleString('pt-BR');
+      if (kpiInv) kpiInv.textContent = totInv.toLocaleString('pt-BR');
 
       // Garante que o mapa do Leaflet esteja instanciado
-      const map = inicializarLeafletMapSeNecessario(resumo?.centroide, resumo?.zoom_sugerido);
+      const map = inicializarLeafletMapSeNecessario(resumo?.centro_mapa, resumo?.zoom_sugerido);
       if (!map || typeof L === "undefined") {
         renderizarCardsLocaisHtmlTse(locais);
         return;
@@ -12879,13 +12992,43 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       window.tseMarkersByLocalKey.clear();
 
       const bounds = L.latLngBounds([]);
+      const criterioCor = window.tseCriterioCorPinsMapa || "TOTAL";
 
       locais.forEach(loc => {
         if (!loc.latitude || !loc.longitude) return;
 
-        const corClass = loc.cor_pin === "verde" ? "pin-verde" : (loc.cor_pin === "vermelho" ? "pin-vermelho" : "pin-amarelo");
-        const anomaliaClass = loc.tem_anomalia_intra_local ? "pin-anomalia" : "";
-        const iconHtml = `<div class="pin-urna-container ${corClass} ${anomaliaClass} w-8 h-8 text-[11px] shadow-lg">${loc.qtd_secoes}u</div>`;
+        // Determina a cor do PIN conforme o critério selecionado pelo usuário
+        let corClass = "pin-verde";
+        if (criterioCor === "NOVOS") {
+          corClass = loc.cor_pin_novos === "verde" ? "pin-verde" : (loc.cor_pin_novos === "vermelho" ? "pin-vermelho" : "pin-amarelo");
+        } else if (criterioCor === "INVERSAO") {
+          if (loc.houve_inversao) {
+            corClass = loc.tipo_inversao === "22_GERAL_13_NOVOS" ? "pin-vermelho" : "pin-verde";
+          } else {
+            corClass = "pin-amarelo opacity-60";
+          }
+        } else {
+          corClass = loc.cor_pin === "verde" ? "pin-verde" : (loc.cor_pin === "vermelho" ? "pin-vermelho" : "pin-amarelo");
+        }
+
+        // Alerta Âmbar Piscante: divergência interna nas urnas em novos votos (sem unanimidade)
+        let alertaClass = "";
+        if (loc.tem_divergencia_interna_novos && loc.tem_anomalia_intra_local) {
+          alertaClass = "pin-anomalia-e-divergencia";
+        } else if (loc.tem_divergencia_interna_novos) {
+          alertaClass = "pin-divergencia-novos";
+        } else if (loc.tem_anomalia_intra_local) {
+          alertaClass = "pin-anomalia";
+        }
+
+        const inversaoClass = loc.houve_inversao ? "pin-inversao" : "";
+
+        const iconHtml = `
+          <div class="pin-urna-container ${corClass} ${alertaClass} ${inversaoClass} w-8 h-8 text-[11px] shadow-lg relative cursor-pointer" title="${loc.nome_local} (${loc.qtd_secoes} urnas)">
+            <span>${loc.qtd_secoes}u</span>
+            ${loc.tem_divergencia_interna_novos ? '<span class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-slate-950 animate-ping" title="Divergência interna nos votos novos"></span>' : ''}
+          </div>
+        `;
 
         const icon = L.divIcon({
           className: "leaflet-data-marker",
@@ -12897,21 +13040,22 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
         const marker = L.marker([loc.latitude, loc.longitude], { icon: icon });
 
-        // Chips das seções deste prédio físico
+        // Chips das seções deste prédio físico com resultado geral e de votos novos
         const chipsHtml = (loc.detalhes_secoes || []).map(s => {
           const sFormatted = String(s.secao).padStart(4, "0");
           const zFormatted = String(s.zona).padStart(4, "0");
-          const tooltip = `Seção ${sFormatted} (Z:${zFormatted}) | 22: ${s.pct_22}% (${s.votos_22}v) vs 13: ${s.pct_13}% (${s.votos_13}v)`;
-          return `<button onclick="selecionarNoArvoreTse('${loc.uf}','${loc.uf}','${loc.municipio_codigo}','${zFormatted}','${s.prefixo}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-indigo-600 text-[10px] font-mono font-bold text-slate-200 hover:text-white border border-slate-700 hover:border-indigo-400 transition cursor-pointer" title="${tooltip}">
-            S:${sFormatted}
+          const badgeCor = s.vencedor_novos === 22 ? 'text-emerald-400 border-emerald-500/40' : (s.vencedor_novos === 13 ? 'text-rose-400 border-rose-500/40' : 'text-slate-400 border-slate-700');
+          const tooltip = `Seção ${sFormatted} (Z:${zFormatted}) | 2ºT Total: 22: ${s.votos_22}v (${s.pct_22}%) vs 13: ${s.votos_13}v (${s.pct_13}%) | Votos Novos: 22: +${s.votos_novos_22}v (${s.pct_novos_22}%) vs 13: +${s.votos_novos_13}v (${s.pct_novos_13}%)`;
+          return `<button onclick="selecionarNoArvoreTse('${loc.uf}','${loc.uf}','${loc.municipio_codigo}','${zFormatted}','${s.prefixo}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-indigo-600 text-[10px] font-mono font-bold ${badgeCor} border transition cursor-pointer" title="${tooltip}">
+            S:${sFormatted} <span class="text-[9px] opacity-80">${s.vencedor_novos === 22 ? '🟢+22' : (s.vencedor_novos === 13 ? '🔴+13' : '🟡=')}</span>
           </button>`;
         }).join("");
 
         const popupContent = `
-          <div class="p-3.5 text-xs mono text-slate-100 max-w-[320px]">
+          <div class="p-3.5 text-xs mono text-slate-100 max-w-[340px]">
             <div class="flex items-start justify-between gap-2 border-b border-slate-700/80 pb-2 mb-2">
               <div>
-                <span class="text-[10px] text-indigo-400 font-extrabold uppercase tracking-wide block">🏢 Endereço / Local Físico</span>
+                <span class="text-[10px] text-indigo-400 font-extrabold uppercase tracking-wide block">🏢 Endereço / Prédio Físico</span>
                 <h3 class="text-sm font-extrabold text-white leading-tight">${loc.nome_local}</h3>
                 <span class="text-[10px] text-slate-400">${loc.municipio_nome} • Zona ${String(loc.zona).padStart(4, '0')}</span>
               </div>
@@ -12920,30 +13064,89 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
               </span>
             </div>
 
-            <!-- Votação Agregada no Prédio -->
-            <div class="grid grid-cols-2 gap-2 my-2 text-center">
-              <div class="bg-cyan-950/40 border border-cyan-500/30 rounded p-1.5">
-                <span class="text-[10px] text-cyan-400 font-bold block truncate">Bolsonaro (22)</span>
-                <span class="text-base font-black text-white">${loc.votos_22.toLocaleString('pt-BR')}v</span>
-                <span class="text-[10px] text-cyan-300 block font-mono font-bold">${loc.pct_22}%</span>
+            <!-- Total Geral 2º Turno -->
+            <div class="my-1.5 p-2 rounded-lg bg-slate-900 border border-slate-800">
+              <div class="text-[10px] text-slate-400 uppercase font-bold flex items-center justify-between mb-1">
+                <span>🗳️ Votação Geral (2º Turno):</span>
+                <span class="font-black ${loc.vencedor === 22 ? 'text-emerald-400' : (loc.vencedor === 13 ? 'text-rose-400' : 'text-amber-400')}">
+                  ${loc.vencedor === 22 ? 'Vitória Flávio (22)' : (loc.vencedor === 13 ? 'Vitória Lula (13)' : 'Empate')}
+                </span>
               </div>
-              <div class="bg-rose-950/40 border border-rose-500/30 rounded p-1.5">
-                <span class="text-[10px] text-rose-400 font-bold block truncate">Lula (13)</span>
-                <span class="text-base font-black text-white">${loc.votos_13.toLocaleString('pt-BR')}v</span>
-                <span class="text-[10px] text-rose-300 block font-mono font-bold">${loc.pct_13}%</span>
+              <div class="grid grid-cols-2 gap-2 text-center">
+                <div class="bg-cyan-950/40 border border-cyan-500/30 rounded p-1">
+                  <span class="text-[10px] text-cyan-400 font-bold block truncate">Bolsonaro (22)</span>
+                  <span class="text-sm font-black text-white">${loc.votos_22.toLocaleString('pt-BR')}v</span>
+                  <span class="text-[9px] text-cyan-300 block font-bold">${loc.pct_22}%</span>
+                </div>
+                <div class="bg-rose-950/40 border border-rose-500/30 rounded p-1">
+                  <span class="text-[10px] text-rose-400 font-bold block truncate">Lula (13)</span>
+                  <span class="text-sm font-black text-white">${loc.votos_13.toLocaleString('pt-BR')}v</span>
+                  <span class="text-[9px] text-rose-300 block font-bold">${loc.pct_13}%</span>
+                </div>
               </div>
             </div>
 
-            <!-- Diagnóstico Forense de Desvio Intra-Local -->
-            <div class="p-2 rounded-lg my-2 border ${loc.tem_anomalia_intra_local ? 'bg-rose-950/50 border-rose-600/60 text-rose-200' : 'bg-slate-900 border-slate-800 text-slate-300'}">
+            <!-- Votos Novos (1ºT → 2ºT) -->
+            <div class="my-1.5 p-2 rounded-lg bg-slate-900 border border-slate-800">
+              <div class="text-[10px] text-slate-400 uppercase font-bold flex items-center justify-between mb-1">
+                <span>⚡ Captação Votos Novos (1ºT → 2ºT):</span>
+                <span class="font-black ${loc.vencedor_novos === 22 ? 'text-emerald-400' : (loc.vencedor_novos === 13 ? 'text-rose-400' : 'text-amber-400')}">
+                  ${loc.vencedor_novos === 22 ? 'Vitória Flávio (+22)' : (loc.vencedor_novos === 13 ? 'Vitória Lula (+13)' : 'Empate')}
+                </span>
+              </div>
+              <div class="grid grid-cols-2 gap-2 text-center">
+                <div class="bg-cyan-950/40 border border-cyan-500/30 rounded p-1">
+                  <span class="text-[10px] text-cyan-400 font-bold block truncate">+Novos (22)</span>
+                  <span class="text-sm font-black text-white">+${(loc.votos_novos_22 || 0).toLocaleString('pt-BR')}v</span>
+                  <span class="text-[9px] text-cyan-300 block font-bold">${loc.pct_novos_22 || 0}%</span>
+                </div>
+                <div class="bg-rose-950/40 border border-rose-500/30 rounded p-1">
+                  <span class="text-[10px] text-rose-400 font-bold block truncate">+Novos (13)</span>
+                  <span class="text-sm font-black text-white">+${(loc.votos_novos_13 || 0).toLocaleString('pt-BR')}v</span>
+                  <span class="text-[9px] text-rose-300 block font-bold">${loc.pct_novos_13 || 0}%</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Alerta Âmbar Piscante: Divergência Interna / Sem Unanimidade -->
+            ${loc.tem_divergencia_interna_novos ? `
+            <div class="p-2 rounded-lg my-1.5 bg-amber-950/70 border border-amber-500/80 text-amber-200">
+              <div class="text-[10px] font-black uppercase flex items-center gap-1.5 text-amber-300">
+                <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping inline-block"></span>
+                <span>⚠️ DIVERGÊNCIA INTERNA (SEM UNANIMIDADE EM NOVOS)</span>
+              </div>
+              <div class="text-xs font-bold mt-1 text-white">
+                Placar das Urnas: ${loc.placar_urnas_novos}
+              </div>
+              <div class="text-[10px] text-amber-300/80 mt-0.5 leading-snug">
+                As seções deste prédio não votaram de forma unânime na captação de votos novos.
+              </div>
+            </div>` : (loc.qtd_secoes > 1 ? `
+            <div class="p-1.5 rounded-lg my-1 bg-emerald-950/40 border border-emerald-600/40 text-emerald-200 text-[10px]">
+              🏆 <strong>100% UNÂNIME:</strong> Todas as ${loc.qtd_secoes} urnas venceram para ${loc.vencedor_novos === 22 ? 'Flávio (22)' : 'Lula (13)'} nos votos novos.
+            </div>` : '')}
+
+            <!-- Alerta de Inversão de Votação (Geral vs Novos) -->
+            ${loc.houve_inversao ? `
+            <div class="p-2 rounded-lg my-1.5 bg-indigo-950/70 border border-cyan-400/80 text-cyan-200">
+              <div class="text-[10px] font-black uppercase text-cyan-300 flex items-center gap-1">
+                <span>🔄 INVERSÃO DE TENDÊNCIA ELEITORAL</span>
+              </div>
+              <div class="text-[11px] mt-0.5 font-bold text-white leading-snug">
+                ${loc.diagnostico_inversao}
+              </div>
+            </div>` : ''}
+
+            <!-- Diagnóstico Forense de Desvio Estatístico Intra-Prédio -->
+            <div class="p-2 rounded-lg my-1.5 border ${loc.tem_anomalia_intra_local ? 'bg-rose-950/50 border-rose-600/60 text-rose-200' : 'bg-slate-900 border-slate-800 text-slate-300'}">
               <div class="text-[10px] font-black uppercase flex items-center gap-1 ${loc.tem_anomalia_intra_local ? 'text-rose-300' : 'text-emerald-400'}">
                 <span>${loc.tem_anomalia_intra_local ? '🚨 DESVIO ESTATÍSTICO INTRA-PRÉDIO' : '✅ COERÊNCIA FÍSICA INTRA-PRÉDIO'}</span>
               </div>
-              <p class="text-[11px] mt-1 leading-snug">
+              <p class="text-[11px] mt-0.5 leading-snug">
                 ${loc.diagnostico_forense}
               </p>
               ${loc.qtd_secoes > 1 ? `
-              <div class="text-[10px] text-slate-400 mt-1.5 pt-1 border-t border-slate-800/80 flex items-center justify-between">
+              <div class="text-[10px] text-slate-400 mt-1 pt-1 border-t border-slate-800/80 flex items-center justify-between">
                 <span>Desvio Padrão (σ): <strong class="text-slate-200">${loc.desvio_padrao}%</strong></span>
                 <span>Delta Máx (Δmax): <strong class="text-slate-200">${loc.delta_max}%</strong></span>
               </div>` : ''}
@@ -12966,8 +13169,8 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       });
 
       if (locais.length > 0 && bounds.isValid()) {
-        if (resumo?.centroide && resumo?.zoom_sugerido) {
-          map.setView(resumo.centroide, resumo.zoom_sugerido);
+        if (resumo?.centro_mapa && resumo?.zoom_sugerido) {
+          map.setView(resumo.centro_mapa, resumo.zoom_sugerido);
         } else {
           map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
         }
@@ -12994,9 +13197,23 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         });
       }
 
-      // Ordenação
-      const criterio = window.tseOrdemLocaisMapa || "ANOMALIA";
-      if (criterio === "ANOMALIA") {
+      // Ordenação Avançada
+      const criterio = window.tseOrdemLocaisMapa || "DIVERGENCIA_NOVOS";
+      if (criterio === "DIVERGENCIA_NOVOS") {
+        filtrados.sort((a, b) => {
+          if (a.tem_divergencia_interna_novos !== b.tem_divergencia_interna_novos) {
+            return a.tem_divergencia_interna_novos ? -1 : 1;
+          }
+          return b.qtd_secoes - a.qtd_secoes;
+        });
+      } else if (criterio === "INVERSAO") {
+        filtrados.sort((a, b) => {
+          if (a.houve_inversao !== b.houve_inversao) {
+            return a.houve_inversao ? -1 : 1;
+          }
+          return b.qtd_secoes - a.qtd_secoes;
+        });
+      } else if (criterio === "ANOMALIA") {
         filtrados.sort((a, b) => {
           if (a.tem_anomalia_intra_local !== b.tem_anomalia_intra_local) {
             return a.tem_anomalia_intra_local ? -1 : 1;
@@ -13005,6 +13222,10 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         });
       } else if (criterio === "SECOES") {
         filtrados.sort((a, b) => b.qtd_secoes - a.qtd_secoes);
+      } else if (criterio === "NOVOS_22") {
+        filtrados.sort((a, b) => (b.votos_novos_22 || 0) - (a.votos_novos_22 || 0));
+      } else if (criterio === "NOVOS_13") {
+        filtrados.sort((a, b) => (b.votos_novos_13 || 0) - (a.votos_novos_13 || 0));
       } else if (criterio === "VOTOS_22") {
         filtrados.sort((a, b) => b.votos_22 - a.votos_22);
       } else if (criterio === "VOTOS_13") {
@@ -13021,13 +13242,26 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }
 
       const html = filtrados.map(loc => {
-        const corBorder = loc.tem_anomalia_intra_local ? "border-rose-500/60 bg-rose-950/20" : (loc.cor_pin === "verde" ? "border-emerald-500/30 bg-slate-950" : (loc.cor_pin === "vermelho" ? "border-rose-500/30 bg-slate-950" : "border-slate-800 bg-slate-950"));
+        let corBorder = "border-slate-800 bg-slate-950";
+        if (loc.tem_divergencia_interna_novos) {
+          corBorder = "border-amber-500/60 bg-amber-950/20";
+        } else if (loc.tem_anomalia_intra_local) {
+          corBorder = "border-rose-500/60 bg-rose-950/20";
+        } else if (loc.houve_inversao) {
+          corBorder = "border-cyan-500/50 bg-indigo-950/20";
+        } else if (loc.cor_pin === "verde") {
+          corBorder = "border-emerald-500/30 bg-slate-950";
+        } else if (loc.cor_pin === "vermelho") {
+          corBorder = "border-rose-500/30 bg-slate-950";
+        }
+
         const corBadge = loc.cor_pin === "verde" ? "bg-emerald-950 text-emerald-300 border-emerald-600/40" : (loc.cor_pin === "vermelho" ? "bg-rose-950 text-rose-300 border-rose-600/40" : "bg-amber-950 text-amber-300 border-amber-600/40");
 
         const chipsSecoes = (loc.detalhes_secoes || []).slice(0, 10).map(s => {
           const sPad = String(s.secao).padStart(4, "0");
           const zPad = String(s.zona).padStart(4, "0");
-          return `<button onclick="event.stopPropagation(); selecionarNoArvoreTse('${loc.uf}','${loc.uf}','${loc.municipio_codigo}','${zPad}','${s.prefixo}')" class="px-1.5 py-0.5 rounded bg-slate-900 hover:bg-indigo-600 text-[9px] font-mono font-bold text-slate-300 hover:text-white border border-slate-700 transition cursor-pointer" title="Auditar urna da Seção ${sPad} (Zona ${zPad})">
+          const corChip = s.vencedor_novos === 22 ? 'text-emerald-400' : (s.vencedor_novos === 13 ? 'text-rose-400' : 'text-slate-400');
+          return `<button onclick="event.stopPropagation(); selecionarNoArvoreTse('${loc.uf}','${loc.uf}','${loc.municipio_codigo}','${zPad}','${s.prefixo}')" class="px-1.5 py-0.5 rounded bg-slate-900 hover:bg-indigo-600 text-[9px] font-mono font-bold ${corChip} hover:text-white border border-slate-700 transition cursor-pointer" title="Seção ${sPad}: 2ºT 22=${s.votos_22}v vs 13=${s.votos_13}v | Novos: +22=${s.votos_novos_22}v vs +13=${s.votos_novos_13}v">
             S:${sPad}
           </button>`;
         }).join("");
@@ -13039,12 +13273,14 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           >
             <div class="flex items-start justify-between gap-1.5">
               <div>
-                <div class="flex items-center gap-1.5">
+                <div class="flex flex-wrap items-center gap-1.5">
                   <span class="text-xs font-black text-white group-hover:text-indigo-300 transition truncate">${loc.nome_local}</span>
-                  ${loc.tem_anomalia_intra_local ? `<span class="px-1.5 py-0.2 rounded bg-rose-600 text-[9px] font-black text-white animate-pulse">DESVIO σ</span>` : ''}
+                  ${loc.tem_divergencia_interna_novos ? `<span class="px-1.5 py-0.2 rounded bg-amber-600 text-[9px] font-black text-slate-950 animate-pulse">⚠️ SEM UNANIMIDADE</span>` : ''}
+                  ${loc.houve_inversao ? `<span class="px-1.5 py-0.2 rounded bg-cyan-700 text-[9px] font-black text-white">🔄 INVERSÃO</span>` : ''}
+                  ${loc.tem_anomalia_intra_local ? `<span class="px-1.5 py-0.2 rounded bg-rose-600 text-[9px] font-black text-white">DESVIO σ</span>` : ''}
                 </div>
-                <div class="text-[10px] text-slate-400 mono">
-                  ${loc.municipio_nome} • Zona ${String(loc.zona).padStart(4, '0')}
+                <div class="text-[10px] text-slate-400 mono mt-0.5">
+                  ${loc.municipio_nome} • Zona ${String(loc.zona).padStart(4, '0')} • ${loc.tem_divergencia_interna_novos ? `<strong class="text-amber-300">${loc.placar_urnas_novos}</strong>` : (loc.qtd_secoes > 1 ? '<strong class="text-emerald-400">100% Unânime</strong>' : '1 urna')}
                 </div>
               </div>
               <span class="px-2 py-0.5 rounded text-[10px] font-black border ${corBadge} shrink-0">
@@ -13052,11 +13288,18 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
               </span>
             </div>
 
-            <!-- Placar Compacto -->
-            <div class="flex items-center justify-between text-[11px] mono pt-1 border-t border-slate-800/80">
-              <span class="text-cyan-400 font-bold">22: <strong>${loc.pct_22}%</strong> (${loc.votos_22}v)</span>
-              <span class="text-rose-400 font-bold">13: <strong>${loc.pct_13}%</strong> (${loc.votos_13}v)</span>
-              <span class="text-slate-400 text-[10px]">σ: <strong>${loc.desvio_padrao}%</strong></span>
+            <!-- Placar Comparado: Total Geral vs Votos Novos -->
+            <div class="grid grid-cols-2 gap-2 text-[10px] mono pt-1 border-t border-slate-800/80">
+              <div class="bg-slate-900/60 p-1.5 rounded border border-slate-800 flex flex-col">
+                <span class="text-[9px] text-slate-400 uppercase font-bold">Total 2ºT:</span>
+                <span class="text-slate-200 mt-0.5 font-bold">22: <strong class="text-cyan-400">${loc.pct_22}%</strong> (${loc.votos_22}v)</span>
+                <span class="text-slate-200 font-bold">13: <strong class="text-rose-400">${loc.pct_13}%</strong> (${loc.votos_13}v)</span>
+              </div>
+              <div class="bg-slate-900/60 p-1.5 rounded border border-slate-800 flex flex-col">
+                <span class="text-[9px] text-slate-400 uppercase font-bold">Votos Novos:</span>
+                <span class="text-slate-200 mt-0.5 font-bold">+22: <strong class="text-cyan-400">+${loc.votos_novos_22 || 0}v</strong> (${loc.pct_novos_22 || 0}%)</span>
+                <span class="text-slate-200 font-bold">+13: <strong class="text-rose-400">+${loc.votos_novos_13 || 0}v</strong> (${loc.pct_novos_13 || 0}%)</span>
+              </div>
             </div>
 
             <!-- Chips de Seções -->
@@ -13087,15 +13330,15 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
     }
 
     function reordenarListaLocaisMapaTse(criterio) {
-      window.tseOrdemLocaisMapa = criterio || "ANOMALIA";
+      window.tseOrdemLocaisMapa = criterio || "DIVERGENCIA_NOVOS";
       renderizarCardsLocaisHtmlTse(window.tseLocaisVotacaoCache);
     }
 
     function recentralizarMapaLocaisTse() {
       const resumo = window.tseLocaisVotacaoResumo;
       if (window.tseLeafletMapInstance) {
-        if (resumo?.centroide && resumo?.zoom_sugerido) {
-          window.tseLeafletMapInstance.flyTo(resumo.centroide, resumo.zoom_sugerido, { duration: 0.6 });
+        if (resumo?.centro_mapa && resumo?.zoom_sugerido) {
+          window.tseLeafletMapInstance.flyTo(resumo.centro_mapa, resumo.zoom_sugerido, { duration: 0.6 });
         } else if (window.tseLeafletMarkersLayer && window.tseLeafletMarkersLayer.getLayers().length > 0) {
           const group = L.featureGroup(window.tseLeafletMarkersLayer.getLayers());
           window.tseLeafletMapInstance.fitBounds(group.getBounds(), { padding: [30, 30], maxZoom: 15 });
