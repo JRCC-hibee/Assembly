@@ -1697,9 +1697,16 @@ o Boletim de Urna (apos encerramento da votacao).
           <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
             <div class="lg:col-span-7 xl:col-span-8 flex flex-col">
               <div id="tseLeafletMap" class="w-full h-[520px] rounded-xl border border-slate-800 bg-slate-900 shadow-inner z-10"></div>
-              <div class="flex flex-wrap items-center justify-between text-[11px] text-slate-400 mt-2 px-1 mono gap-1">
-                <span>Legenda: 🟢 Flávio (22) | 🔴 Lula (13) | 🟡 Empate | <strong class="text-amber-300">⚠️ Âmbar pulsante: divergência interna nas urnas em novos votos</strong> | <strong class="text-cyan-300">🔄 Borda ciano: inversão</strong></span>
-                <span>OpenStreetMap & CartoDB</span>
+              <div class="flex flex-wrap items-center justify-between text-[11px] text-slate-400 mt-2 px-1 mono gap-2">
+                <span>Legenda: 🟢 Flávio (22) | 🔴 Lula (13) | 🟡 Empate | <strong class="text-amber-300">⚠️ Âmbar: sem unanimidade</strong> | <strong class="text-cyan-300">🔄 Ciano: inversão</strong></span>
+                <div class="flex items-center gap-1.5">
+                  <div class="inline-flex rounded-md bg-slate-950 p-0.5 border border-slate-800">
+                    <button id="btnEstiloTile_dark" onclick="alternarEstiloMapaTileTse('dark')" class="px-2 py-0.5 rounded text-[10px] font-black bg-indigo-600 text-white shadow transition cursor-pointer" title="CartoDB Dark Matter">🌙 Escuro</button>
+                    <button id="btnEstiloTile_voyager" onclick="alternarEstiloMapaTileTse('voyager')" class="px-2 py-0.5 rounded text-[10px] font-bold text-slate-400 hover:text-white transition cursor-pointer" title="CartoDB Voyager">🧭 Voyager</button>
+                    <button id="btnEstiloTile_osm" onclick="alternarEstiloMapaTileTse('osm')" class="px-2 py-0.5 rounded text-[10px] font-bold text-slate-400 hover:text-white transition cursor-pointer" title="OpenStreetMap Padrão">🗺️ OSM</button>
+                  </div>
+                  <span class="text-slate-500">CartoDB & OSM</span>
+                </div>
               </div>
             </div>
 
@@ -3491,6 +3498,9 @@ o Boletim de Urna (apos encerramento da votacao).
   </main>
 
   <script>
+    // Configurações Globais injetadas pelo Servidor
+    window.CARTODB_BASEMAPS_API_KEY = "{{ basemaps_apikey|default('cb1_58d3_1_e1f5f78ad05bc9b20f808a7e') }}";
+
     // Estado Global da Interface
     let seccaoState = null;
     let candidatosList = [];
@@ -12918,6 +12928,42 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }
     }
 
+    window.tseLeafletTileLayer = null;
+    window.tseEstiloMapaTile = window.tseEstiloMapaTile || "dark";
+
+    function obterTileLayerUrl(estilo) {
+      const apiKey = window.CARTODB_BASEMAPS_API_KEY || "cb1_58d3_1_e1f5f78ad05bc9b20f808a7e";
+      if (estilo === "voyager") {
+        return `https://basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png?key=${apiKey}`;
+      } else if (estilo === "osm") {
+        return "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
+      }
+      return `https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${apiKey}`;
+    }
+
+    function alternarEstiloMapaTileTse(novoEstilo) {
+      window.tseEstiloMapaTile = novoEstilo || "dark";
+      if (window.tseLeafletMapInstance && window.tseLeafletTileLayer) {
+        window.tseLeafletMapInstance.removeLayer(window.tseLeafletTileLayer);
+        window.tseLeafletTileLayer = L.tileLayer(obterTileLayerUrl(window.tseEstiloMapaTile), {
+          maxZoom: 19,
+          subdomains: "abcd",
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        }).addTo(window.tseLeafletMapInstance);
+        if (window.tseLeafletMarkersLayer) {
+          window.tseLeafletMarkersLayer.bringToFront();
+        }
+      }
+      ["dark", "voyager", "osm"].forEach(id => {
+        const btn = document.getElementById("btnEstiloTile_" + id);
+        if (btn) {
+          btn.className = id === window.tseEstiloMapaTile
+            ? "px-2 py-0.5 rounded text-[10px] font-black bg-indigo-600 text-white shadow transition cursor-pointer"
+            : "px-2 py-0.5 rounded text-[10px] font-bold text-slate-400 hover:text-white transition cursor-pointer";
+        }
+      });
+    }
+
     function inicializarLeafletMapSeNecessario(centroide, zoom) {
       if (window.tseLeafletMapInstance) return window.tseLeafletMapInstance;
       const el = document.getElementById("tseLeafletMap");
@@ -12932,7 +12978,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         attributionControl: true
       }).setView([lat, lon], z);
 
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      window.tseLeafletTileLayer = L.tileLayer(obterTileLayerUrl(window.tseEstiloMapaTile || "dark"), {
         maxZoom: 19,
         subdomains: "abcd",
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'

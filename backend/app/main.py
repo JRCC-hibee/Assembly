@@ -92,8 +92,18 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-13-rev59"
-SYSTEM_COMMIT = "rev59-mapa-votos-novos-e-alerta-ambar-unanimidade"
+SYSTEM_BUILD = "2026-11-13-rev60"
+SYSTEM_COMMIT = "rev60-cartodb-basemaps-apikey-suporte-voyager-e-dark"
+
+def obter_basemaps_apikey() -> str:
+    """Retorna a API key do CartoDB Basemaps a partir de variáveis de ambiente do Portainer/Docker."""
+    return (
+        os.environ.get("basemaps_apikey")
+        or os.environ.get("BASEMAPS_APIKEY")
+        or os.environ.get("BASEMAPS_KEY")
+        or os.environ.get("CARTODB_API_KEY")
+        or "cb1_58d3_1_e1f5f78ad05bc9b20f808a7e"
+    ).strip()
 
 app = FastAPI(
     title="Urna Eletrônica Brasileira (ESP32 RISC-V Assembly + Python Core)",
@@ -303,11 +313,23 @@ def index_page(request: Request):
         "versao_sistema": SYSTEM_VERSION,
         "build_info": SYSTEM_BUILD,
         "commit_hash": SYSTEM_COMMIT,
+        "basemaps_apikey": obter_basemaps_apikey(),
     })
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     return response
+
+
+@app.get("/api/config")
+def api_get_config():
+    """Retorna configurações públicas do cliente web, incluindo chave de mapas."""
+    return {
+        "basemaps_apikey": obter_basemaps_apikey(),
+        "versao": SYSTEM_VERSION,
+        "build": SYSTEM_BUILD,
+        "commit": SYSTEM_COMMIT,
+    }
 
 
 @app.get("/health")
