@@ -7,6 +7,7 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;600;700;800&display=swap');
     body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
@@ -201,6 +202,56 @@
     .leaflet-popup-tip {
       background: #0f172a !important;
       border: 1px solid #334155 !important;
+    }
+
+    /* Estilos de Impressão do Relatório Comparativo Fechado por Local */
+    @media print {
+      body * {
+        visibility: hidden !important;
+      }
+      #modalRelatorioFechadoLocalTse,
+      #modalRelatorioFechadoLocalTse * {
+        visibility: visible !important;
+      }
+      #modalRelatorioFechadoLocalTse {
+        position: absolute !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 100% !important;
+        height: auto !important;
+        background: #ffffff !important;
+        color: #0f172a !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        z-index: 999999 !important;
+        overflow: visible !important;
+      }
+      #relatorioFechadoContainerCard {
+        border: none !important;
+        box-shadow: none !important;
+        background: #ffffff !important;
+        color: #0f172a !important;
+        max-width: 100% !important;
+        max-height: none !important;
+        overflow: visible !important;
+        padding: 10px !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-border {
+        border: 1px solid #cbd5e1 !important;
+      }
+      .print-bg-light {
+        background-color: #f8fafc !important;
+      }
+      .print-text-dark {
+        color: #0f172a !important;
+      }
+      .page-break-avoid {
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+      }
     }
   </style>
 </head>
@@ -3549,6 +3600,15 @@ o Boletim de Urna (apos encerramento da votacao).
           <div class="flex items-center gap-2">
             <button
               type="button"
+              onclick="gerarRelatorioComparativoLocalTse(window.tseLocalAtivoKey)"
+              class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-md"
+              title="Gerar e imprimir relatório comparativo fechado do prédio"
+            >
+              <span>📊</span>
+              <span>Gerar Relatório Comparativo</span>
+            </button>
+            <button
+              type="button"
               id="btnDossieLocalizarMapa"
               class="px-3.5 py-1.5 rounded-xl bg-slate-800 hover:bg-indigo-600 text-slate-200 hover:text-white font-bold transition flex items-center gap-1.5 cursor-pointer"
               title="Centralizar e apontar câmera do mapa neste local"
@@ -3564,6 +3624,88 @@ o Boletim de Urna (apos encerramento da votacao).
               Fechar
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL DE RELATÓRIO COMPARATIVO FECHADO POR LOCAL DE VOTAÇÃO (PRÉDIO FÍSICO) -->
+    <div
+      id="modalRelatorioFechadoLocalTse"
+      class="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] hidden flex items-center justify-center p-2 sm:p-4"
+      onclick="fecharModalRelatorioFechadoLocalTse(event)"
+    >
+      <div
+        id="relatorioFechadoContainerCard"
+        class="bg-slate-900 border border-emerald-500/50 rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[95vh] overflow-hidden p-4 sm:p-6 space-y-4"
+        onclick="event.stopPropagation()"
+      >
+        <!-- Barra de Ações Superior (Não impressa) -->
+        <div class="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800 no-print flex-shrink-0">
+          <div class="flex items-center gap-2.5">
+            <span class="text-2xl p-1.5 rounded-xl bg-emerald-950/80 border border-emerald-700/60">📊</span>
+            <div>
+              <h3 class="text-sm sm:text-base font-black text-white flex items-center gap-2">
+                <span>Relatório Comparativo Fechado do Prédio</span>
+                <span class="px-2 py-0.5 rounded text-[10px] font-black bg-emerald-950 text-emerald-300 border border-emerald-600/50 mono">
+                  LAUDO OFICIAL
+                </span>
+              </h3>
+              <p class="text-[11px] text-slate-400 mono">
+                Tabelamento analítico urna a urna com gráficos visuais de dispersão e dinâmica de votos novos.
+              </p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick="imprimirRelatorioFechadoLocalTse()"
+              class="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-extrabold text-xs shadow-md transition flex items-center gap-1.5 cursor-pointer"
+              title="Imprimir relatório ou exportar em PDF"
+            >
+              <span>🖨️</span>
+              <span>Imprimir / Salvar PDF</span>
+            </button>
+            <button
+              type="button"
+              onclick="fecharModalRelatorioFechadoLocalTse()"
+              class="text-slate-400 hover:text-white text-xl font-bold p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+              title="Fechar relatório (ESC)"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <!-- Área do Relatório Fechado Rolável e Formatada para Impressão -->
+        <div id="relatorioFechadoImpressaoArea" class="flex-1 overflow-y-auto space-y-5 pr-1.5 text-xs mono">
+          <!-- Preenchido dinamicamente por renderizarRelatorioFechadoLocalHtml(loc) -->
+        </div>
+
+        <!-- Rodapé Não Impresso -->
+        <div class="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-800 no-print flex-shrink-0 text-xs mono text-slate-400">
+          <div class="flex items-center gap-1.5">
+            <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Documento Técnico Oficial — Auditoria Multidimensional TSE</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick="imprimirRelatorioFechadoLocalTse()"
+              class="px-3 py-1.5 rounded-lg bg-emerald-900/60 hover:bg-emerald-600 text-emerald-200 hover:text-white font-bold transition flex items-center gap-1 cursor-pointer"
+            >
+              <span>🖨️ Imprimir / PDF</span>
+            </button>
+            <button
+              type="button"
+              onclick="fecharModalRelatorioFechadoLocalTse()"
+              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition cursor-pointer"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
         </div>
       </div>
     </div>
@@ -12603,6 +12745,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
     window.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
+        fecharModalRelatorioFechadoLocalTse();
         fecharModalDossieLocalTse();
         fecharModalEleitorTse();
         fecharModalLogsTeclasIndevidas();
@@ -13216,6 +13359,17 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
               <span>🔍</span>
               <span>Ampliar Dados Completos</span>
             </button>
+
+            <!-- Botão 2: Gerar Relatório Comparativo Fechado -->
+            <button
+              type="button"
+              onclick="gerarRelatorioComparativoLocalTse('${loc.key}')"
+              class="w-full mt-1.5 py-1 px-3 rounded-lg bg-emerald-950 hover:bg-emerald-600 text-emerald-300 hover:text-white font-extrabold text-[11px] flex items-center justify-center gap-1.5 border border-emerald-600/50 transition cursor-pointer"
+              title="Gerar e imprimir relatório comparativo fechado deste local"
+            >
+              <span>📊</span>
+              <span>Gerar Relatório Fechado</span>
+            </button>
           </div>
         `;
 
@@ -13362,21 +13516,32 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
               </div>
             </div>
 
-            <!-- Barra de Ações: Direcionar no Mapa / Ampliar Dados Completos -->
+            <!-- Barra de Ações: Direcionar no Mapa / Relatório / Dossiê -->
             <div class="flex items-center justify-between pt-1 border-t border-slate-800/80 text-[10px] mono">
               <span class="text-slate-400 text-[9px] flex items-center gap-1">
                 <span>📍</span>
-                <span>${isAtivo ? 'Focado no mapa (clique de novo p/ dossiê)' : 'Clique p/ apontar no mapa'}</span>
+                <span>${isAtivo ? 'Focado (2º clique = dossiê)' : 'Clique p/ apontar'}</span>
               </span>
-              <button
-                type="button"
-                onclick="event.stopPropagation(); abrirModalDossieLocalTse('${loc.key}')"
-                class="px-2.5 py-1 rounded bg-indigo-950 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-700/60 font-bold transition flex items-center gap-1 cursor-pointer"
-                title="Ampliar dados completos e dossiê deste local de votação"
-              >
-                <span>🔍</span>
-                <span>Ampliar</span>
-              </button>
+              <div class="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onclick="event.stopPropagation(); gerarRelatorioComparativoLocalTse('${loc.key}')"
+                  class="px-2 py-0.5 rounded bg-emerald-950 hover:bg-emerald-600 text-emerald-300 hover:text-white border border-emerald-700/60 font-bold transition flex items-center gap-1 cursor-pointer"
+                  title="Gerar Relatório Comparativo Fechado deste Prédio"
+                >
+                  <span>📊</span>
+                  <span>Relatório</span>
+                </button>
+                <button
+                  type="button"
+                  onclick="event.stopPropagation(); abrirModalDossieLocalTse('${loc.key}')"
+                  class="px-2 py-0.5 rounded bg-indigo-950 hover:bg-indigo-600 text-indigo-300 hover:text-white border border-indigo-700/60 font-bold transition flex items-center gap-1 cursor-pointer"
+                  title="Ampliar dados completos e dossiê deste local de votação"
+                >
+                  <span>🔍</span>
+                  <span>Dossiê</span>
+                </button>
+              </div>
             </div>
           </div>
         `;
@@ -13722,6 +13887,546 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
                 ${secoesRows}
               </tbody>
             </table>
+          </div>
+        </div>
+      `;
+    }
+
+    // =========================================================================
+    // RELATÓRIO COMPARATIVO FECHADO POR LOCAL DE VOTAÇÃO (PRÉDIO FÍSICO)
+    // =========================================================================
+    let _chartRelatorio2TInstance = null;
+    let _chartRelatorioNovosInstance = null;
+
+    function gerarRelatorioComparativoLocalTse(localKey) {
+      if (!localKey && window.tseLocalAtivoKey) localKey = window.tseLocalAtivoKey;
+      const modal = document.getElementById("modalRelatorioFechadoLocalTse");
+      if (!modal) return;
+
+      const loc = (window.tseLocaisVotacaoCache || []).find(l => l.key === localKey);
+      if (!loc) return;
+
+      window.tseLocalAtivoKey = localKey;
+      destacarCardLocalAtivoTse(localKey);
+
+      const area = document.getElementById("relatorioFechadoImpressaoArea");
+      if (area) {
+        area.innerHTML = renderizarRelatorioFechadoLocalHtml(loc);
+      }
+
+      modal.classList.remove("hidden");
+
+      setTimeout(() => {
+        inicializarGraficosRelatorioLocal(loc);
+      }, 80);
+    }
+
+    function fecharModalRelatorioFechadoLocalTse(event) {
+      if (event && event.target !== event.currentTarget) return;
+      const modal = document.getElementById("modalRelatorioFechadoLocalTse");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    function imprimirRelatorioFechadoLocalTse() {
+      window.print();
+    }
+
+    function inicializarGraficosRelatorioLocal(loc) {
+      if (!loc || !Array.isArray(loc.detalhes_secoes) || loc.detalhes_secoes.length === 0) return;
+      if (typeof Chart === "undefined") {
+        console.warn("[RELATÓRIO] Chart.js não disponível; fallback nativo ativo.");
+        return;
+      }
+
+      const secoes = loc.detalhes_secoes;
+      const labels = secoes.map(s => `S:${String(s.secao).padStart(4, '0')}`);
+      const pcts22 = secoes.map(s => Number(s.pct_22 || 0));
+      const pcts13 = secoes.map(s => Number(s.pct_13 || 0));
+      const mediaVal = Number(loc.pct_22 || 0);
+      const lineMediaData = secoes.map(() => mediaVal);
+
+      const novos22 = secoes.map(s => Number(s.votos_novos_22 || 0));
+      const novos13 = secoes.map(s => Number(s.votos_novos_13 || 0));
+
+      // 1. Gráfico 2º Turno % Urna a Urna vs Média do Prédio
+      const ctx1 = document.getElementById("canvasChartRelatorio2T");
+      if (ctx1) {
+        if (_chartRelatorio2TInstance) {
+          _chartRelatorio2TInstance.destroy();
+          _chartRelatorio2TInstance = null;
+        }
+
+        _chartRelatorio2TInstance = new Chart(ctx1, {
+          type: "bar",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: `Média Prédio (${mediaVal}%)`,
+                data: lineMediaData,
+                type: "line",
+                borderColor: "#38bdf8",
+                borderWidth: 2,
+                borderDash: [5, 4],
+                pointRadius: 0,
+                fill: false,
+                order: 1
+              },
+              {
+                label: "Bolsonaro (22) %",
+                data: pcts22,
+                backgroundColor: "rgba(16, 185, 129, 0.8)",
+                borderColor: "#10b981",
+                borderWidth: 1.5,
+                borderRadius: 4,
+                order: 2
+              },
+              {
+                label: "Lula (13) %",
+                data: pcts13,
+                backgroundColor: "rgba(244, 63, 94, 0.8)",
+                borderColor: "#f43f5e",
+                borderWidth: 1.5,
+                borderRadius: 4,
+                order: 3
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 400 },
+            plugins: {
+              legend: {
+                position: "top",
+                labels: { color: "#e2e8f0", font: { family: "JetBrains Mono", size: 10, weight: "bold" }, boxWidth: 12 }
+              },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => ` ${ctx.dataset.label}: ${ctx.parsed.y}%`
+                }
+              }
+            },
+            scales: {
+              x: {
+                ticks: { color: "#94a3b8", font: { family: "JetBrains Mono", size: 9 } },
+                grid: { color: "rgba(51, 65, 85, 0.25)" }
+              },
+              y: {
+                min: 0,
+                max: 100,
+                ticks: {
+                  color: "#94a3b8",
+                  font: { family: "JetBrains Mono", size: 9 },
+                  callback: (v) => `${v}%`
+                },
+                grid: { color: "rgba(51, 65, 85, 0.35)" }
+              }
+            }
+          }
+        });
+      }
+
+      // 2. Gráfico de Absorção de Novos Votos (+22 vs +13)
+      const ctx2 = document.getElementById("canvasChartRelatorioNovos");
+      if (ctx2) {
+        if (_chartRelatorioNovosInstance) {
+          _chartRelatorioNovosInstance.destroy();
+          _chartRelatorioNovosInstance = null;
+        }
+
+        _chartRelatorioNovosInstance = new Chart(ctx2, {
+          type: "bar",
+          data: {
+            labels: labels,
+            datasets: [
+              {
+                label: "+Novos 22 (Flávio)",
+                data: novos22,
+                backgroundColor: "rgba(56, 189, 248, 0.85)",
+                borderColor: "#0284c7",
+                borderWidth: 1.5,
+                borderRadius: 4
+              },
+              {
+                label: "+Novos 13 (Lula)",
+                data: novos13,
+                backgroundColor: "rgba(251, 113, 133, 0.85)",
+                borderColor: "#e11d48",
+                borderWidth: 1.5,
+                borderRadius: 4
+              }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 400 },
+            plugins: {
+              legend: {
+                position: "top",
+                labels: { color: "#e2e8f0", font: { family: "JetBrains Mono", size: 10, weight: "bold" }, boxWidth: 12 }
+              },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) => ` ${ctx.dataset.label}: +${ctx.parsed.y} votos`
+                }
+              }
+            },
+            scales: {
+              x: {
+                ticks: { color: "#94a3b8", font: { family: "JetBrains Mono", size: 9 } },
+                grid: { color: "rgba(51, 65, 85, 0.25)" }
+              },
+              y: {
+                beginAtZero: true,
+                ticks: {
+                  color: "#94a3b8",
+                  font: { family: "JetBrains Mono", size: 9 },
+                  callback: (v) => `+${v}`
+                },
+                grid: { color: "rgba(51, 65, 85, 0.35)" }
+              }
+            }
+          }
+        });
+      }
+    }
+
+    function renderizarRelatorioFechadoLocalHtml(loc) {
+      const secoes = loc.detalhes_secoes || [];
+      const tot1t_22 = secoes.reduce((acc, s) => acc + (s.votos_1t_22 || 0), 0);
+      const tot1t_13 = secoes.reduce((acc, s) => acc + (s.votos_1t_13 || 0), 0);
+      const tot1t_geral = tot1t_22 + tot1t_13;
+      const pct1t_22 = tot1t_geral > 0 ? (tot1t_22 / tot1t_geral * 100).toFixed(1) : "0.0";
+      const pct1t_13 = tot1t_geral > 0 ? (tot1t_13 / tot1t_geral * 100).toFixed(1) : "0.0";
+
+      const tot2t_22 = loc.votos_22 || 0;
+      const tot2t_13 = loc.votos_13 || 0;
+      const tot2t_geral = tot2t_22 + tot2t_13;
+
+      const totNov_22 = loc.votos_novos_22 || 0;
+      const totNov_13 = loc.votos_novos_13 || 0;
+      const totNov_geral = totNov_22 + totNov_13;
+
+      const totAptos = loc.aptos || secoes.reduce((acc, s) => acc + (s.aptos || 0), 0);
+      const totComp = loc.comparecimento || secoes.reduce((acc, s) => acc + (s.comparecimento || 0), 0);
+      const totAbst = loc.abstencao !== undefined ? loc.abstencao : Math.max(0, totAptos - totComp);
+      const pctComp = totAptos > 0 ? (totComp / totAptos * 100).toFixed(1) : (loc.pct_comparecimento || "0.0");
+      const pctAbst = totAptos > 0 ? (totAbst / totAptos * 100).toFixed(1) : (loc.pct_abstencao || "0.0");
+
+      const dataEmissao = new Date().toLocaleString("pt-BR");
+      const protocoloHash = `LVT-${loc.uf || 'BR'}-${loc.municipio_codigo || '00000'}-Z${String(loc.zona || 0).padStart(4, '0')}-L${loc.local_id || '0000'}`;
+
+      // Linhas da Tabela Urna a Urna
+      const rowsHtml = secoes.map((s, idx) => {
+        const sPad = String(s.secao).padStart(4, "0");
+        const zPad = String(s.zona).padStart(4, "0");
+
+        const v1_22 = s.votos_1t_22 || 0;
+        const v1_13 = s.votos_1t_13 || 0;
+        const tot1 = v1_22 + v1_13;
+        const p1_22 = tot1 > 0 ? (v1_22 / tot1 * 100).toFixed(1) : "0.0";
+        const p1_13 = tot1 > 0 ? (v1_13 / tot1 * 100).toFixed(1) : "0.0";
+
+        const v2_22 = s.votos_22 || 0;
+        const v2_13 = s.votos_13 || 0;
+        const tot2 = v2_22 + v2_13;
+        const p2_22 = s.pct_22 !== undefined ? s.pct_22 : (tot2 > 0 ? (v2_22 / tot2 * 100).toFixed(1) : "0.0");
+        const p2_13 = s.pct_13 !== undefined ? s.pct_13 : (tot2 > 0 ? (v2_13 / tot2 * 100).toFixed(1) : "0.0");
+
+        const vn_22 = s.votos_novos_22 || 0;
+        const vn_13 = s.votos_novos_13 || 0;
+        const totN = vn_22 + vn_13;
+        const pn_22 = s.pct_novos_22 !== undefined ? s.pct_novos_22 : (totN > 0 ? (vn_22 / totN * 100).toFixed(1) : "0.0");
+        const pn_13 = s.pct_novos_13 !== undefined ? s.pct_novos_13 : (totN > 0 ? (vn_13 / totN * 100).toFixed(1) : "0.0");
+
+        const isDiscrepante = loc.tem_anomalia_intra_local && loc.secao_mais_discrepante === s.secao;
+        const isDivergenteNovos = loc.tem_divergencia_interna_novos && s.vencedor_novos !== loc.vencedor_novos;
+
+        let badgeStatus = '<span class="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-600/40 text-[9px] font-bold">🟢 Conforme</span>';
+        if (isDiscrepante) {
+          badgeStatus = '<span class="px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-600/60 text-[9px] font-black">🚨 Discrepante</span>';
+        } else if (isDivergenteNovos) {
+          badgeStatus = '<span class="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/50 text-[9px] font-black">⚠️ Diverg. Novos</span>';
+        }
+
+        const deltaMedia = s.delta_media_predio !== undefined ? s.delta_media_predio : Number((p2_22 - loc.pct_22).toFixed(1));
+        const deltaMediaStr = deltaMedia > 0 ? `+${deltaMedia}%` : `${deltaMedia}%`;
+        const deltaCor = Math.abs(deltaMedia) >= 7.0 ? 'text-rose-400 font-black' : (Math.abs(deltaMedia) >= 4.0 ? 'text-amber-300 font-bold' : 'text-slate-400');
+
+        const rowBg = isDiscrepante ? "bg-rose-950/20 border-rose-500/40" : (idx % 2 === 0 ? "bg-slate-950/50" : "bg-slate-900/30");
+
+        return `
+          <tr class="${rowBg} border-b border-slate-800/60 hover:bg-indigo-950/20 transition">
+            <td class="p-2 font-mono font-bold text-white whitespace-nowrap">
+              <span class="text-indigo-400 font-black">S:${sPad}</span>
+              <span class="text-[9px] text-slate-500 block">Z:${zPad}</span>
+            </td>
+            <td class="p-2 whitespace-nowrap">
+              <span class="text-slate-200">${v1_22}v</span> <span class="text-[9px] text-slate-400">(${p1_22}%)</span>
+            </td>
+            <td class="p-2 whitespace-nowrap">
+              <span class="text-slate-200">${v1_13}v</span> <span class="text-[9px] text-slate-400">(${p1_13}%)</span>
+            </td>
+            <td class="p-2 whitespace-nowrap font-bold text-cyan-400">
+              ${v2_22}v <span class="text-[9px] text-cyan-300">(${p2_22}%)</span>
+            </td>
+            <td class="p-2 whitespace-nowrap font-bold text-rose-400">
+              ${v2_13}v <span class="text-[9px] text-rose-300">(${p2_13}%)</span>
+            </td>
+            <td class="p-2 whitespace-nowrap text-cyan-300 font-bold">
+              +${vn_22}v <span class="text-[9px] text-slate-400 font-normal">(${pn_22}%)</span>
+            </td>
+            <td class="p-2 whitespace-nowrap text-rose-300 font-bold">
+              +${vn_13}v <span class="text-[9px] text-slate-400 font-normal">(${pn_13}%)</span>
+            </td>
+            <td class="p-2 whitespace-nowrap text-center">
+              ${s.vencedor_total === 22 ? '<span class="text-emerald-400 font-black">🟢 22</span>' : (s.vencedor_total === 13 ? '<span class="text-rose-400 font-black">🔴 13</span>' : '<span class="text-amber-400 font-bold">🟡 =</span>')}
+            </td>
+            <td class="p-2 whitespace-nowrap text-center">
+              ${s.vencedor_novos === 22 ? '<span class="text-emerald-400 font-black">🟢 +22</span>' : (s.vencedor_novos === 13 ? '<span class="text-rose-400 font-black">🔴 +13</span>' : '<span class="text-amber-400 font-bold">🟡 =</span>')}
+            </td>
+            <td class="p-2 whitespace-nowrap text-center ${deltaCor}">
+              ${deltaMediaStr}
+            </td>
+            <td class="p-2 whitespace-nowrap">
+              <span class="text-slate-200">${s.comparecimento || 0}</span>
+              <span class="text-[9px] text-slate-400 block">${s.pct_comparecimento || 0}%</span>
+            </td>
+            <td class="p-2 whitespace-nowrap text-center">
+              ${badgeStatus}
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      return `
+        <div class="space-y-4 print-text-dark">
+          <!-- CABEÇALHO INSTITUCIONAL DO LAUDO -->
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 border-t-4 border-t-emerald-500 shadow-md">
+            <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-800 pb-3">
+              <div>
+                <span class="text-[10px] uppercase font-black tracking-widest text-emerald-400 block">Justiça Eleitoral • Auditoria Forense Multidimensional</span>
+                <h2 class="text-base sm:text-lg font-black text-white leading-tight mt-0.5">
+                  RELATÓRIO COMPARATIVO FORENSE DE LOCAL DE VOTAÇÃO
+                </h2>
+                <span class="text-xs text-indigo-300 font-bold">${loc.nome_local}</span>
+              </div>
+              <div class="text-right text-[11px] text-slate-400">
+                <span class="px-2 py-0.5 rounded bg-slate-900 border border-slate-700 text-slate-200 font-mono font-bold block mb-1">
+                  ${protocoloHash}
+                </span>
+                <span>Emissão: <strong class="text-slate-200">${dataEmissao}</strong></span>
+              </div>
+            </div>
+
+            <!-- Grid de Metadados do Estabelecimento -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 text-[11px] text-slate-300">
+              <div class="p-2 rounded bg-slate-900/60 border border-slate-800">
+                <span class="text-[9px] text-slate-500 uppercase block font-bold">Município / UF:</span>
+                <span class="font-bold text-white truncate block">${loc.municipio_nome} (${loc.municipio_codigo}) - ${loc.uf}</span>
+              </div>
+              <div class="p-2 rounded bg-slate-900/60 border border-slate-800">
+                <span class="text-[9px] text-slate-500 uppercase block font-bold">Zona Eleitoral / Local nº:</span>
+                <span class="font-bold text-white">Zona ${String(loc.zona).padStart(4, '0')} • Local nº ${loc.local_id}</span>
+              </div>
+              <div class="p-2 rounded bg-slate-900/60 border border-slate-800">
+                <span class="text-[9px] text-slate-500 uppercase block font-bold">Total de Urnas (Seções):</span>
+                <span class="font-black text-emerald-400">${loc.qtd_secoes} ${loc.qtd_secoes === 1 ? 'Urna' : 'Urnas Eleitorais'}</span>
+              </div>
+              <div class="p-2 rounded bg-slate-900/60 border border-slate-800">
+                <span class="text-[9px] text-slate-500 uppercase block font-bold">Eleitorado & Comparecimento:</span>
+                <span class="font-bold text-white">${totComp.toLocaleString('pt-BR')} comp. (${pctComp}%) • ${totAbst.toLocaleString('pt-BR')} abst.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- BLOCO 1: SÍNTESE EXECUTIVA & INSIGHTS COMPARATIVOS -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+            <!-- Card 1: 2º Turno Consolidado -->
+            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-black uppercase text-indigo-300">🗳️ Voto Total (2ºT)</span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-black ${loc.vencedor === 22 ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}">
+                  ${loc.vencedor === 22 ? '22 Venceu' : (loc.vencedor === 13 ? '13 Venceu' : 'Empate')}
+                </span>
+              </div>
+              <div class="text-xs font-bold space-y-0.5">
+                <div class="flex justify-between">
+                  <span class="text-cyan-400">Bolsonaro (22):</span>
+                  <span class="text-white">${tot2t_22.toLocaleString('pt-BR')}v (${loc.pct_22}%)</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-rose-400">Lula (13):</span>
+                  <span class="text-white">${tot2t_13.toLocaleString('pt-BR')}v (${loc.pct_13}%)</span>
+                </div>
+              </div>
+              <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden flex">
+                <div class="bg-cyan-500 h-full" style="width: ${loc.pct_22}%"></div>
+                <div class="bg-rose-500 h-full" style="width: ${loc.pct_13}%"></div>
+              </div>
+            </div>
+
+            <!-- Card 2: Votos Novos -->
+            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+              <div class="flex items-center justify-between">
+                <span class="text-[10px] font-black uppercase text-amber-300">⚡ Votos Novos (1ºT→2ºT)</span>
+                <span class="px-1.5 py-0.2 rounded text-[9px] font-black ${loc.vencedor_novos === 22 ? 'bg-emerald-950 text-emerald-300' : 'bg-rose-950 text-rose-300'}">
+                  ${loc.vencedor_novos === 22 ? '+22 Venceu' : '+13 Venceu'}
+                </span>
+              </div>
+              <div class="text-xs font-bold space-y-0.5">
+                <div class="flex justify-between">
+                  <span class="text-cyan-400">+Novos (22):</span>
+                  <span class="text-white">+${totNov_22.toLocaleString('pt-BR')}v (${loc.pct_novos_22 || 0}%)</span>
+                </div>
+                <div class="flex justify-between">
+                  <span class="text-rose-400">+Novos (13):</span>
+                  <span class="text-white">+${totNov_13.toLocaleString('pt-BR')}v (${loc.pct_novos_13 || 0}%)</span>
+                </div>
+              </div>
+              <div class="text-[10px] text-slate-400 font-bold truncate">
+                Placar: <strong class="text-white">${loc.placar_urnas_novos || '-'}</strong>
+              </div>
+            </div>
+
+            <!-- Card 3: Unanimidade & Inversão -->
+            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+              <span class="text-[10px] font-black uppercase text-slate-400 block">⚖️ Unanimidade / Inversão</span>
+              <div class="mt-1">
+                ${loc.tem_divergencia_interna_novos ? `
+                  <span class="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/60 font-black text-[10px] block truncate">
+                    ⚠️ Sem Unanimidade (${loc.placar_urnas_novos})
+                  </span>
+                ` : (loc.qtd_secoes > 1 ? `
+                  <span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-600/40 font-bold text-[10px] block truncate">
+                    🏆 100% Unânime no Prédio
+                  </span>
+                ` : '<span class="text-[10px] text-slate-400">Urna Única</span>')}
+              </div>
+              <div class="mt-1">
+                ${loc.houve_inversao ? `
+                  <span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/50 font-black text-[10px] block truncate">
+                    🔄 Inversão Geral × Novos
+                  </span>
+                ` : '<span class="text-[10px] text-slate-500">Votação Alinhada</span>'}
+              </div>
+            </div>
+
+            <!-- Card 4: Dispersão Intra-Prédio -->
+            <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+              <span class="text-[10px] font-black uppercase text-slate-400 block">📊 Dispersão Intra-Prédio</span>
+              <div class="flex items-center justify-between text-xs font-bold pt-0.5">
+                <span class="text-slate-400">Desvio Padrão (σ):</span>
+                <span class="text-white font-black">${loc.desvio_padrao}%</span>
+              </div>
+              <div class="flex items-center justify-between text-xs font-bold">
+                <span class="text-slate-400">Delta Máximo (Δmax):</span>
+                <span class="text-white font-black">${loc.delta_max}%</span>
+              </div>
+              <div class="text-[10px] truncate ${loc.tem_anomalia_intra_local ? 'text-rose-400 font-bold' : 'text-emerald-400'}">
+                ${loc.tem_anomalia_intra_local ? `🚨 Seção ${loc.secao_mais_discrepante} atípica` : '🟢 Distribuição Homogênea'}
+              </div>
+            </div>
+          </div>
+
+          <!-- BLOCO 2: GRÁFICOS VISUAIS DE INSIGHTS (DOIS GRÁFICOS LADO A LADO) -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 page-break-avoid">
+            <!-- Gráfico 1: Votação 2ºT por Seção com Linha da Média -->
+            <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                <h4 class="text-xs font-black text-white flex items-center gap-1.5">
+                  <span>📈</span> <span>Votação 2º Turno (%) por Seção vs Média do Prédio</span>
+                </h4>
+                <span class="text-[9px] text-slate-400">Linha = Média do Prédio (${loc.pct_22}%)</span>
+              </div>
+              <div class="h-48 relative">
+                <canvas id="canvasChartRelatorio2T"></canvas>
+              </div>
+            </div>
+
+            <!-- Gráfico 2: Captação de Novos Votos (+22 vs +13) -->
+            <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                <h4 class="text-xs font-black text-white flex items-center gap-1.5">
+                  <span>⚡</span> <span>Absorção de Votos Novos (+votos nominais) Urna a Urna</span>
+                </h4>
+                <span class="text-[9px] text-slate-400">1ºT → 2ºT</span>
+              </div>
+              <div class="h-48 relative">
+                <canvas id="canvasChartRelatorioNovos"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- BLOCO 3: TABELA ANALÍTICA FECHADA URNA A URNA -->
+          <div class="space-y-2 page-break-avoid">
+            <div class="flex items-center justify-between">
+              <h4 class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                <span>📋</span> <span>Tabela Fechada: Dados Oficiais por Urna Eletrônica (${loc.qtd_secoes} Seções)</span>
+              </h4>
+              <span class="text-[10px] text-slate-400">Auditoria individualizada com balanço de 1ºT, 2ºT e Novos Votos</span>
+            </div>
+
+            <div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950 shadow-inner">
+              <table class="w-full text-left text-xs font-mono">
+                <thead class="bg-slate-900/90 text-slate-400 text-[10px] uppercase font-bold border-b border-slate-800">
+                  <tr>
+                    <th class="p-2">Seção</th>
+                    <th class="p-2">1ºT: 22</th>
+                    <th class="p-2">1ºT: 13</th>
+                    <th class="p-2">2ºT: 22 (%)</th>
+                    <th class="p-2">2ºT: 13 (%)</th>
+                    <th class="p-2">+Novos 22</th>
+                    <th class="p-2">+Novos 13</th>
+                    <th class="p-2 text-center">Venc. 2ºT</th>
+                    <th class="p-2 text-center">Venc. Novos</th>
+                    <th class="p-2 text-center">Δ Média</th>
+                    <th class="p-2">Comp.</th>
+                    <th class="p-2 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${rowsHtml}
+                </tbody>
+                <!-- Rodapé Consolidado -->
+                <tfoot class="bg-slate-900 font-bold text-white border-t-2 border-slate-700">
+                  <tr>
+                    <td class="p-2 text-indigo-400 font-black">TOTAL / MÉDIA</td>
+                    <td class="p-2">${tot1t_22}v <span class="text-[9px] text-slate-400">(${pct1t_22}%)</span></td>
+                    <td class="p-2">${tot1t_13}v <span class="text-[9px] text-slate-400">(${pct1t_13}%)</span></td>
+                    <td class="p-2 text-cyan-400">${tot2t_22}v <span class="text-[9px] text-cyan-300">(${loc.pct_22}%)</span></td>
+                    <td class="p-2 text-rose-400">${tot2t_13}v <span class="text-[9px] text-rose-300">(${loc.pct_13}%)</span></td>
+                    <td class="p-2 text-cyan-300">+${totNov_22}v <span class="text-[9px] text-slate-400">(${loc.pct_novos_22 || 0}%)</span></td>
+                    <td class="p-2 text-rose-300">+${totNov_13}v <span class="text-[9px] text-slate-400">(${loc.pct_novos_13 || 0}%)</span></td>
+                    <td class="p-2 text-center">${loc.vencedor === 22 ? '🟢 22' : (loc.vencedor === 13 ? '🔴 13' : '🟡 =')}</td>
+                    <td class="p-2 text-center">${loc.vencedor_novos === 22 ? '🟢 +22' : (loc.vencedor_novos === 13 ? '🔴 +13' : '🟡 =')}</td>
+                    <td class="p-2 text-center text-slate-300">σ = ${loc.desvio_padrao}%</td>
+                    <td class="p-2">${totComp} <span class="text-[9px] text-slate-400">(${pctComp}%)</span></td>
+                    <td class="p-2 text-center text-emerald-400">${loc.qtd_secoes}u</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+
+          <!-- BLOCO 4: PARECER TÉCNICO CONCLUSIVO & CHAVE FORENSE -->
+          <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2 page-break-avoid">
+            <h4 class="text-xs font-black uppercase text-slate-300 flex items-center gap-1.5">
+              <span>⚖️</span> <span>Parecer Técnico Conclusivo da Auditoria do Local</span>
+            </h4>
+            <p class="text-[11px] leading-relaxed text-slate-300">
+              No estabelecimento <strong>${loc.nome_local}</strong>, com <strong>${loc.qtd_secoes}</strong> seções eleitorais ativas,
+              apurou-se a vitória de <strong>${loc.vencedor === 22 ? 'Flávio Bolsonaro (22)' : (loc.vencedor === 13 ? 'Lula (13)' : 'Empate')}</strong> no somatório geral do segundo turno, com <strong>${loc.pct_22}%</strong> contra <strong>${loc.pct_13}%</strong> dos votos nominais válidos.
+              Na absorção de novos votos entre turnos, ${loc.tem_divergencia_interna_novos ? `constatou-se ausência de unanimidade entre as seções físicas, resultando em um placar de <strong>${loc.placar_urnas_novos}</strong>` : `todas as seções convergiram de forma 100% unânime para <strong>${loc.vencedor_novos === 22 ? 'Flávio (22)' : 'Lula (13)'}</strong>`}.
+              ${loc.houve_inversao ? `Foi identificada inversão de tendência eleitoral entre a preferência agregada e a dinâmica de novos eleitores.` : ''}
+              A dispersão estatística intra-prédio registrou Desvio Padrão σ = <strong>${loc.desvio_padrao}%</strong> e Afastamento Máximo Δmax = <strong>${loc.delta_max}%</strong> (${loc.diagnostico_forense}).
+            </p>
+            <div class="flex flex-wrap items-center justify-between text-[10px] text-slate-500 pt-2 border-t border-slate-800/80">
+              <span>Chave de Integridade: <strong class="text-slate-400 font-mono">${protocoloHash}</strong></span>
+              <span>Auditoria de Urna Eletrônica — Módulo BI & Inteligência Forense</span>
+            </div>
           </div>
         </div>
       `;

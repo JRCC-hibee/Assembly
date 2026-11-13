@@ -7289,6 +7289,10 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
             "vencedor_total": venc_total_sec,
             "vencedor_novos": venc_novos_sec,
             "comparecimento": comp,
+            "aptos": apt,
+            "abstencao": max(0, apt - comp),
+            "pct_comparecimento": round((comp / max(1, apt)) * 100.0, 1) if apt > 0 else 0.0,
+            "pct_abstencao": round((max(0, apt - comp) / max(1, apt)) * 100.0, 1) if apt > 0 else 0.0,
             "prefixo": pref,
             "chave_secao": r.chave_secao,
         })
@@ -7300,6 +7304,14 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
         tot_loc = loc["votos_22"] + loc["votos_13"]
         loc["pct_22"] = round((loc["votos_22"] / max(1, tot_loc)) * 100.0, 1) if tot_loc > 0 else 0.0
         loc["pct_13"] = round((loc["votos_13"] / max(1, tot_loc)) * 100.0, 1) if tot_loc > 0 else 0.0
+
+        # Totais de Comparecimento e Abstenção Consolidada
+        loc["abstencao"] = max(0, loc["aptos"] - loc["comparecimento"])
+        loc["pct_comparecimento"] = round((loc["comparecimento"] / max(1, loc["aptos"])) * 100.0, 1) if loc["aptos"] > 0 else 0.0
+        loc["pct_abstencao"] = round((loc["abstencao"] / max(1, loc["aptos"])) * 100.0, 1) if loc["aptos"] > 0 else 0.0
+        loc["votos_1t_total"] = loc["votos_1t_22"] + loc["votos_1t_13"]
+        loc["pct_1t_22"] = round((loc["votos_1t_22"] / max(1, loc["votos_1t_total"])) * 100.0, 1) if loc["votos_1t_total"] > 0 else 0.0
+        loc["pct_1t_13"] = round((loc["votos_1t_13"] / max(1, loc["votos_1t_total"])) * 100.0, 1) if loc["votos_1t_total"] > 0 else 0.0
 
         if loc["votos_22"] > loc["votos_13"]:
             loc["vencedor"] = 22
@@ -7384,9 +7396,14 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
             sec_max = max(loc["detalhes_secoes"], key=lambda s: abs(s["pct_22"] - mean_p))
             loc["desvio_padrao"] = round(std_dev, 2)
             loc["delta_max"] = round(max_delta, 2)
+            loc["media_pct_22"] = round(mean_p, 1)
             loc["secao_mais_discrepante"] = sec_max["secao"]
             loc["delta_secao_mais_discrepante"] = round(sec_max["pct_22"] - mean_p, 1)
             loc["tem_anomalia_intra_local"] = bool(std_dev >= 7.0 or max_delta >= 10.0)
+
+            for s in loc["detalhes_secoes"]:
+                s["delta_media_predio"] = round(s["pct_22"] - mean_p, 1)
+
             if loc["tem_anomalia_intra_local"]:
                 loc["diagnostico_forense"] = f"🚨 Discrepância Intra-Prédio: Seção {sec_max['secao']:04d} teve {loc['delta_secao_mais_discrepante']:+.1f}% de afastamento da média do prédio ({mean_p:.1f}%)"
             else:
@@ -7394,10 +7411,13 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
         else:
             loc["desvio_padrao"] = 0.0
             loc["delta_max"] = 0.0
+            loc["media_pct_22"] = loc["pct_22"]
             loc["secao_mais_discrepante"] = None
             loc["delta_secao_mais_discrepante"] = 0.0
             loc["tem_anomalia_intra_local"] = False
             loc["diagnostico_forense"] = "🏢 Seção Única no Local de Votação"
+            for s in loc["detalhes_secoes"]:
+                s["delta_media_predio"] = 0.0
 
         locais_lista.append(loc)
 
