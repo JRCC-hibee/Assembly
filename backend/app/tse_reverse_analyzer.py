@@ -7305,6 +7305,10 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
         pct_22_sec = round((v_flavio_2t / max(1, tot_v_sec)) * 100.0, 1) if tot_v_sec > 0 else 0.0
         pct_13_sec = round((v_lula_2t / max(1, tot_v_sec)) * 100.0, 1) if tot_v_sec > 0 else 0.0
 
+        tot_1t_sec = v_flavio_1t + v_lula_1t
+        pct_1t_22_sec = round((v_flavio_1t / max(1, tot_1t_sec)) * 100.0, 1) if tot_1t_sec > 0 else 0.0
+        pct_1t_13_sec = round((v_lula_1t / max(1, tot_1t_sec)) * 100.0, 1) if tot_1t_sec > 0 else 0.0
+
         loc["detalhes_secoes"].append({
             "secao": s_int,
             "zona": z_int,
@@ -7313,7 +7317,9 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
             "votos_13": v_lula_2t,
             "pct_13": pct_13_sec,
             "votos_1t_22": v_flavio_1t,
+            "pct_1t_22": pct_1t_22_sec,
             "votos_1t_13": v_lula_1t,
+            "pct_1t_13": pct_1t_13_sec,
             "votos_novos_22": dv_flavio,
             "votos_novos_13": dv_lula,
             "pct_novos_22": pct_novos_22_sec,
@@ -7344,6 +7350,14 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
         loc["votos_1t_total"] = loc["votos_1t_22"] + loc["votos_1t_13"]
         loc["pct_1t_22"] = round((loc["votos_1t_22"] / max(1, loc["votos_1t_total"])) * 100.0, 1) if loc["votos_1t_total"] > 0 else 0.0
         loc["pct_1t_13"] = round((loc["votos_1t_13"] / max(1, loc["votos_1t_total"])) * 100.0, 1) if loc["votos_1t_total"] > 0 else 0.0
+
+        # Crescimento percentual da votação 1ºT -> 2ºT por candidato
+        v1_22 = loc["votos_1t_22"]
+        v2_22 = loc["votos_22"]
+        v1_13 = loc["votos_1t_13"]
+        v2_13 = loc["votos_13"]
+        loc["crescimento_pct_22"] = round(((v2_22 - v1_22) / max(1, v1_22)) * 100.0, 1) if v1_22 > 0 else (100.0 if v2_22 > 0 else 0.0)
+        loc["crescimento_pct_13"] = round(((v2_13 - v1_13) / max(1, v1_13)) * 100.0, 1) if v1_13 > 0 else (100.0 if v2_13 > 0 else 0.0)
 
         if loc["votos_22"] > loc["votos_13"]:
             loc["vencedor"] = 22

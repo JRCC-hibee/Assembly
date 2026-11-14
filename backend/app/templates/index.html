@@ -3554,7 +3554,7 @@ o Boletim de Urna (apos encerramento da votacao).
       onclick="fecharModalDossieLocalTse(event)"
     >
       <div
-        class="bg-slate-900 border border-indigo-500/50 rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[92vh] overflow-hidden p-4 sm:p-6 space-y-4"
+        class="bg-slate-900 border border-indigo-500/50 rounded-2xl shadow-2xl w-full max-w-5xl flex flex-col max-h-[92vh] overflow-hidden p-4 sm:p-6 space-y-4"
         onclick="event.stopPropagation()"
       >
         <!-- Cabeçalho Fixo do Modal -->
@@ -13445,7 +13445,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
         // Popup Compacto do Mapa (não transborda nem exige movimentação de tela)
         const popupContent = `
-          <div class="p-2.5 text-xs mono text-slate-100 min-w-[250px] max-w-[290px]">
+          <div class="p-2.5 text-xs mono text-slate-100 min-w-[280px] max-w-[320px]">
             <div class="flex items-start justify-between gap-1.5 border-b border-slate-700/80 pb-1.5 mb-1.5">
               <div class="overflow-hidden">
                 <span class="text-[9px] text-indigo-400 font-extrabold uppercase tracking-wider block">🏢 Local de Votação</span>
@@ -13457,17 +13457,22 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
               </span>
             </div>
 
-            <!-- Resumo Rápido 2T e Novos -->
-            <div class="grid grid-cols-2 gap-1.5 text-[10px] my-1">
+            <!-- Resumo Comparativo Direto (1T vs 2T vs Novos) -->
+            <div class="grid grid-cols-3 gap-1 text-[9px] my-1">
               <div class="bg-slate-900/90 p-1.5 rounded border border-slate-800">
-                <span class="text-[9px] text-slate-400 font-bold block uppercase">Total 2ºT</span>
-                <span class="text-cyan-400 font-bold block truncate">22: ${loc.pct_22}% <span class="text-[9px] text-slate-400 font-normal">(${loc.votos_22}v)</span></span>
-                <span class="text-rose-400 font-bold block truncate">13: ${loc.pct_13}% <span class="text-[9px] text-slate-400 font-normal">(${loc.votos_13}v)</span></span>
+                <span class="text-[8px] text-slate-400 font-bold block uppercase truncate" title="1º Turno (apenas candidatos do 2ºT)">1ºT (1T)</span>
+                <span class="text-cyan-400 font-bold block truncate">22: ${loc.pct_1t_22 || 0}% <span class="text-[8px] text-slate-400 font-normal">(${loc.votos_1t_22 || 0}v)</span></span>
+                <span class="text-rose-400 font-bold block truncate">13: ${loc.pct_1t_13 || 0}% <span class="text-[8px] text-slate-400 font-normal">(${loc.votos_1t_13 || 0}v)</span></span>
               </div>
               <div class="bg-slate-900/90 p-1.5 rounded border border-slate-800">
-                <span class="text-[9px] text-slate-400 font-bold block uppercase">Votos Novos</span>
-                <span class="text-cyan-400 font-bold block truncate">+22: ${loc.pct_novos_22 || 0}% <span class="text-[9px] text-slate-400 font-normal">(+${loc.votos_novos_22 || 0}v)</span></span>
-                <span class="text-rose-400 font-bold block truncate">+13: ${loc.pct_novos_13 || 0}% <span class="text-[9px] text-slate-400 font-normal">(+${loc.votos_novos_13 || 0}v)</span></span>
+                <span class="text-[8px] text-slate-400 font-bold block uppercase truncate" title="Total Consolidado 2º Turno">Total 2ºT</span>
+                <span class="text-cyan-400 font-bold block truncate">22: ${loc.pct_22}% <span class="text-[8px] text-slate-400 font-normal">(${loc.votos_22}v)</span></span>
+                <span class="text-rose-400 font-bold block truncate">13: ${loc.pct_13}% <span class="text-[8px] text-slate-400 font-normal">(${loc.votos_13}v)</span></span>
+              </div>
+              <div class="bg-slate-900/90 p-1.5 rounded border border-slate-800">
+                <span class="text-[8px] text-slate-400 font-bold block uppercase truncate" title="Variação de Novos Votos">Novos (Δ)</span>
+                <span class="text-cyan-400 font-bold block truncate">+22: +${loc.votos_novos_22 || 0}v <span class="text-[8px] text-slate-400 font-normal">(${loc.pct_novos_22 || 0}%)</span></span>
+                <span class="text-rose-400 font-bold block truncate">+13: +${loc.votos_novos_13 || 0}v <span class="text-[8px] text-slate-400 font-normal">(${loc.pct_novos_13 || 0}%)</span></span>
               </div>
             </div>
 
@@ -13512,7 +13517,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           </div>
         `;
 
-        marker.bindPopup(popupContent, { maxWidth: 300, minWidth: 260, autoPan: true, autoPanPadding: [20, 20] });
+        marker.bindPopup(popupContent, { maxWidth: 330, minWidth: 280, autoPan: true, autoPanPadding: [20, 20] });
         marker.on('click', () => {
           window.tseLocalAtivoKey = loc.key;
           destacarCardLocalAtivoTse(loc.key);
@@ -13659,17 +13664,22 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
               </span>
             </div>
 
-            <!-- Resumo Comparativo Rápido (2ºT vs Novos) -->
-            <div class="grid grid-cols-2 gap-1.5 text-[10px] mono pt-1 border-t border-slate-800/80">
-              <div class="bg-slate-900/60 p-1.5 rounded border border-slate-800 flex flex-col">
-                <span class="text-[9px] text-slate-400 uppercase font-bold">Total 2ºT:</span>
-                <span class="text-slate-200 mt-0.5 font-bold">22: <strong class="text-cyan-400">${loc.pct_22}%</strong> (${loc.votos_22}v)</span>
-                <span class="text-slate-200 font-bold">13: <strong class="text-rose-400">${loc.pct_13}%</strong> (${loc.votos_13}v)</span>
+            <!-- Resumo Comparativo Rápido (1ºT vs 2ºT vs Novos) -->
+            <div class="grid grid-cols-3 gap-1 text-[9px] mono pt-1 border-t border-slate-800/80">
+              <div class="bg-slate-900/60 p-1 rounded border border-slate-800 flex flex-col">
+                <span class="text-[8px] text-slate-400 uppercase font-bold truncate" title="1º Turno (apenas candidatos do 2ºT)">1º Turno (1T):</span>
+                <span class="text-slate-200 mt-0.5 font-bold truncate">22: <strong class="text-cyan-400">${loc.votos_1t_22 || 0}v</strong></span>
+                <span class="text-slate-200 font-bold truncate">13: <strong class="text-rose-400">${loc.votos_1t_13 || 0}v</strong></span>
               </div>
-              <div class="bg-slate-900/60 p-1.5 rounded border border-slate-800 flex flex-col">
-                <span class="text-[9px] text-slate-400 uppercase font-bold">Votos Novos:</span>
-                <span class="text-slate-200 mt-0.5 font-bold">+22: <strong class="text-cyan-400">+${loc.votos_novos_22 || 0}v</strong> (${loc.pct_novos_22 || 0}%)</span>
-                <span class="text-slate-200 font-bold">+13: <strong class="text-rose-400">+${loc.votos_novos_13 || 0}v</strong> (${loc.pct_novos_13 || 0}%)</span>
+              <div class="bg-slate-900/60 p-1 rounded border border-slate-800 flex flex-col">
+                <span class="text-[8px] text-slate-400 uppercase font-bold truncate" title="Total Consolidado 2º Turno">Total 2ºT:</span>
+                <span class="text-slate-200 mt-0.5 font-bold truncate">22: <strong class="text-cyan-400">${loc.votos_22}v</strong></span>
+                <span class="text-slate-200 font-bold truncate">13: <strong class="text-rose-400">${loc.votos_13}v</strong></span>
+              </div>
+              <div class="bg-slate-900/60 p-1 rounded border border-slate-800 flex flex-col">
+                <span class="text-[8px] text-slate-400 uppercase font-bold truncate" title="Variação de Novos Votos">Novos (Δ):</span>
+                <span class="text-slate-200 mt-0.5 font-bold truncate">+22: <strong class="text-cyan-400">+${loc.votos_novos_22 || 0}v</strong></span>
+                <span class="text-slate-200 font-bold truncate">+13: <strong class="text-rose-400">+${loc.votos_novos_13 || 0}v</strong></span>
               </div>
             </div>
 
@@ -13820,6 +13830,28 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
     function renderizarConteudoDossieLocal(loc) {
       const tot2t = (loc.votos_22 || 0) + (loc.votos_13 || 0);
 
+      const v1_22 = loc.votos_1t_22 || 0;
+      const v1_13 = loc.votos_1t_13 || 0;
+      const tot1t_cands = v1_22 + v1_13;
+      const pct1t_22 = tot1t_cands > 0 ? ((v1_22 / tot1t_cands) * 100).toFixed(1) : (loc.pct_1t_22 || "0.0");
+      const pct1t_13 = tot1t_cands > 0 ? ((v1_13 / tot1t_cands) * 100).toFixed(1) : (loc.pct_1t_13 || "0.0");
+
+      const v2_22 = loc.votos_22 || 0;
+      const v2_13 = loc.votos_13 || 0;
+      const pct2t_22 = loc.pct_22 !== undefined ? loc.pct_22 : (tot2t > 0 ? ((v2_22 / tot2t) * 100).toFixed(1) : "0.0");
+      const pct2t_13 = loc.pct_13 !== undefined ? loc.pct_13 : (tot2t > 0 ? ((v2_13 / tot2t) * 100).toFixed(1) : "0.0");
+
+      const delta_22 = loc.votos_novos_22 !== undefined ? loc.votos_novos_22 : (v2_22 - v1_22);
+      const delta_13 = loc.votos_novos_13 !== undefined ? loc.votos_novos_13 : (v2_13 - v1_13);
+      const tot_delta = delta_22 + delta_13;
+      const pct_abs_22 = tot_delta > 0 ? ((delta_22 / tot_delta) * 100).toFixed(1) : (loc.pct_novos_22 || "0.0");
+      const pct_abs_13 = tot_delta > 0 ? ((delta_13 / tot_delta) * 100).toFixed(1) : (loc.pct_novos_13 || "0.0");
+
+      const cresc_pct_22 = v1_22 > 0 ? (((v2_22 - v1_22) / v1_22) * 100).toFixed(1) : (v2_22 > 0 ? "+100.0" : "0.0");
+      const cresc_pct_13 = v1_13 > 0 ? (((v2_13 - v1_13) / v1_13) * 100).toFixed(1) : (v2_13 > 0 ? "+100.0" : "0.0");
+      const cresc_pct_22_str = Number(cresc_pct_22) > 0 ? `+${cresc_pct_22}%` : `${cresc_pct_22}%`;
+      const cresc_pct_13_str = Number(cresc_pct_13) > 0 ? `+${cresc_pct_13}%` : `${cresc_pct_13}%`;
+
       // Status visual de vitória geral
       let bannerVencedorClass = "bg-slate-900 border-slate-800 text-slate-300";
       let bannerVencedorTexto = "⚖️ Empate no Somatório Geral do Prédio";
@@ -13844,6 +13876,12 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         const isDivergenteDaMedia = loc.tem_anomalia_intra_local && loc.secao_mais_discrepante === s.secao;
         const rowBg = isDivergenteDaMedia ? "bg-rose-950/30 border-rose-500/50" : (idx % 2 === 0 ? "bg-slate-950/40" : "bg-slate-900/40");
 
+        const v1_s22 = s.votos_1t_22 || 0;
+        const v1_s13 = s.votos_1t_13 || 0;
+        const tot1_s = v1_s22 + v1_s13;
+        const p1_s22 = tot1_s > 0 ? ((v1_s22 / tot1_s) * 100).toFixed(1) : (s.pct_1t_22 || "0.0");
+        const p1_s13 = tot1_s > 0 ? ((v1_s13 / tot1_s) * 100).toFixed(1) : (s.pct_1t_13 || "0.0");
+
         return `
           <tr class="${rowBg} border-b border-slate-800/80 hover:bg-indigo-950/30 transition">
             <td class="p-2.5 font-mono font-bold text-white whitespace-nowrap">
@@ -13851,6 +13889,13 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
                 <span class="text-indigo-400 font-black">S:${sPad}</span>
                 <span class="text-[10px] text-slate-500">(Z:${zPad})</span>
                 ${isDivergenteDaMedia ? '<span class="px-1.5 py-0.2 rounded bg-rose-600 text-white text-[9px] font-black">DISCREPANTE</span>' : ''}
+              </div>
+            </td>
+            <td class="p-2.5 whitespace-nowrap">
+              <div class="text-xs font-bold text-slate-200">
+                <span class="text-cyan-400">22: ${v1_s22}v</span> <span class="text-[10px] text-slate-400">(${p1_s22}%)</span>
+                <span class="text-slate-600 mx-1">×</span>
+                <span class="text-rose-400">13: ${v1_s13}v</span> <span class="text-[10px] text-slate-400">(${p1_s13}%)</span>
               </div>
             </td>
             <td class="p-2.5 whitespace-nowrap">
@@ -13891,23 +13936,163 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           <div class="flex items-center gap-2.5">
             <span class="text-2xl">${loc.vencedor === 22 ? '🟢' : (loc.vencedor === 13 ? '🔴' : '🟡')}</span>
             <div>
-              <span class="text-[10px] font-black uppercase tracking-wider block opacity-80">Resultado Geral do Estabelecimento</span>
+              <span class="text-[10px] font-black uppercase tracking-wider block opacity-80">Resultado Geral do Estabelecimento (2º Turno)</span>
               <h4 class="text-sm font-black text-white">${bannerVencedorTexto}</h4>
             </div>
           </div>
           <div class="text-right">
-            <span class="text-[10px] text-slate-400 block font-bold">Total Votos Nominais</span>
+            <span class="text-[10px] text-slate-400 block font-bold">Total Votos Nominais (2ºT)</span>
             <span class="text-sm font-black text-white">${tot2t.toLocaleString('pt-BR')} votos</span>
           </div>
         </div>
 
-        <!-- Comparativo Lado a Lado: Total 2º Turno vs Novos Votos -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <!-- Card 1: Votação Total 2º Turno -->
+        <!-- QUADRO COMPARATIVO DIRETO: 1º TURNO × 2º TURNO (SEM CONTINHA DE CABEÇA) -->
+        <div class="p-3.5 rounded-xl bg-slate-950 border border-indigo-500/40 shadow-xl space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+            <div class="flex items-center gap-2">
+              <span class="text-lg">⚖️</span>
+              <div>
+                <h5 class="text-xs font-black uppercase text-indigo-300 tracking-wider">
+                  Comparativo Direto de Votação: 1º Turno × 2º Turno (Candidatos no 2º Turno)
+                </h5>
+                <span class="text-[10px] text-slate-400 mono block">
+                  Exibição imediata da evolução de votos nominais de cada candidato presente no 2º Turno
+                </span>
+              </div>
+            </div>
+            <span class="px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-600/50 text-[10px] font-black mono">
+              🎯 Confronto Direto
+            </span>
+          </div>
+
+          <!-- Cards dos Dois Candidatos Lado a Lado -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <!-- Card Candidato 22: Flávio Bolsonaro -->
+            <div class="p-3 rounded-xl bg-slate-900/90 border border-cyan-500/40 space-y-2.5">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                <span class="text-xs font-black text-cyan-400 flex items-center gap-1.5">
+                  <span class="w-2.5 h-2.5 rounded-full bg-cyan-400"></span>
+                  <span>Flávio Bolsonaro (22)</span>
+                </span>
+                <span class="text-[10px] font-black px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/40">
+                  Crescimento: ${cresc_pct_22_str}
+                </span>
+              </div>
+
+              <!-- Trinca de Métricas: 1ºT -> 2ºT -> Saldo Novos -->
+              <div class="grid grid-cols-3 gap-1.5 text-center">
+                <div class="p-2 rounded-lg bg-slate-950/90 border border-slate-800">
+                  <span class="text-[9px] text-slate-400 uppercase font-bold block">1º Turno (1T)</span>
+                  <span class="text-base font-black text-white">${v1_22.toLocaleString('pt-BR')}v</span>
+                  <span class="text-[10px] text-cyan-400 font-bold block">${pct1t_22}%</span>
+                </div>
+                <div class="p-2 rounded-lg bg-cyan-950/40 border border-cyan-500/40">
+                  <span class="text-[9px] text-cyan-300 uppercase font-bold block">2º Turno (2T)</span>
+                  <span class="text-base font-black text-cyan-200">${v2_22.toLocaleString('pt-BR')}v</span>
+                  <span class="text-[10px] text-cyan-400 font-bold block">${pct2t_22}%</span>
+                </div>
+                <div class="p-2 rounded-lg bg-slate-950/90 border border-slate-800">
+                  <span class="text-[9px] text-slate-400 uppercase font-bold block">Variação (Δ)</span>
+                  <span class="text-base font-black ${delta_22 >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${delta_22 >= 0 ? '+' : ''}${delta_22.toLocaleString('pt-BR')}v</span>
+                  <span class="text-[10px] text-slate-300 font-bold block">${pct_abs_22}% abs.</span>
+                </div>
+              </div>
+
+              <!-- Resumo Narrativo Direto -->
+              <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 text-[10px] flex items-center justify-between text-slate-300">
+                <span>1ºT: <strong class="text-white">${v1_22}v</strong></span>
+                <span class="text-cyan-400">➔</span>
+                <span>2ºT: <strong class="text-cyan-300">${v2_22}v</strong></span>
+                <span class="text-slate-500">|</span>
+                <span>Saldo: <strong class="${delta_22 >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${delta_22 >= 0 ? '+' : ''}${delta_22}v</strong> (${cresc_pct_22_str})</span>
+              </div>
+            </div>
+
+            <!-- Card Candidato 13: Lula -->
+            <div class="p-3 rounded-xl bg-slate-900/90 border border-rose-500/40 space-y-2.5">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-1.5">
+                <span class="text-xs font-black text-rose-400 flex items-center gap-1.5">
+                  <span class="w-2.5 h-2.5 rounded-full bg-rose-400"></span>
+                  <span>Lula (13)</span>
+                </span>
+                <span class="text-[10px] font-black px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/40">
+                  Crescimento: ${cresc_pct_13_str}
+                </span>
+              </div>
+
+              <!-- Trinca de Métricas: 1ºT -> 2ºT -> Saldo Novos -->
+              <div class="grid grid-cols-3 gap-1.5 text-center">
+                <div class="p-2 rounded-lg bg-slate-950/90 border border-slate-800">
+                  <span class="text-[9px] text-slate-400 uppercase font-bold block">1º Turno (1T)</span>
+                  <span class="text-base font-black text-white">${v1_13.toLocaleString('pt-BR')}v</span>
+                  <span class="text-[10px] text-rose-400 font-bold block">${pct1t_13}%</span>
+                </div>
+                <div class="p-2 rounded-lg bg-rose-950/40 border border-rose-500/40">
+                  <span class="text-[9px] text-rose-300 uppercase font-bold block">2º Turno (2T)</span>
+                  <span class="text-base font-black text-rose-200">${v2_13.toLocaleString('pt-BR')}v</span>
+                  <span class="text-[10px] text-rose-400 font-bold block">${pct2t_13}%</span>
+                </div>
+                <div class="p-2 rounded-lg bg-slate-950/90 border border-slate-800">
+                  <span class="text-[9px] text-slate-400 uppercase font-bold block">Variação (Δ)</span>
+                  <span class="text-base font-black ${delta_13 >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${delta_13 >= 0 ? '+' : ''}${delta_13.toLocaleString('pt-BR')}v</span>
+                  <span class="text-[10px] text-slate-300 font-bold block">${pct_abs_13}% abs.</span>
+                </div>
+              </div>
+
+              <!-- Resumo Narrativo Direto -->
+              <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 text-[10px] flex items-center justify-between text-slate-300">
+                <span>1ºT: <strong class="text-white">${v1_13}v</strong></span>
+                <span class="text-rose-400">➔</span>
+                <span>2ºT: <strong class="text-rose-300">${v2_13}v</strong></span>
+                <span class="text-slate-500">|</span>
+                <span>Saldo: <strong class="${delta_13 >= 0 ? 'text-emerald-400' : 'text-rose-400'}">${delta_13 >= 0 ? '+' : ''}${delta_13}v</strong> (${cresc_pct_13_str})</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TRIO DE CARDS CONSOLIDADOS: 1ºT, 2ºT E CAPTAÇÃO DE NOVOS VOTOS -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <!-- Card 1: Votação 1º Turno (Apenas Concorrentes do 2ºT) -->
           <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
             <div class="flex items-center justify-between border-b border-slate-800 pb-2">
               <span class="text-[11px] font-black uppercase text-indigo-300 flex items-center gap-1.5">
-                <span>🗳️</span> <span>Votação Geral Consolidada (2ºT)</span>
+                <span>🗳️</span> <span>1º Turno (Cands 2ºT)</span>
+              </span>
+              <span class="text-[10px] font-black px-2 py-0.5 rounded bg-slate-800 text-slate-300">
+                Total: ${tot1t_cands.toLocaleString('pt-BR')}v
+              </span>
+            </div>
+            <div class="grid grid-cols-2 gap-2 text-center">
+              <div class="p-2 rounded-lg bg-cyan-950/30 border border-cyan-500/20">
+                <span class="text-[10px] font-bold text-cyan-400 block uppercase">Bolsonaro (22)</span>
+                <span class="text-base font-black text-white">${v1_22.toLocaleString('pt-BR')}v</span>
+                <span class="text-xs font-bold text-cyan-300 block">${pct1t_22}%</span>
+              </div>
+              <div class="p-2 rounded-lg bg-rose-950/30 border border-rose-500/20">
+                <span class="text-[10px] font-bold text-rose-400 block uppercase">Lula (13)</span>
+                <span class="text-base font-black text-white">${v1_13.toLocaleString('pt-BR')}v</span>
+                <span class="text-xs font-bold text-rose-300 block">${pct1t_13}%</span>
+              </div>
+            </div>
+            <!-- Barra Proporcional 1T -->
+            <div class="space-y-1">
+              <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden flex">
+                <div class="bg-cyan-500 h-full transition-all duration-500" style="width: ${pct1t_22}%" title="22: ${pct1t_22}%"></div>
+                <div class="bg-rose-500 h-full transition-all duration-500" style="width: ${pct1t_13}%" title="13: ${pct1t_13}%"></div>
+              </div>
+              <div class="flex justify-between text-[9px] text-slate-400">
+                <span>Flávio: ${pct1t_22}%</span>
+                <span>Lula: ${pct1t_13}%</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: Votação Geral Consolidada (2ºT) -->
+          <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span class="text-[11px] font-black uppercase text-indigo-300 flex items-center gap-1.5">
+                <span>🗳️</span> <span>Votação 2º Turno</span>
               </span>
               <span class="text-[10px] font-black px-2 py-0.5 rounded ${loc.vencedor === 22 ? 'bg-emerald-950 text-emerald-300 border border-emerald-600/40' : (loc.vencedor === 13 ? 'bg-rose-950 text-rose-300 border border-rose-600/40' : 'bg-amber-950 text-amber-300')}">
                 ${loc.vencedor === 22 ? 'Flávio Venceu' : (loc.vencedor === 13 ? 'Lula Venceu' : 'Empate')}
@@ -13916,33 +14101,33 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             <div class="grid grid-cols-2 gap-2 text-center">
               <div class="p-2 rounded-lg bg-cyan-950/40 border border-cyan-500/30">
                 <span class="text-[10px] font-bold text-cyan-400 block uppercase">Bolsonaro (22)</span>
-                <span class="text-base font-black text-white">${(loc.votos_22 || 0).toLocaleString('pt-BR')}v</span>
-                <span class="text-xs font-bold text-cyan-300 block">${loc.pct_22}%</span>
+                <span class="text-base font-black text-white">${v2_22.toLocaleString('pt-BR')}v</span>
+                <span class="text-xs font-bold text-cyan-300 block">${pct2t_22}%</span>
               </div>
               <div class="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30">
                 <span class="text-[10px] font-bold text-rose-400 block uppercase">Lula (13)</span>
-                <span class="text-base font-black text-white">${(loc.votos_13 || 0).toLocaleString('pt-BR')}v</span>
-                <span class="text-xs font-bold text-rose-300 block">${loc.pct_13}%</span>
+                <span class="text-base font-black text-white">${v2_13.toLocaleString('pt-BR')}v</span>
+                <span class="text-xs font-bold text-rose-300 block">${pct2t_13}%</span>
               </div>
             </div>
-            <!-- Barra Proporcional de Votos -->
+            <!-- Barra Proporcional 2T -->
             <div class="space-y-1">
-              <div class="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden flex">
-                <div class="bg-cyan-500 h-full transition-all duration-500" style="width: ${loc.pct_22}%" title="22: ${loc.pct_22}%"></div>
-                <div class="bg-rose-500 h-full transition-all duration-500" style="width: ${loc.pct_13}%" title="13: ${loc.pct_13}%"></div>
+              <div class="w-full bg-slate-800 rounded-full h-2 overflow-hidden flex">
+                <div class="bg-cyan-500 h-full transition-all duration-500" style="width: ${pct2t_22}%" title="22: ${pct2t_22}%"></div>
+                <div class="bg-rose-500 h-full transition-all duration-500" style="width: ${pct2t_13}%" title="13: ${pct2t_13}%"></div>
               </div>
-              <div class="flex justify-between text-[10px] text-slate-400">
-                <span>Flávio: ${loc.pct_22}%</span>
-                <span>Lula: ${loc.pct_13}%</span>
+              <div class="flex justify-between text-[9px] text-slate-400">
+                <span>Flávio: ${pct2t_22}%</span>
+                <span>Lula: ${pct2t_13}%</span>
               </div>
             </div>
           </div>
 
-          <!-- Card 2: Dinâmica de Votos Novos (1ºT → 2ºT) -->
+          <!-- Card 3: Dinâmica de Votos Novos (1ºT → 2ºT) -->
           <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
             <div class="flex items-center justify-between border-b border-slate-800 pb-2">
               <span class="text-[11px] font-black uppercase text-amber-300 flex items-center gap-1.5">
-                <span>⚡</span> <span>Captação de Novos Votos (1ºT → 2ºT)</span>
+                <span>⚡</span> <span>Votos Novos (Δ)</span>
               </span>
               <span class="text-[10px] font-black px-2 py-0.5 rounded ${loc.vencedor_novos === 22 ? 'bg-emerald-950 text-emerald-300 border border-emerald-600/40' : (loc.vencedor_novos === 13 ? 'bg-rose-950 text-rose-300 border border-rose-600/40' : 'bg-amber-950 text-amber-300')}">
                 ${loc.vencedor_novos === 22 ? 'Flávio Ganhou Novos' : (loc.vencedor_novos === 13 ? 'Lula Ganhou Novos' : 'Empate')}
@@ -13951,22 +14136,113 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             <div class="grid grid-cols-2 gap-2 text-center">
               <div class="p-2 rounded-lg bg-cyan-950/40 border border-cyan-500/30">
                 <span class="text-[10px] font-bold text-cyan-400 block uppercase">+Novos (22)</span>
-                <span class="text-base font-black text-white">+${(loc.votos_novos_22 || 0).toLocaleString('pt-BR')}v</span>
-                <span class="text-xs font-bold text-cyan-300 block">${loc.pct_novos_22 || 0}% de absorção</span>
+                <span class="text-base font-black text-white">+${(delta_22 || 0).toLocaleString('pt-BR')}v</span>
+                <span class="text-xs font-bold text-cyan-300 block">${pct_abs_22}% de absorção</span>
               </div>
               <div class="p-2 rounded-lg bg-rose-950/40 border border-rose-500/30">
                 <span class="text-[10px] font-bold text-rose-400 block uppercase">+Novos (13)</span>
-                <span class="text-base font-black text-white">+${(loc.votos_novos_13 || 0).toLocaleString('pt-BR')}v</span>
-                <span class="text-xs font-bold text-rose-300 block">${loc.pct_novos_13 || 0}% de absorção</span>
+                <span class="text-base font-black text-white">+${(delta_13 || 0).toLocaleString('pt-BR')}v</span>
+                <span class="text-xs font-bold text-rose-300 block">${pct_abs_13}% de absorção</span>
               </div>
             </div>
             <!-- Placar de Urnas Ganhas nos Votos Novos -->
-            <div class="p-1.5 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between text-[11px]">
-              <span class="text-slate-400 font-bold">Placar de Urnas em Novos Votos:</span>
-              <span class="font-black text-white">${loc.placar_urnas_novos || '-'}</span>
+            <div class="p-1 rounded-lg bg-slate-900 border border-slate-800 flex items-center justify-between text-[10px]">
+              <span class="text-slate-400 font-bold truncate">Placar em Novos:</span>
+              <span class="font-black text-white truncate">${loc.placar_urnas_novos || '-'}</span>
             </div>
           </div>
         </div>
+
+        <!-- Painel de Diagnósticos Forenses & Alertas Estatísticos -->
+        <div class="space-y-2.5">
+          <!-- Alerta 1: Sem Unanimidade / Divergência Interna -->
+          ${loc.tem_divergencia_interna_novos ? `
+          <div class="p-3 rounded-xl bg-amber-950/80 border border-amber-500/80 text-amber-100 flex items-start gap-3">
+            <span class="w-3 h-3 rounded-full bg-amber-400 animate-ping shrink-0 mt-1"></span>
+            <div class="space-y-1">
+              <h5 class="text-xs font-black uppercase text-amber-300 flex items-center gap-1.5">
+                <span>⚠️ Divergência Interna: Ausência de Unanimidade nos Novos Votos</span>
+              </h5>
+              <p class="text-[11px] leading-relaxed text-amber-200">
+                Nem todas as urnas instaladas neste endereço físico votaram de forma homogênea. Na captação de novos votos entre 1º e 2º turnos, o placar interno foi de <strong>${loc.placar_urnas_novos}</strong>.
+              </p>
+            </div>
+          </div>` : (loc.qtd_secoes > 1 ? `
+          <div class="p-2.5 rounded-xl bg-emerald-950/50 border border-emerald-600/50 text-emerald-200 flex items-center gap-2.5">
+            <span class="text-xl">🏆</span>
+            <div>
+              <span class="text-xs font-black text-emerald-300">Comportamento 100% Unânime no Estabelecimento:</span>
+              <p class="text-[11px] text-emerald-200">Todas as ${loc.qtd_secoes} seções deste local conferiram vitória para o mesmo candidato na absorção de novos votos.</p>
+            </div>
+          </div>` : '')}
+
+          <!-- Alerta 2: Inversão Eleitoral -->
+          ${loc.houve_inversao ? `
+          <div class="p-3 rounded-xl bg-indigo-950/80 border border-cyan-400/80 text-cyan-100 flex items-start gap-3">
+            <span class="text-xl">🔄</span>
+            <div class="space-y-1">
+              <h5 class="text-xs font-black uppercase text-cyan-300">
+                Inversão de Tendência Eleitoral (Resultado Geral vs Votos Novos)
+              </h5>
+              <p class="text-[11px] leading-relaxed text-cyan-200">
+                ${loc.diagnostico_inversao}
+              </p>
+            </div>
+          </div>` : ''}
+
+          <!-- Alerta 3: Desvio Estatístico Intra-Prédio -->
+          <div class="p-3 rounded-xl border ${loc.tem_anomalia_intra_local ? 'bg-rose-950/60 border-rose-500/80 text-rose-100' : 'bg-slate-950 border-slate-800 text-slate-300'}">
+            <div class="flex items-center justify-between border-b ${loc.tem_anomalia_intra_local ? 'border-rose-800/80' : 'border-slate-800'} pb-2 mb-2">
+              <div class="flex items-center gap-2">
+                <span>${loc.tem_anomalia_intra_local ? '🚨' : '✅'}</span>
+                <span class="text-xs font-black uppercase ${loc.tem_anomalia_intra_local ? 'text-rose-300' : 'text-emerald-400'}">
+                  ${loc.tem_anomalia_intra_local ? 'Anomalia Estatística Intra-Prédio (Discrepância Acima do Padrão)' : 'Coerência Estatística Intra-Prédio'}
+                </span>
+              </div>
+              ${loc.qtd_secoes > 1 ? `
+              <div class="flex items-center gap-3 text-[11px]">
+                <span>Desvio Padrão (σ): <strong class="text-white">${loc.desvio_padrao}%</strong></span>
+                <span>Delta Máximo (Δmax): <strong class="text-white">${loc.delta_max}%</strong></span>
+              </div>` : ''}
+            </div>
+            <p class="text-[11px] leading-relaxed">
+              ${loc.diagnostico_forense}
+            </p>
+          </div>
+        </div>
+
+        <!-- Grade / Tabela Completa de Urnas do Prédio -->
+        <div class="space-y-2 pt-2">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-base">🗳️</span>
+              <h4 class="text-xs font-black text-white uppercase tracking-wider">
+                Auditoria Individual das ${loc.qtd_secoes} Seções / Urnas deste Estabelecimento
+              </h4>
+            </div>
+            <span class="text-[10px] text-slate-400">Clique em "Auditar Urna" para abrir o laudo e bobina física</span>
+          </div>
+
+          <div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-900/90 text-slate-400 text-[10px] uppercase font-bold border-b border-slate-800">
+                <tr>
+                  <th class="p-2.5">Seção / Zona</th>
+                  <th class="p-2.5">1º Turno (1T)</th>
+                  <th class="p-2.5">2º Turno (2T)</th>
+                  <th class="p-2.5">Variação Novos (Δ)</th>
+                  <th class="p-2.5 text-center">Vencedor Novos</th>
+                  <th class="p-2.5 text-right">Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${secoesRows}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
 
         <!-- Painel de Diagnósticos Forenses & Alertas Estatísticos -->
         <div class="space-y-2.5">
