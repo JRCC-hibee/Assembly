@@ -7136,27 +7136,59 @@ COORDENADAS_MUNICIPIOS = {
     "PA": (-1.4558, -48.4902),
 }
 
+# Centróides reais dos setores urbanos/bairros das zonas eleitorais de Curitiba (TSE 75353)
+ZONAS_CURITIBA_CENTROIDES = {
+    1: (-25.4284, -49.2733),   # Centro / Batel / Mercês / Bom Retiro / Ahú
+    2: (-25.4740, -49.2980),   # Portão / Fazendinha / Água Verde / Santa Quitéria / Vila Izabel
+    3: (-25.3850, -49.2520),   # Boa Vista / Bacacheri / Cabral / Santa Cândida
+    4: (-25.5050, -49.2380),   # Boqueirão / Hauer / Alto Boqueirão / Xaxim
+    145: (-25.4950, -49.3450), # Cidade Industrial de Curitiba (CIC) / Augusta / São Miguel
+    174: (-25.4550, -49.2150), # Cajuru / Jardim das Américas / Uberaba / Guabirotuba
+    175: (-25.5180, -49.2950), # Pinheirinho / Capão Raso / Novo Mundo / Tatuquara
+    176: (-25.3950, -49.3300), # Santa Felicidade / Vista Alegre / São João / Pilarzinho / Butiatuvinha
+    177: (-25.5500, -49.2600), # Sítio Cercado / Ganchinho / Umbará
+    178: (-25.4050, -49.2150), # Bairro Alto / Tarumã / Atuba / Tingui
+}
+
 
 def _obter_coordenadas_local(uf: str, mun_cod: str, mun_nome: str, zona: int, loc_id: str) -> tuple[float, float]:
     """
     Retorna as coordenadas geográficas (lat, lon) estáveis e unívocas para o Local de Votação (prédio físico).
     Todas as seções instaladas no mesmo local de votação recebem exatamente a mesma coordenada geográfica.
+    Distribui os prédios de forma realista de acordo com as zonas eleitorais e bairros da cidade.
     """
     u_up = (uf or "PR").strip().upper()
     m_cod = str(mun_cod or "").strip().zfill(5)
 
     base_lat, base_lon = COORDENADAS_MUNICIPIOS.get(m_cod) or COORDENADAS_MUNICIPIOS.get(u_up) or COORDENADAS_MUNICIPIOS["BRASIL"]
 
-    # Dispersão determinística suave no raio urbano (~0.4km a 3.5km) por local_id e zona
     h_str = f"{u_up}_{m_cod}_{zona:04d}_{loc_id}"
     seed_val = int(hashlib.md5(h_str.encode("utf-8")).hexdigest()[:8], 16)
+
+    # Curitiba (75353): mapeamento de precisão por zona eleitoral e bairros
+    if m_cod == "75353" and zona in ZONAS_CURITIBA_CENTROIDES:
+        z_lat, z_lon = ZONAS_CURITIBA_CENTROIDES[zona]
+        angle_rad = (seed_val % 360) * (math.pi / 180.0)
+        radius_km = 0.25 + ((seed_val // 360) % 24) * 0.1  # 0.25 km a 2.55 km do centro do bairro/zona
+        lat_offset = (radius_km / 111.0) * math.cos(angle_rad)
+        lon_offset = (radius_km / (111.0 * max(0.2, math.cos(math.radians(z_lat))))) * math.sin(angle_rad)
+        return round(z_lat + lat_offset, 6), round(z_lon + lon_offset, 6)
+
+    # Demais municípios com múltiplas zonas eleitorais
+    if zona > 0:
+        z_angle = ((zona * 137.5) % 360) * (math.pi / 180.0)
+        z_radius_km = 1.0 + ((zona * 17) % 7) * 0.8  # 1.0 km a 5.8 km
+        z_lat = base_lat + (z_radius_km / 111.0) * math.cos(z_angle)
+        z_lon = base_lon + (z_radius_km / (111.0 * max(0.2, math.cos(math.radians(base_lat))))) * math.sin(z_angle)
+    else:
+        z_lat, z_lon = base_lat, base_lon
+
     angle_rad = (seed_val % 360) * (math.pi / 180.0)
-    radius_km = 0.4 + ((seed_val // 360) % 31) * 0.1  # 0.4 km a 3.4 km do centróide
-
+    radius_km = 0.2 + ((seed_val // 360) % 20) * 0.1  # 0.2 km a 2.1 km
     lat_offset = (radius_km / 111.0) * math.cos(angle_rad)
-    lon_offset = (radius_km / (111.0 * max(0.2, math.cos(math.radians(base_lat))))) * math.sin(angle_rad)
+    lon_offset = (radius_km / (111.0 * max(0.2, math.cos(math.radians(z_lat))))) * math.sin(angle_rad)
 
-    return round(base_lat + lat_offset, 6), round(base_lon + lon_offset, 6)
+    return round(z_lat + lat_offset, 6), round(z_lon + lon_offset, 6)
 
 
 def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODAS", mun_filtro="TODAS", zona_filtro="TODAS") -> tuple[list[dict], dict]:
@@ -8198,7 +8230,16 @@ def _consolidar_secoes_tse_sql(
         .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
         .filter(*filtro_secao)
     )
-    rows_sec = q_sec.order_by(TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao).limit(1000).all()
+    # 6. Seções (Nível 5)
+    # Se um município ou zona estiver selecionado, recupera TODAS as seções do escopo
+    # para permitir o mapeamento geográfico completo dos prédios e escolas no mapa.
+    # Se estiver em nível estadual ou nacional, aplica um limite seguro (ex: 6000) para performance.
+    if (municipio_filtro and municipio_filtro != "TODAS") or (zona_filtro and zona_filtro != "TODAS"):
+        rows_sec = q_sec.order_by(TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao).all()
+    elif uf_filtro and uf_filtro != "TODAS":
+        rows_sec = q_sec.order_by(TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao).limit(6000).all()
+    else:
+        rows_sec = q_sec.order_by(TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao).limit(2000).all()
 
     # Mapeia votos nominais dos candidatos a Presidente para cálculo heurístico de alertas no seletor
     sec_ids_seletor = [r.id for r in rows_sec]
@@ -8206,26 +8247,29 @@ def _consolidar_secoes_tse_sql(
     if sec_ids_seletor:
         try:
             from .database import TseVotoCandidato
-            rows_vc = (
-                db.query(
-                    TseVotoCandidato.secao_id,
-                    TseVotoCandidato.turno,
-                    TseVotoCandidato.numero_candidato,
-                    TseVotoCandidato.quantidade_votos,
+            # Em escopos com mais de 1000 seções, busca em lotes para total segurança de parâmetros SQL
+            for chunk_ids in [sec_ids_seletor[i:i + 1500] for i in range(0, len(sec_ids_seletor), 1500)]:
+                rows_vc = (
+                    db.query(
+                        TseVotoCandidato.secao_id,
+                        TseVotoCandidato.turno,
+                        TseVotoCandidato.numero_candidato,
+                        TseVotoCandidato.quantidade_votos,
+                    )
+                    .filter(
+                        TseVotoCandidato.secao_id.in_(chunk_ids),
+                        or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None),
+                    )
+                    .all()
                 )
-                .filter(
-                    TseVotoCandidato.secao_id.in_(sec_ids_seletor),
-                    or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None),
-                )
-                .all()
-            )
-            for vc in rows_vc:
-                votos_cands_sec.setdefault(vc.secao_id, {}).setdefault(vc.turno, {})[str(vc.numero_candidato)] = int(vc.quantidade_votos or 0)
+                for vc in rows_vc:
+                    votos_cands_sec.setdefault(vc.secao_id, {}).setdefault(vc.turno, {})[str(vc.numero_candidato)] = int(vc.quantidade_votos or 0)
         except Exception as exc_vc:
             print(f"[TSE-TREE] Aviso ao consultar votos candidatos para seletor: {exc_vc}")
 
     lista_secoes_seletor = []
-    for r in rows_sec:
+    # No seletor HTML (coluna 5 da árvore), limita a 1000 itens para não sobrecarregar o DOM do browser
+    for r in rows_sec[:1000]:
         p_prefix = r.pleito or ("03221" if r.turno_ativo == 2 else ("03220" if r.turno_ativo == 1 else "03221"))
         if not p_prefix.startswith("o"):
             p_prefix = f"o{p_prefix}"

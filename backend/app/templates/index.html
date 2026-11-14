@@ -13046,13 +13046,28 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
     // =========================================================================
 
     window.tseLeafletMapInstance = null;
+    window.tseLeafletTileLayer = null;
     window.tseLeafletMarkersLayer = null;
     window.tseMarkersByLocalKey = new Map();
+    window.tseMarkersAtivosNoLayer = new Set();
     window.tseLocaisVotacaoCache = [];
+    window.tseTodosLocaisCache = [];
+    window.tseLocaisVisiveisCache = [];
     window.tseLocaisVotacaoResumo = null;
     window.tseFiltroTextoLocaisMapa = "";
     window.tseOrdemLocaisMapa = "DIVERGENCIA_NOVOS";
     window.tseCriterioCorPinsMapa = "TOTAL"; // "TOTAL" | "NOVOS" | "INVERSAO"
+    window.tseEstiloMapaTile = window.tseEstiloMapaTile || "dark";
+    window.tseUltimoEscopoCarregado = null;
+    window.tseMapMoveListenerAttached = false;
+
+    function debounceTse(func, wait) {
+      let timeout;
+      return function(...args) {
+        clearTimeout(timeout);
+        timeout = setTimeout(() => func.apply(this, args), wait);
+      };
+    }
 
     function alternarCriterioCorPinsMapaTse(criterio) {
       window.tseCriterioCorPinsMapa = criterio || "TOTAL";
@@ -13068,7 +13083,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       if (btnNov) btnNov.className = criterio === "NOVOS" ? clsActive : clsInactive;
       if (btnInv) btnInv.className = criterio === "INVERSAO" ? clsActive : clsInactive;
 
-      renderizarMapaLocaisTse(window.tseLocaisVotacaoCache, window.tseLocaisVotacaoResumo);
+      renderizarMapaLocaisTse(window.tseTodosLocaisCache.length > 0 ? window.tseTodosLocaisCache : window.tseLocaisVotacaoCache, window.tseLocaisVotacaoResumo);
     }
 
     function atualizarDadosLocaisVotacaoMapaTse(payload) {
@@ -13078,6 +13093,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       if (Array.isArray(locais) && locais.length > 0) {
         window.tseLocaisVotacaoCache = locais;
+        window.tseTodosLocaisCache = locais;
         window.tseLocaisVotacaoResumo = resumo;
 
         const painel = document.getElementById("tsePainelMapaLocais");
@@ -13103,15 +13119,16 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         if (btnTexto) btnTexto.textContent = "🌳 Árvore de 5 Níveis";
 
         // Se ainda não temos dados em cache ou o filtro mudou, busca do backend
-        if (!window.tseLocaisVotacaoCache || window.tseLocaisVotacaoCache.length === 0) {
+        if (!window.tseTodosLocaisCache || window.tseTodosLocaisCache.length === 0) {
           await carregarLocaisVotacaoBackendTse();
         } else {
-          renderizarMapaLocaisTse(window.tseLocaisVotacaoCache, window.tseLocaisVotacaoResumo);
+          renderizarMapaLocaisTse(window.tseTodosLocaisCache, window.tseLocaisVotacaoResumo);
         }
 
         setTimeout(() => {
           if (window.tseLeafletMapInstance) {
             window.tseLeafletMapInstance.invalidateSize();
+            atualizarLocaisVisiveisViewportTse(true);
           }
         }, 200);
       } else {
@@ -13137,15 +13154,13 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         window.tseLocaisVotacaoCache = data.locais_votacao || [];
+        window.tseTodosLocaisCache = data.locais_votacao || [];
         window.tseLocaisVotacaoResumo = data.resumo_locais || null;
-        renderizarMapaLocaisTse(window.tseLocaisVotacaoCache, window.tseLocaisVotacaoResumo);
+        renderizarMapaLocaisTse(window.tseTodosLocaisCache, window.tseLocaisVotacaoResumo);
       } catch (err) {
         console.error("[MAPA-TSE] Erro ao carregar locais:", err);
       }
     }
-
-    window.tseLeafletTileLayer = null;
-    window.tseEstiloMapaTile = window.tseEstiloMapaTile || "dark";
 
     function obterTileLayerUrl(estilo) {
       const apiKey = window.CARTODB_BASEMAPS_API_KEY || "cb1_58d3_1_e1f5f78ad05bc9b20f808a7e";
@@ -13201,23 +13216,111 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }).addTo(window.tseLeafletMapInstance);
 
       window.tseLeafletMarkersLayer = L.layerGroup().addTo(window.tseLeafletMapInstance);
+
+      // Ouvintes de câmera dinâmica com debounce: ao arrastar, alterar o centro ou dar zoom,
+      // recalcula e renderiza apenas os locais do viewport, ocultando os que saíram da tela.
+      if (!window.tseMapMoveListenerAttached) {
+        window.tseMapMoveListenerAttached = true;
+        const debouncedViewportUpdate = debounceTse(() => {
+          atualizarLocaisVisiveisViewportTse();
+        }, 90);
+        window.tseLeafletMapInstance.on('moveend', debouncedViewportUpdate);
+        window.tseLeafletMapInstance.on('zoomend', debouncedViewportUpdate);
+      }
+
       return window.tseLeafletMapInstance;
     }
 
-    function renderizarMapaLocaisTse(locais, resumo) {
-      if (!locais) locais = [];
-      const st = window.arvoreTseState || {};
-      const alvoFormatado = typeof obterNomeAmigavelAlvo === "function"
-        ? obterNomeAmigavelAlvo(st.regiao, st.uf, st.municipio, st.zona, st.secao)
-        : (st.municipio || "Consolidado");
+    function atualizarLocaisVisiveisViewportTse(forcarRecalculo = false) {
+      if (!window.tseLeafletMapInstance) return;
+      const map = window.tseLeafletMapInstance;
+      const todosLocais = window.tseTodosLocaisCache || window.tseLocaisVotacaoCache || [];
 
-      const subEl = document.getElementById("tseSubtituloEscopoMapaLocais");
-      if (subEl) {
-        const totSec = locais.reduce((acc, l) => acc + (l.qtd_secoes || 0), 0);
-        subEl.textContent = `Escopo: ${alvoFormatado} — ${locais.length.toLocaleString('pt-BR')} Prédios Físicos de Votação (${totSec.toLocaleString('pt-BR')} Seções mapeadas)`;
+      if (todosLocais.length === 0) {
+        if (window.tseLeafletMarkersLayer) window.tseLeafletMarkersLayer.clearLayers();
+        window.tseMarkersAtivosNoLayer = new Set();
+        window.tseLocaisVisiveisCache = [];
+        renderizarCardsLocaisHtmlTse([]);
+        return;
       }
 
-      // Atualiza os Mini KPIs Executivos
+      // Obtém o bounding box da área visível atual com padding de 6% para suavidade nas bordas
+      const bounds = map.getBounds().pad(0.06);
+
+      // Filtra os locais que estão dentro do enquadramento atual da câmera
+      const locaisNoBounds = todosLocais.filter(l => {
+        return l.latitude && l.longitude && bounds.contains([l.latitude, l.longitude]);
+      });
+
+      // Teto seguro de anti-estouro (MAX_PINS_VIEWPORT = 75) para evitar poluição visual e lentidão no DOM
+      const MAX_PINS_VIEWPORT = 75;
+      let locaisVisiveis = [];
+      let antiEstouroAtivo = false;
+
+      if (locaisNoBounds.length <= MAX_PINS_VIEWPORT) {
+        locaisVisiveis = locaisNoBounds;
+      } else {
+        antiEstouroAtivo = true;
+        // Priorização forense ao atingir o teto de densidade:
+        // 1. Manter visível o local ativo/focado pelo usuário
+        // 2. Prédios com divergência interna nos votos novos (sem unanimidade)
+        // 3. Prédios com inversão de resultado geral vs votos novos
+        // 4. Prédios com anomalia intra-local (desvio padrão sigma elevado)
+        // 5. Volume de seções (maiores escolas com mais urnas)
+        const priorizados = [...locaisNoBounds].sort((a, b) => {
+          if (a.key === window.tseLocalAtivoKey) return -1;
+          if (b.key === window.tseLocalAtivoKey) return 1;
+          if (a.tem_divergencia_interna_novos !== b.tem_divergencia_interna_novos) {
+            return a.tem_divergencia_interna_novos ? -1 : 1;
+          }
+          if (a.houve_inversao !== b.houve_inversao) {
+            return a.houve_inversao ? -1 : 1;
+          }
+          if (a.tem_anomalia_intra_local !== b.tem_anomalia_intra_local) {
+            return a.tem_anomalia_intra_local ? -1 : 1;
+          }
+          return (b.qtd_secoes || 0) - (a.qtd_secoes || 0);
+        });
+        locaisVisiveis = priorizados.slice(0, MAX_PINS_VIEWPORT);
+      }
+
+      window.tseLocaisVisiveisCache = locaisVisiveis;
+
+      // Reconciliação dos Markers no LayerGroup do Leaflet:
+      // Remove da tela os marcadores que saíram da área visível ou excederam o teto anti-estouro
+      const chavesVisiveis = new Set(locaisVisiveis.map(l => l.key));
+      const markersAtivos = window.tseMarkersAtivosNoLayer || new Set();
+
+      for (const chave of Array.from(markersAtivos)) {
+        if (!chavesVisiveis.has(chave)) {
+          const m = window.tseMarkersByLocalKey.get(chave);
+          if (m && window.tseLeafletMarkersLayer && window.tseLeafletMarkersLayer.hasLayer(m)) {
+            window.tseLeafletMarkersLayer.removeLayer(m);
+          }
+          markersAtivos.delete(chave);
+        }
+      }
+
+      // Adiciona na tela apenas os marcadores que entraram na área visível
+      for (const loc of locaisVisiveis) {
+        if (!markersAtivos.has(loc.key)) {
+          const m = window.tseMarkersByLocalKey.get(loc.key);
+          if (m && window.tseLeafletMarkersLayer) {
+            window.tseLeafletMarkersLayer.addLayer(m);
+            markersAtivos.add(loc.key);
+          }
+        }
+      }
+      window.tseMarkersAtivosNoLayer = markersAtivos;
+
+      // Atualiza os Mini KPIs e Badges para a área atualmente visível
+      atualizarMiniKpisViewportTse(locaisVisiveis, todosLocais.length, antiEstouroAtivo, locaisNoBounds.length);
+
+      // Atualiza a lista lateral com os cards dos prédios visíveis nesta área
+      renderizarCardsLocaisHtmlTse(locaisVisiveis, locaisNoBounds.length, todosLocais.length, antiEstouroAtivo);
+    }
+
+    function atualizarMiniKpisViewportTse(locaisVisiveis, totalEscopo, antiEstouroAtivo, totalNoBounds) {
       const kpiTotal = document.getElementById("kpiTotalLocaisMapa");
       const kpi22 = document.getElementById("kpiLocaisVitoria22");
       const kpi22Nov = document.getElementById("kpiLocaisVitoria22Novos");
@@ -13225,35 +13328,71 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       const kpi13Nov = document.getElementById("kpiLocaisVitoria13Novos");
       const kpiDiverg = document.getElementById("kpiLocaisDivergenciaNovos");
       const kpiInv = document.getElementById("kpiLocaisInversao");
+      const badge = document.getElementById("badgeStatusMapaLocais");
+      const subtitulo = document.getElementById("subtituloMapaLocais");
 
-      const tot22Geral = resumo?.locais_vitoria_22 ?? locais.filter(l => l.vencedor === 22).length;
-      const tot22Novos = resumo?.locais_vitoria_novos_22 ?? locais.filter(l => l.vencedor_novos === 22).length;
-      const tot13Geral = resumo?.locais_vitoria_13 ?? locais.filter(l => l.vencedor === 13).length;
-      const tot13Novos = resumo?.locais_vitoria_novos_13 ?? locais.filter(l => l.vencedor_novos === 13).length;
-      const totDiverg = resumo?.locais_com_divergencia_novos ?? locais.filter(l => l.tem_divergencia_interna_novos).length;
-      const totInv = resumo?.locais_com_inversao ?? locais.filter(l => l.houve_inversao).length;
+      const tot22Geral = locaisVisiveis.filter(l => l.vencedor === 22).length;
+      const tot22Novos = locaisVisiveis.filter(l => l.vencedor_novos === 22).length;
+      const tot13Geral = locaisVisiveis.filter(l => l.vencedor === 13).length;
+      const tot13Novos = locaisVisiveis.filter(l => l.vencedor_novos === 13).length;
+      const totDiverg = locaisVisiveis.filter(l => l.tem_divergencia_interna_novos).length;
+      const totInv = locaisVisiveis.filter(l => l.houve_inversao).length;
 
-      if (kpiTotal) kpiTotal.textContent = (resumo?.total_locais ?? locais.length).toLocaleString('pt-BR');
-      if (kpi22) kpi22.textContent = tot22Geral.toLocaleString('pt-BR');
+      if (kpiTotal) {
+        kpiTotal.innerHTML = `<span class="text-white">${locaisVisiveis.length}</span> <span class="text-[10px] text-slate-400 font-normal">/ ${totalEscopo}</span>`;
+      }
+      if (kpi22) kpi22.textContent = tot22Geral;
       if (kpi22Nov) kpi22Nov.textContent = `(novos: ${tot22Novos})`;
-      if (kpi13) kpi13.textContent = tot13Geral.toLocaleString('pt-BR');
+      if (kpi13) kpi13.textContent = tot13Geral;
       if (kpi13Nov) kpi13Nov.textContent = `(novos: ${tot13Novos})`;
-      if (kpiDiverg) kpiDiverg.textContent = totDiverg.toLocaleString('pt-BR');
-      if (kpiInv) kpiInv.textContent = totInv.toLocaleString('pt-BR');
+      if (kpiDiverg) kpiDiverg.textContent = totDiverg;
+      if (kpiInv) kpiInv.textContent = totInv;
 
-      // Garante que o mapa do Leaflet esteja instanciado
+      if (badge) {
+        if (antiEstouroAtivo) {
+          badge.className = "px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-600 text-[10px] font-extrabold mono";
+          badge.textContent = `⚡ Exibindo ${locaisVisiveis.length} de ${totalNoBounds} (Anti-estouro ativo)`;
+          badge.title = `Área densa com ${totalNoBounds} prédios. Exibindo os 75 principais com prioridade a alertas forenses. Aproxime o zoom para detalhar todos.`;
+        } else {
+          badge.className = "px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700 text-[10px] font-extrabold mono";
+          badge.textContent = `📍 ${locaisVisiveis.length} prédios nesta área (${totalEscopo} no total)`;
+          badge.title = `Exibindo 100% dos prédios físicos nesta visualização.`;
+        }
+      }
+
+      if (subtitulo) {
+        if (antiEstouroAtivo) {
+          subtitulo.innerHTML = `Exibindo os <strong class="text-amber-300">${locaisVisiveis.length}</strong> prédios prioritários com alertas de <strong class="text-white">${totalNoBounds}</strong> enquadrados nesta área (<strong class="text-indigo-400">${totalEscopo}</strong> no escopo total). Aproxime o zoom para abrir todos os prédios.`;
+        } else {
+          subtitulo.innerHTML = `Exibindo todos os <strong class="text-white">${locaisVisiveis.length}</strong> prédios físicos de votação nesta área visível (<strong class="text-indigo-400">${totalEscopo}</strong> no escopo total). Arraste ou dê zoom no mapa para explorar outros bairros.`;
+        }
+      }
+    }
+
+    function renderizarMapaLocaisTse(locais, resumo) {
+      if (!locais) locais = [];
+      window.tseTodosLocaisCache = locais;
+      window.tseLocaisVotacaoCache = locais;
+      window.tseLocaisVotacaoResumo = resumo;
+
+      const st = window.arvoreTseState || {};
+      const alvoFormatado = typeof obterNomeAmigavelAlvo === "function"
+        ? obterNomeAmigavelAlvo(st.regiao, st.uf, st.municipio, st.zona, st.secao)
+        : (st.municipio || "Consolidado");
+
       const map = inicializarLeafletMapSeNecessario(resumo?.centro_mapa, resumo?.zoom_sugerido);
       if (!map || typeof L === "undefined") {
         renderizarCardsLocaisHtmlTse(locais);
         return;
       }
 
+      // Limpa os marcadores anteriores e o repositório
       if (window.tseLeafletMarkersLayer) {
         window.tseLeafletMarkersLayer.clearLayers();
       }
       window.tseMarkersByLocalKey.clear();
+      window.tseMarkersAtivosNoLayer = new Set();
 
-      const bounds = L.latLngBounds([]);
       const criterioCor = window.tseCriterioCorPinsMapa || "TOTAL";
 
       locais.forEach(loc => {
@@ -13378,32 +13517,40 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           window.tseLocalAtivoKey = loc.key;
           destacarCardLocalAtivoTse(loc.key);
         });
-        marker.addTo(window.tseLeafletMarkersLayer);
+
         window.tseMarkersByLocalKey.set(loc.key, marker);
-        bounds.extend([loc.latitude, loc.longitude]);
       });
 
-      if (locais.length > 0 && bounds.isValid()) {
+      // Se mudou de escopo (ex: selecionou nova cidade), centraliza a câmera na nova localização
+      const escopoChave = `${st.uf || ''}_${st.municipio || ''}_${st.zona || ''}`;
+      if (window.tseUltimoEscopoCarregado !== escopoChave) {
+        window.tseUltimoEscopoCarregado = escopoChave;
         if (resumo?.centro_mapa && resumo?.zoom_sugerido) {
           map.setView(resumo.centro_mapa, resumo.zoom_sugerido);
-        } else {
-          map.fitBounds(bounds, { padding: [30, 30], maxZoom: 15 });
+        } else if (locais.length > 0) {
+          const b = L.latLngBounds(locais.filter(l => l.latitude).map(l => [l.latitude, l.longitude]));
+          if (b.isValid()) map.fitBounds(b, { padding: [25, 25], maxZoom: 14 });
         }
       }
 
-      renderizarCardsLocaisHtmlTse(locais);
+      // Renderiza dinamicamente apenas os prédios enquadrados no viewport da câmera
+      atualizarLocaisVisiveisViewportTse(true);
     }
 
-    function renderizarCardsLocaisHtmlTse(locais) {
+    function renderizarCardsLocaisHtmlTse(locais, totalNoEnquadramento = null, totalGeralEscopo = null, antiEstouroAtivo = false) {
       const container = document.getElementById("tseListaCardsLocais");
       if (!container) return;
 
-      let filtrados = [...locais];
+      let filtrados = Array.isArray(locais) ? [...locais] : [];
+      const temFiltroTexto = Boolean(window.tseFiltroTextoLocaisMapa && window.tseFiltroTextoLocaisMapa.trim());
 
-      // Filtro textual
-      if (window.tseFiltroTextoLocaisMapa && window.tseFiltroTextoLocaisMapa.trim()) {
+      // Filtro textual: se o usuário digitar uma busca, busca em todos os prédios do escopo para encontrar qualquer escola
+      if (temFiltroTexto) {
         const q = window.tseFiltroTextoLocaisMapa.trim().toLowerCase();
-        filtrados = filtrados.filter(l => {
+        const poolBusca = (window.tseTodosLocaisCache && window.tseTodosLocaisCache.length > 0)
+          ? window.tseTodosLocaisCache
+          : (window.tseLocaisVotacaoCache || []);
+        filtrados = poolBusca.filter(l => {
           if (l.nome_local && l.nome_local.toLowerCase().includes(q)) return true;
           if (l.local_id && l.local_id.toLowerCase().includes(q)) return true;
           if (l.municipio_nome && l.municipio_nome.toLowerCase().includes(q)) return true;
@@ -13450,13 +13597,23 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       if (filtrados.length === 0) {
         container.innerHTML = `
           <div class="p-6 text-center text-xs text-slate-500 mono border border-slate-800 rounded-xl bg-slate-950">
-            Nenhum local de votação encontrado com o filtro aplicado.
+            Nenhum local de votação encontrado nesta área com o filtro aplicado.
           </div>
         `;
         return;
       }
 
-      const html = filtrados.map(loc => {
+      const cabecalhoInfo = `
+        <div class="px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-[10px] mono flex items-center justify-between text-slate-300 mb-2">
+          <span class="flex items-center gap-1.5">
+            <span>📍</span>
+            <span>${temFiltroTexto ? `Busca: <strong class="text-white">${filtrados.length}</strong> encontrados` : `Nesta área: <strong class="text-white">${filtrados.length}</strong> prédios`}</span>
+          </span>
+          ${antiEstouroAtivo ? '<span class="px-1.5 py-0.2 rounded bg-amber-950 border border-amber-600/60 text-amber-300 font-extrabold text-[9px]">⚡ Anti-estouro (Max 75)</span>' : '<span class="text-emerald-400 font-bold text-[9px]">✓ 100% visíveis</span>'}
+        </div>
+      `;
+
+      const cardsHtml = filtrados.map(loc => {
         let corBorder = "border-slate-800 bg-slate-950";
         if (loc.tem_divergencia_interna_novos) {
           corBorder = "border-amber-500/60 bg-amber-950/20";
@@ -13547,7 +13704,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         `;
       }).join("");
 
-      container.innerHTML = html;
+      container.innerHTML = cabecalhoInfo + cardsHtml;
     }
 
     function focarLocalNoMapaTse(localKey) {
@@ -13560,12 +13717,21 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       window.tseLocalAtivoKey = localKey;
       destacarCardLocalAtivoTse(localKey);
 
-      const marker = window.tseMarkersByLocalKey.get(localKey);
-      if (marker && window.tseLeafletMapInstance) {
-        window.tseLeafletMapInstance.flyTo(marker.getLatLng(), Math.max(15, window.tseLeafletMapInstance.getZoom()), {
+      const loc = (window.tseTodosLocaisCache || window.tseLocaisVotacaoCache || []).find(l => l.key === localKey);
+      if (loc && window.tseLeafletMapInstance) {
+        const targetZoom = Math.max(15, window.tseLeafletMapInstance.getZoom());
+        window.tseLeafletMapInstance.flyTo([loc.latitude, loc.longitude], targetZoom, {
           duration: 0.6
         });
-        marker.openPopup();
+        setTimeout(() => {
+          const marker = window.tseMarkersByLocalKey.get(localKey);
+          if (marker) {
+            if (window.tseLeafletMarkersLayer && !window.tseLeafletMarkersLayer.hasLayer(marker)) {
+              window.tseLeafletMarkersLayer.addLayer(marker);
+            }
+            marker.openPopup();
+          }
+        }, 650);
       }
     }
 
@@ -13592,7 +13758,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       const modal = document.getElementById("modalDossieLocalTse");
       if (!modal) return;
 
-      const loc = (window.tseLocaisVotacaoCache || []).find(l => l.key === localKey);
+      const loc = (window.tseTodosLocaisCache || window.tseLocaisVotacaoCache || []).find(l => l.key === localKey);
       if (!loc) return;
 
       window.tseLocalAtivoKey = localKey;
@@ -13903,7 +14069,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       const modal = document.getElementById("modalRelatorioFechadoLocalTse");
       if (!modal) return;
 
-      const loc = (window.tseLocaisVotacaoCache || []).find(l => l.key === localKey);
+      const loc = (window.tseTodosLocaisCache || window.tseLocaisVotacaoCache || []).find(l => l.key === localKey);
       if (!loc) return;
 
       window.tseLocalAtivoKey = localKey;
@@ -14434,12 +14600,20 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
     function filtrarListaLocaisMapaTse(texto) {
       window.tseFiltroTextoLocaisMapa = texto || "";
-      renderizarCardsLocaisHtmlTse(window.tseLocaisVotacaoCache);
+      if (texto && texto.trim()) {
+        renderizarCardsLocaisHtmlTse(window.tseTodosLocaisCache || window.tseLocaisVotacaoCache);
+      } else {
+        renderizarCardsLocaisHtmlTse(window.tseLocaisVisiveisCache || window.tseLocaisVotacaoCache);
+      }
     }
 
     function reordenarListaLocaisMapaTse(criterio) {
       window.tseOrdemLocaisMapa = criterio || "DIVERGENCIA_NOVOS";
-      renderizarCardsLocaisHtmlTse(window.tseLocaisVotacaoCache);
+      if (window.tseFiltroTextoLocaisMapa && window.tseFiltroTextoLocaisMapa.trim()) {
+        renderizarCardsLocaisHtmlTse(window.tseTodosLocaisCache || window.tseLocaisVotacaoCache);
+      } else {
+        renderizarCardsLocaisHtmlTse(window.tseLocaisVisiveisCache || window.tseLocaisVotacaoCache);
+      }
     }
 
     function recentralizarMapaLocaisTse() {
@@ -14447,9 +14621,12 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       if (window.tseLeafletMapInstance) {
         if (resumo?.centro_mapa && resumo?.zoom_sugerido) {
           window.tseLeafletMapInstance.flyTo(resumo.centro_mapa, resumo.zoom_sugerido, { duration: 0.6 });
-        } else if (window.tseLeafletMarkersLayer && window.tseLeafletMarkersLayer.getLayers().length > 0) {
-          const group = L.featureGroup(window.tseLeafletMarkersLayer.getLayers());
-          window.tseLeafletMapInstance.fitBounds(group.getBounds(), { padding: [30, 30], maxZoom: 15 });
+        } else {
+          const todos = window.tseTodosLocaisCache || window.tseLocaisVotacaoCache || [];
+          const b = L.latLngBounds(todos.filter(l => l.latitude).map(l => [l.latitude, l.longitude]));
+          if (b.isValid()) {
+            window.tseLeafletMapInstance.fitBounds(b, { padding: [25, 25], maxZoom: 14 });
+          }
         }
       }
     }
