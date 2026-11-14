@@ -92,8 +92,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-14-rev64"
-SYSTEM_COMMIT = "rev64-comparativo-direto-1t-x-2t-locais-votacao"
+SYSTEM_BUILD = "2026-11-14-rev65"
+SYSTEM_COMMIT = "rev65-fix-syntax-script-index-restaurar-abas-bi-setup"
 
 def obter_basemaps_apikey() -> str:
     """Retorna a API key do CartoDB Basemaps a partir de variáveis de ambiente do Portainer/Docker."""
