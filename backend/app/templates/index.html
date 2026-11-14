@@ -7409,6 +7409,28 @@ o Boletim de Urna (apos encerramento da votacao).
       }
 
       const hier = payload.hierarquia || {};
+      const totalGeral = hier.total_geral_urnas || 0;
+      const temArvoreAnteriorValida = Boolean(
+        window.arvoreTseState.hierarquia &&
+        (window.arvoreTseState.hierarquia.total_geral_urnas || 0) > 0 &&
+        (window.arvoreTseState.hierarquia.estados || []).length > 0
+      );
+
+      if (totalGeral === 0) {
+        if (!temArvoreAnteriorValida) {
+          window.arvoreTseState.hierarquia = hier;
+          const cBadge = document.getElementById("tseCatalogCountBadge");
+          if (cBadge) {
+            cBadge.textContent = "";
+            cBadge.classList.add("hidden");
+          }
+          popularSeletoresHierarquicosTse(hier);
+        } else {
+          console.warn("[TSE-TREE] Ignorando payload vazio (totalGeral=0) para preservar árvore de locais ativa.");
+        }
+        return false;
+      }
+
       window.arvoreTseState.hierarquia = hier;
       window.arvoreTseState.regiao = hier.regiao_selecionada || "TODAS";
       window.arvoreTseState.uf = hier.uf_selecionada || "TODAS";
@@ -7417,26 +7439,16 @@ o Boletim de Urna (apos encerramento da votacao).
       window.arvoreTseState.secao = hier.secao_selecionada || "CONSOLIDADO";
       window.arvoreTseState.filtro_forense = hier.filtro_forense_selecionado || "TODAS";
 
-      const totalGeral = hier.total_geral_urnas || 0;
       const cBadge = document.getElementById("tseCatalogCountBadge");
       if (cBadge) {
-        cBadge.textContent = totalGeral > 0 ? `${totalGeral.toLocaleString("pt-BR")}` : "";
-        if (totalGeral > 0) {
-          cBadge.classList.remove("hidden");
-        } else {
-          cBadge.classList.add("hidden");
-        }
+        cBadge.textContent = `${totalGeral.toLocaleString("pt-BR")}`;
+        cBadge.classList.remove("hidden");
       }
 
       const fCont = document.getElementById("tseFilterBarContainer");
       if (fCont) fCont.classList.remove("hidden");
       const rCont = document.getElementById("tseReversoResultContainer");
       if (rCont) rCont.classList.remove("hidden");
-
-      if (totalGeral === 0) {
-        popularSeletoresHierarquicosTse(hier);
-        return false;
-      }
 
       window.lastPayloadConsolidado = payload;
       popularSeletoresHierarquicosTse(hier);
@@ -7516,6 +7528,8 @@ o Boletim de Urna (apos encerramento da votacao).
         abrirModalProgressoFiltro(`Carregando Dados...`, alvoFormatado, false);
       }
 
+      const ctrl = new AbortController();
+      const fetchTimeoutId = setTimeout(() => ctrl.abort(), 55000);
       try {
         const qs = new URLSearchParams({
           regiao: st.regiao || "TODAS",
@@ -7528,59 +7542,48 @@ o Boletim de Urna (apos encerramento da votacao).
           turno: st.modo_visao || "COMPARATIVO"
         });
 
-        const res = await fetch(`/api/tse-reverso/consolidar?${qs.toString()}`);
+        const res = await fetch(`/api/tse-reverso/consolidar?${qs.toString()}`, { signal: ctrl.signal });
         if (!res.ok) {
           fecharModalProgressoFiltroComErro(`Falha na resposta do servidor (HTTP ${res.status})`);
           return;
         }
         const payload = await res.json();
-
-        // Armazena no cache em memória (LRU limit 100 itens)
-        if (!window.tseConsolidarCache) window.tseConsolidarCache = new Map();
-        if (window.tseConsolidarCache.size >= 100) {
-          const firstKey = window.tseConsolidarCache.keys().next().value;
-          window.tseConsolidarCache.delete(firstKey);
-        }
-        window.tseConsolidarCache.set(chave, payload);
-        atualizarBadgeIndicadorCache();
-
         const hier = payload.hierarquia || {};
         const totalGeral = hier.total_geral_urnas || 0;
 
-        if (totalGeral === 0) {
-          // Se a memória estava vazia/fria mas existem seções gravadas no PostgreSQL,
-          // sincroniza em lote com o banco e renderiza imediatamente a árvore de seções!
-          if (!window._tseAutoSyncTentado) {
-            window._tseAutoSyncTentado = true;
-            try {
-              const stRes = await fetch("/api/tse-reverso/status-banco");
-              if (stRes.ok) {
-                const stData = await stRes.json();
-                if (stData.total_secoes > 0) {
-                  const syncRes = await fetch("/api/tse-reverso/sincronizar-banco", { method: "POST" });
-                  if (syncRes.ok) {
-                    window.tseConsolidarCache.clear();
-                    return atualizarConsolidacaoTse(mostrarAlertaSeVazio);
-                  }
-                }
-              }
-            } catch (e) {
-              console.warn("[TSE-SYNC] Erro ao sincronizar catalogo com PostgreSQL:", e);
-            }
+        // Armazena no cache em memória apenas resultados válidos e completos (nunca respostas vazias ou parciais)
+        if (totalGeral > 0 && !payload.aviso_parcial) {
+          if (!window.tseConsolidarCache) window.tseConsolidarCache = new Map();
+          if (window.tseConsolidarCache.size >= 100) {
+            const firstKey = window.tseConsolidarCache.keys().next().value;
+            window.tseConsolidarCache.delete(firstKey);
           }
+          window.tseConsolidarCache.set(chave, payload);
+          atualizarBadgeIndicadorCache();
+        }
+
+        if (totalGeral === 0) {
           window._tseAutoSyncTentado = false;
           aplicarPayloadConsolidadoNoDOM(payload, mostrarAlertaSeVazio);
-          fecharModalProgressoFiltroComSucesso("Nenhum dado encontrado para os filtros selecionados.");
+          fecharModalProgressoFiltroComErro("Nenhum dado retornado pelo banco para este filtro.");
           return;
         }
         window._tseAutoSyncTentado = false;
 
         aplicarPayloadConsolidadoNoDOM(payload, mostrarAlertaSeVazio);
-        fecharModalProgressoFiltroComSucesso(`✅ Dados de ${alvoFormatado} carregados com sucesso!`);
+        if (payload.aviso_parcial) {
+          fecharModalProgressoFiltroComSucesso(`⚠️ ${payload.aviso_mensagem || `Árvore de ${alvoFormatado} carregada em modo rápido.`}`);
+        } else {
+          fecharModalProgressoFiltroComSucesso(`✅ Dados de ${alvoFormatado} carregados com sucesso!`);
+        }
       } catch (err) {
         console.error("[TSE-CONSOLIDAR] Erro ao carregar dados consolidados:", err);
-        fecharModalProgressoFiltroComErro(err.message);
+        const msgErro = (err && err.name === "AbortError")
+          ? "Tempo limite excedido (55s). Selecione um Estado ou Região na árvore para consulta instantânea."
+          : (err?.message || "Falha de conexão com o servidor.");
+        fecharModalProgressoFiltroComErro(msgErro);
       } finally {
+        clearTimeout(fetchTimeoutId);
         ocultarSinalizacaoCarregandoArvore();
         window._tseCarregandoArvore = false;
       }
@@ -7593,7 +7596,9 @@ o Boletim de Urna (apos encerramento da votacao).
       filtrarColunaArvoreTse("cidade");
       filtrarColunaArvoreTse("zona");
       filtrarColunaArvoreTse("secao");
-      renderizarBotoesFiltrosForenses(hier, window.lastPayloadConsolidado?.consolidado || hier);
+      const lastPayloadOk = window.lastPayloadConsolidado &&
+        (window.lastPayloadConsolidado.hierarquia?.total_geral_urnas || 0) === (hier.total_geral_urnas || 0);
+      renderizarBotoesFiltrosForenses(hier, lastPayloadOk ? (window.lastPayloadConsolidado.consolidado || hier) : hier);
     }
 
     function renderizarBreadcrumbArvoreTse(hier) {

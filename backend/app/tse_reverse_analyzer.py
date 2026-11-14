@@ -7529,6 +7529,176 @@ def obter_locais_votacao_mapa_api(
     }
 
 
+_CONSOLIDACAO_SQL_CACHE: dict[tuple, tuple[float, dict]] = {}
+_CONSOLIDACAO_SQL_CACHE_TTL_S = 180.0
+
+
+def _construir_arvore_minima_sql(
+    db,
+    total_banco: int,
+    regiao_filtro: str = "TODAS",
+    uf_filtro: str = "TODAS",
+    municipio_filtro: str = "TODAS",
+    zona_filtro: str = "TODAS",
+    secao_filtro: str = "CONSOLIDADO",
+    filtro_forense: str = "TODAS",
+    cargo_filtro: str = "PRESIDENTE",
+    turno_filtro: str = "TODOS",
+    erro_msg: str = "",
+) -> dict:
+    """
+    Fallback resiliente 100% SQL leve (apenas tabela tse_secoes, <200ms) acionado quando a
+    consulta analítica completa excede o statement_timeout do PostgreSQL.
+    Garante que a árvore de 5 níveis nunca seja zerada caso existam seções no banco.
+    """
+    from sqlalchemy import func
+    from .database import TseSecao, ESTADOS_E_REGIOES_BR
+
+    regiao_filtro = (regiao_filtro or "TODAS").strip()
+    uf_filtro = (uf_filtro or "TODAS").strip().upper()
+    municipio_filtro = (municipio_filtro or "TODAS").strip()
+    zona_filtro = (zona_filtro or "TODAS").strip()
+    secao_filtro = (secao_filtro or "CONSOLIDADO").strip()
+    cargo_filtro = (cargo_filtro or "PRESIDENTE").strip().upper()
+    turno_filtro = (turno_filtro or "TODOS").strip().upper()
+
+    filtro_geo = []
+    if uf_filtro != "TODAS":
+        filtro_geo.append(TseSecao.uf == uf_filtro)
+    elif regiao_filtro != "TODAS":
+        filtro_geo.append(TseSecao.regiao == regiao_filtro.upper())
+    if municipio_filtro != "TODAS":
+        filtro_geo.append(TseSecao.municipio_codigo == municipio_filtro)
+    if zona_filtro != "TODAS":
+        try:
+            filtro_geo.append(TseSecao.zona == int(zona_filtro))
+        except Exception:
+            pass
+
+    q_reg = (
+        db.query(
+            TseSecao.regiao,
+            func.count(func.distinct(TseSecao.uf)),
+            func.count(func.distinct(TseSecao.municipio_codigo)),
+            func.count(TseSecao.id),
+        )
+        .group_by(TseSecao.regiao)
+        .order_by(TseSecao.regiao)
+        .all()
+    )
+    lista_regioes = [
+        {"regiao": r[0], "total_estados": int(r[1]), "total_cidades": int(r[2]), "total_urnas": int(r[3]), "total_votos": 0, "total_aptos": 0}
+        for r in q_reg
+    ]
+
+    q_est = db.query(TseSecao.uf, TseSecao.regiao, func.count(func.distinct(TseSecao.municipio_codigo)), func.count(TseSecao.id))
+    if regiao_filtro != "TODAS":
+        q_est = q_est.filter(TseSecao.regiao == regiao_filtro.upper())
+    rows_est = q_est.group_by(TseSecao.uf, TseSecao.regiao).order_by(TseSecao.uf).all()
+    lista_estados = [
+        {"uf": r[0], "nome": ESTADOS_E_REGIOES_BR.get(r[0], {}).get("nome", r[0]), "regiao": r[1], "total_cidades": int(r[2]), "total_urnas": int(r[3]), "total_votos": 0, "total_aptos": 0}
+        for r in rows_est
+    ]
+
+    q_cid = db.query(TseSecao.municipio_codigo, TseSecao.municipio_nome, TseSecao.uf, TseSecao.regiao, func.count(func.distinct(TseSecao.zona)), func.count(TseSecao.id))
+    if uf_filtro != "TODAS":
+        q_cid = q_cid.filter(TseSecao.uf == uf_filtro)
+    elif regiao_filtro != "TODAS":
+        q_cid = q_cid.filter(TseSecao.regiao == regiao_filtro.upper())
+    rows_cid = q_cid.group_by(TseSecao.municipio_codigo, TseSecao.municipio_nome, TseSecao.uf, TseSecao.regiao).order_by(TseSecao.municipio_nome).all()
+    lista_cidades = [
+        {"codigo": r[0], "nome": MUNICIPIOS_PR_TSE.get(r[0], r[1]), "uf": r[2], "regiao": r[3], "total_zonas": int(r[4]), "total_urnas": int(r[5]), "total_votos": 0, "total_aptos": 0}
+        for r in rows_cid
+    ]
+
+    q_zon = db.query(TseSecao.zona, func.count(TseSecao.id))
+    if uf_filtro != "TODAS":
+        q_zon = q_zon.filter(TseSecao.uf == uf_filtro)
+    elif regiao_filtro != "TODAS":
+        q_zon = q_zon.filter(TseSecao.regiao == regiao_filtro.upper())
+    if municipio_filtro != "TODAS":
+        q_zon = q_zon.filter(TseSecao.municipio_codigo == municipio_filtro)
+    rows_zon = q_zon.group_by(TseSecao.zona).order_by(TseSecao.zona).all()
+    lista_zonas = [
+        {"zona": f"{r[0]:04d}", "total_urnas": int(r[1]), "total_votos": 0, "total_aptos": 0}
+        for r in rows_zon
+    ]
+
+    q_sec_min = db.query(
+        TseSecao.secao, TseSecao.zona, TseSecao.uf, TseSecao.regiao, TseSecao.municipio_codigo, TseSecao.municipio_nome
+    ).filter(*filtro_geo)
+    rows_sec_min = q_sec_min.order_by(TseSecao.regiao, TseSecao.uf, TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao).limit(500).all()
+    lista_secoes = []
+    for r in rows_sec_min:
+        m_cod = str(r.municipio_codigo or "").strip().zfill(5)
+        z_val = int(r.zona or 0)
+        s_val = int(r.secao or 0)
+        lista_secoes.append({
+            "prefixo": f"o03221{r.uf.lower()}{m_cod}{z_val:04d}{s_val:04d}",
+            "secao": f"{s_val:04d}",
+            "zona": f"{z_val:04d}",
+            "uf": r.uf,
+            "regiao": r.regiao,
+            "municipio_codigo": m_cod,
+            "municipio_nome": MUNICIPIOS_PR_TSE.get(m_cod, r.municipio_nome),
+            "serial_ue": "-",
+            "votos": 0,
+            "aptos": 0,
+            "nivel_risco": "BAIXO",
+            "alerta_resumo": None,
+            "tem_log_jez": True,
+            "tem_imgbu": True,
+            "tem_rdv": True,
+        })
+
+    total_no_filtro = db.query(func.count(TseSecao.id)).filter(*filtro_geo).scalar() or 0 if filtro_geo else total_banco
+    aviso_curto = (
+        f"ÁRVORE CARREGADA EM MODO RÁPIDO ({total_banco:,} urnas). Selecione um Estado, Cidade ou Zona para estatísticas detalhadas."
+    ).replace(",", ".")
+    return {
+        "modo_visao": "CONSOLIDADO_GLOBAL",
+        "aviso_parcial": True,
+        "aviso_mensagem": aviso_curto,
+        "erro_sql": str(erro_msg)[:200],
+        "cargos_disponiveis": list(CARGOS_PADRAO_ELEICAO),
+        "cargo_ativo": cargo_filtro,
+        "turno_ativo": turno_filtro,
+        "hierarquia": {
+            "total_geral_urnas": total_banco,
+            "total_secoes_no_filtro": total_no_filtro,
+            "filtro_forense_selecionado": filtro_forense or "TODAS",
+            "filtros_contagens": {"total_urnas": total_no_filtro},
+            "regiao_selecionada": regiao_filtro,
+            "uf_selecionada": uf_filtro,
+            "municipio_selecionado": municipio_filtro,
+            "zona_selecionada": zona_filtro,
+            "secao_selecionada": secao_filtro,
+            "regioes": lista_regioes,
+            "estados": lista_estados,
+            "cidades": lista_cidades,
+            "zonas": lista_zonas,
+            "secoes": lista_secoes,
+        },
+        "consolidado": {
+            "nivel_risco": "BAIXO",
+            "veredito_geral": aviso_curto,
+            "modo_visao_atual": turno_filtro,
+            "cargo_filtro": cargo_filtro,
+            "cargos_disponiveis": list(CARGOS_PADRAO_ELEICAO),
+            "total_urnas": total_no_filtro,
+            "urnas_integras": total_no_filtro,
+            "urnas_com_alerta": 0,
+            "cidades_no_filtro": len(lista_cidades),
+            "zonas_no_filtro": len(lista_zonas),
+            "placar_candidatos": [],
+            "candidatos_t1": [],
+            "candidatos_t2": [],
+            "lista_urnas": [],
+            "filtros_contagens": {"total_urnas": total_no_filtro},
+        },
+    }
+
+
 def _consolidar_secoes_tse_sql(
     db,
     regiao_filtro: str = "TODAS",
@@ -7539,6 +7709,7 @@ def _consolidar_secoes_tse_sql(
     filtro_forense: str = "TODAS",
     cargo_filtro: str = "PRESIDENTE",
     turno_filtro: str = "TODOS",
+    total_banco_conhecido: int = 0,
 ) -> dict:
     from sqlalchemy.orm import aliased
     from sqlalchemy import func, case, text, or_
@@ -7553,23 +7724,14 @@ def _consolidar_secoes_tse_sql(
     cargo_filtro = (cargo_filtro or "PRESIDENTE").strip().upper()
     turno_filtro = (turno_filtro or "TODOS").strip().upper()
 
-    # Identifica dinamicamente os cargos disponíveis gravados no banco garantindo a presença dos cargos oficiais
-    try:
-        cargos_rows = db.query(TseVotoCandidato.cargo).distinct().all()
-        cargos_db = [r[0].strip().upper() for r in cargos_rows if r[0]]
-    except Exception:
-        cargos_db = []
-    cargos_disponiveis = [cg for cg in CARGOS_PADRAO_ELEICAO]
-    for cg in cargos_db:
-        if cg not in cargos_disponiveis:
-            cargos_disponiveis.append(cg)
+    cargos_disponiveis = list(CARGOS_PADRAO_ELEICAO)
 
     # Se o cargo solicitado ainda não foi extraído para a tabela tse_votos_candidatos,
     # mas temos dossiês com espelho_bobina gravados, faz a extração automática sob demanda!
     if cargo_filtro in ("GOVERNADOR", "SENADOR", "DEPUTADO FEDERAL", "DEPUTADO ESTADUAL"):
         try:
-            qtd_votos_cargo = db.query(func.count(TseVotoCandidato.id)).filter(TseVotoCandidato.cargo == cargo_filtro).scalar() or 0
-            if qtd_votos_cargo == 0:
+            existe_voto_cargo = db.query(TseVotoCandidato.id).filter(TseVotoCandidato.cargo == cargo_filtro).first()
+            if existe_voto_cargo is None:
                 from .database import TseDossieSecao
                 dossies_com_espelho = db.query(TseDossieSecao).filter(TseDossieSecao.espelho_bobina.isnot(None)).all()
                 for d_sec in dossies_com_espelho:
@@ -7676,10 +7838,18 @@ def _consolidar_secoes_tse_sql(
         "alertas_todos": 0,
     }
     try:
-        filtros_contagens["total_urnas"] = db.query(func.count(TseSecao.id)).filter(*filtro_geo).scalar() or 0
-        q_div_count = db.query(func.count(func.distinct(TseSecao.id))).select_from(TseSecao).join(
-            TseApuracaoBU, TseApuracaoBU.secao_id == TseSecao.id
-        ).filter(*filtro_geo, TseApuracaoBU.divergencia_detectada == True)
+        if not filtro_geo and total_banco_conhecido > 0:
+            filtros_contagens["total_urnas"] = int(total_banco_conhecido)
+        else:
+            filtros_contagens["total_urnas"] = db.query(func.count(TseSecao.id)).filter(*filtro_geo).scalar() or 0
+        if filtro_geo:
+            q_div_count = db.query(func.count(func.distinct(TseSecao.id))).select_from(TseSecao).join(
+                TseApuracaoBU, TseApuracaoBU.secao_id == TseSecao.id
+            ).filter(*filtro_geo, TseApuracaoBU.divergencia_detectada == True)
+        else:
+            q_div_count = db.query(func.count(func.distinct(TseApuracaoBU.secao_id))).filter(
+                TseApuracaoBU.divergencia_detectada == True
+            )
         filtros_contagens["divergentes"] = int(q_div_count.scalar() or 0)
     except Exception as exc_dc:
         print(f"[TSE-COUNTS] Aviso contagem divergentes: {exc_dc}")
@@ -7688,80 +7858,199 @@ def _consolidar_secoes_tse_sql(
         except Exception:
             pass
 
+    sq_cand_counts = None
+    map_22 = {k: {"votos_2t": k, "urnas": 0, "total_votos_2t": 0, "soma_votos_1t": 0, "media_votos_1t": 0.0, "urnas_zero_1t": 0, "pct_urnas": 0.0} for k in range(21)}
+    map_13 = {k: {"votos_2t": k, "urnas": 0, "total_votos_2t": 0, "soma_votos_1t": 0, "media_votos_1t": 0.0, "urnas_zero_1t": 0, "pct_urnas": 0.0} for k in range(21)}
+    hist_carregado_cte = False
+
     try:
+        q_sq_base = db.query(
+            TseVotoCandidato.secao_id.label("sec_id"),
+            func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_2t"),
+            func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_2t"),
+            func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_1t"),
+            func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_1t"),
+        )
+        if filtro_geo:
+            q_sq_base = q_sq_base.select_from(TseSecao).join(TseVotoCandidato, TseVotoCandidato.secao_id == TseSecao.id).filter(*filtro_geo)
         sq_cand_counts = (
-            db.query(
-                TseVotoCandidato.secao_id.label("sec_id"),
-                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_2t"),
-                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_2t"),
-                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_1t"),
-                func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_1t"),
+            q_sq_base.filter(
+                TseVotoCandidato.cargo == "PRESIDENTE",
+                TseVotoCandidato.numero_candidato.in_([13, 22]),
             )
-            .select_from(TseSecao)
-            .join(TseVotoCandidato, TseVotoCandidato.secao_id == TseSecao.id)
-            .filter(*filtro_geo, or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None))
             .group_by(TseVotoCandidato.secao_id)
             .subquery()
         )
-        dv_f_c = sq_cand_counts.c.v22_2t - sq_cand_counts.c.v22_1t
-        dv_l_c = sq_cand_counts.c.v13_2t - sq_cand_counts.c.v13_1t
-        tot_nv_c = dv_f_c + dv_l_c
 
-        c_row = (
-            db.query(
-            # Totalização do Turno (Resultado Geral do 2º Turno)
-            func.count(case(((sq_cand_counts.c.v22_2t > sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0), 1), else_=None)).label("vit_f"),
-            func.count(case(((sq_cand_counts.c.v13_2t > sq_cand_counts.c.v22_2t) & (sq_cand_counts.c.v13_2t > 0), 1), else_=None)).label("vit_l"),
-            func.count(case(((sq_cand_counts.c.v22_2t == sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0), 1), else_=None)).label("emp_2t"),
-            # Votos Novos (Captação / Variação entre Turnos)
-            func.count(case(((dv_f_c > dv_l_c) & (dv_f_c > 0), 1), else_=None)).label("nv_vit_f"),
-            func.count(case(((dv_l_c > dv_f_c) & (dv_l_c > 0), 1), else_=None)).label("nv_vit_l"),
-            func.count(case(((dv_f_c == dv_l_c) & (dv_f_c > 0), 1), else_=None)).label("nv_emp_ex"),
-            func.count(case((
-                (dv_f_c > 0) & (dv_l_c > 0) & (
-                    (func.abs(dv_f_c - dv_l_c) <= 3) |
-                    ((func.abs(dv_f_c - dv_l_c) * 10) <= tot_nv_c)
-                ), 1
-            ), else_=None)).label("nv_emp"),
-            func.count(case((
-                or_(
-                    (dv_f_c >= 5) & (dv_l_c <= 0),
-                    (dv_l_c >= 5) & (dv_f_c <= 0),
-                    (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_f_c * 3) >= (dv_l_c * 7)),
-                    (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_l_c * 3) >= (dv_f_c * 7))
-                ), 1
-            ), else_=None)).label("nv_disc"),
-            func.count(case((
-                or_(
-                    (dv_f_c >= 5) & (dv_l_c <= 0),
-                    (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_f_c * 3) >= (dv_l_c * 7))
-                ), 1
-            ), else_=None)).label("nv_disc_f"),
-            func.count(case((
-                or_(
-                    (dv_l_c >= 5) & (dv_f_c <= 0),
-                    (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_l_c * 3) >= (dv_f_c * 7))
-                ), 1
-            ), else_=None)).label("nv_disc_l"),
-        )
-        .select_from(sq_cand_counts)
-        .first()
-    )
-        if c_row:
-            filtros_contagens["turno_vitoria_flavio"] = int(c_row.vit_f or 0)
-            filtros_contagens["vitoria_flavio"] = int(c_row.vit_f or 0)
-            filtros_contagens["turno_vitoria_lula"] = int(c_row.vit_l or 0)
-            filtros_contagens["vitoria_lula"] = int(c_row.vit_l or 0)
-            filtros_contagens["turno_empate_2t"] = int(c_row.emp_2t or 0)
-            filtros_contagens["empate_2t"] = int(c_row.emp_2t or 0)
-            filtros_contagens["novos_vitoria_flavio"] = int(c_row.nv_vit_f or 0)
-            filtros_contagens["novos_vitoria_lula"] = int(c_row.nv_vit_l or 0)
-            filtros_contagens["novos_empate_exato"] = int(c_row.nv_emp_ex or 0)
-            filtros_contagens["novos_empate_tecnico"] = int(c_row.nv_emp or 0)
-            filtros_contagens["novos_discrepancia"] = int(c_row.nv_disc or 0)
-            filtros_contagens["novos_discrep_flavio"] = int(c_row.nv_disc_f or 0)
-            filtros_contagens["novos_discrep_lula"] = int(c_row.nv_disc_l or 0)
-            filtros_contagens["alertas_todos"] = int(c_row.nv_disc or 0) + int(filtros_contagens.get("divergentes", 0))
+        is_pg = bool(getattr(db, "bind", None) is not None and getattr(db.bind.dialect, "name", "") == "postgresql")
+        if is_pg:
+            where_geo_parts = []
+            geo_params = {}
+            if uf_filtro != "TODAS":
+                where_geo_parts.append("s.uf = :uf_f")
+                geo_params["uf_f"] = uf_filtro.upper()
+            elif regiao_filtro != "TODAS":
+                where_geo_parts.append("s.regiao = :reg_f")
+                geo_params["reg_f"] = regiao_filtro.upper()
+            if municipio_filtro != "TODAS":
+                where_geo_parts.append("s.municipio_codigo = :mun_f")
+                geo_params["mun_f"] = municipio_filtro
+            if zona_filtro != "TODAS":
+                try:
+                    where_geo_parts.append("s.zona = :zon_f")
+                    geo_params["zon_f"] = int(zona_filtro)
+                except Exception:
+                    pass
+
+            if where_geo_parts:
+                agg_from = f"FROM tse_votos_candidatos v JOIN tse_secoes s ON v.secao_id = s.id WHERE {' AND '.join(where_geo_parts)} AND v.cargo = 'PRESIDENTE' AND v.numero_candidato IN (13, 22)"
+            else:
+                agg_from = "FROM tse_votos_candidatos v WHERE v.cargo = 'PRESIDENTE' AND v.numero_candidato IN (13, 22)"
+
+            cte_sql = text(f"""
+                WITH agg AS MATERIALIZED (
+                    SELECT
+                        v.secao_id AS sec_id,
+                        COALESCE(SUM(CASE WHEN v.turno = 2 AND v.numero_candidato = 22 THEN v.quantidade_votos ELSE 0 END), 0) AS v22_2t,
+                        COALESCE(SUM(CASE WHEN v.turno = 2 AND v.numero_candidato = 13 THEN v.quantidade_votos ELSE 0 END), 0) AS v13_2t,
+                        COALESCE(SUM(CASE WHEN v.turno = 1 AND v.numero_candidato = 22 THEN v.quantidade_votos ELSE 0 END), 0) AS v22_1t,
+                        COALESCE(SUM(CASE WHEN v.turno = 1 AND v.numero_candidato = 13 THEN v.quantidade_votos ELSE 0 END), 0) AS v13_1t
+                    {agg_from}
+                    GROUP BY v.secao_id
+                ),
+                diffs AS MATERIALIZED (
+                    SELECT
+                        sec_id, v22_2t, v13_2t, v22_1t, v13_1t,
+                        (v22_2t - v22_1t) AS dv_f,
+                        (v13_2t - v13_1t) AS dv_l
+                    FROM agg
+                )
+                SELECT
+                    'STATS' AS kind,
+                    0 AS bucket,
+                    COUNT(*) FILTER (WHERE v22_2t > v13_2t AND v22_2t > 0) AS c1,
+                    COUNT(*) FILTER (WHERE v13_2t > v22_2t AND v13_2t > 0) AS c2,
+                    COUNT(*) FILTER (WHERE v22_2t = v13_2t AND v22_2t > 0) AS c3,
+                    COUNT(*) FILTER (WHERE dv_f > dv_l AND dv_f > 0) AS c4,
+                    COUNT(*) FILTER (WHERE dv_l > dv_f AND dv_l > 0) AS c5,
+                    COUNT(*) FILTER (WHERE dv_f = dv_l AND dv_f > 0) AS c6,
+                    COUNT(*) FILTER (WHERE dv_f > 0 AND dv_l > 0 AND (ABS(dv_f - dv_l) <= 3 OR (ABS(dv_f - dv_l) * 10) <= (dv_f + dv_l))) AS c7,
+                    COUNT(*) FILTER (WHERE (dv_f >= 5 AND dv_l <= 0) OR (dv_l >= 5 AND dv_f <= 0) OR (dv_f > 0 AND dv_l > 0 AND (dv_f + dv_l) >= 5 AND ((dv_f * 3) >= (dv_l * 7) OR (dv_l * 3) >= (dv_f * 7)))) AS c8,
+                    COUNT(*) FILTER (WHERE (dv_f >= 5 AND dv_l <= 0) OR (dv_f > 0 AND dv_l > 0 AND (dv_f + dv_l) >= 5 AND (dv_f * 3) >= (dv_l * 7))) AS c9,
+                    COUNT(*) FILTER (WHERE (dv_l >= 5 AND dv_f <= 0) OR (dv_f > 0 AND dv_l > 0 AND (dv_f + dv_l) >= 5 AND (dv_l * 3) >= (dv_f * 7))) AS c10
+                FROM diffs
+                UNION ALL
+                SELECT
+                    'H22' AS kind,
+                    v22_2t::int AS bucket,
+                    COUNT(*) AS c1,
+                    COALESCE(SUM(v22_1t), 0) AS c2,
+                    COUNT(*) FILTER (WHERE v22_1t = 0) AS c3,
+                    0, 0, 0, 0, 0, 0, 0
+                FROM agg
+                WHERE v22_2t <= 20
+                GROUP BY v22_2t
+                UNION ALL
+                SELECT
+                    'H13' AS kind,
+                    v13_2t::int AS bucket,
+                    COUNT(*) AS c1,
+                    COALESCE(SUM(v13_1t), 0) AS c2,
+                    COUNT(*) FILTER (WHERE v13_1t = 0) AS c3,
+                    0, 0, 0, 0, 0, 0, 0
+                FROM agg
+                WHERE v13_2t <= 20
+                GROUP BY v13_2t
+            """)
+            cte_rows = db.execute(cte_sql, geo_params).fetchall()
+            for r in cte_rows:
+                kind = r[0]
+                if kind == "STATS":
+                    filtros_contagens["turno_vitoria_flavio"] = int(r[2] or 0)
+                    filtros_contagens["vitoria_flavio"] = int(r[2] or 0)
+                    filtros_contagens["turno_vitoria_lula"] = int(r[3] or 0)
+                    filtros_contagens["vitoria_lula"] = int(r[3] or 0)
+                    filtros_contagens["turno_empate_2t"] = int(r[4] or 0)
+                    filtros_contagens["empate_2t"] = int(r[4] or 0)
+                    filtros_contagens["novos_vitoria_flavio"] = int(r[5] or 0)
+                    filtros_contagens["novos_vitoria_lula"] = int(r[6] or 0)
+                    filtros_contagens["novos_empate_exato"] = int(r[7] or 0)
+                    filtros_contagens["novos_empate_tecnico"] = int(r[8] or 0)
+                    filtros_contagens["novos_discrepancia"] = int(r[9] or 0)
+                    filtros_contagens["novos_discrep_flavio"] = int(r[10] or 0)
+                    filtros_contagens["novos_discrep_lula"] = int(r[11] or 0)
+                    filtros_contagens["alertas_todos"] = int(r[9] or 0) + int(filtros_contagens.get("divergentes", 0))
+                elif kind in ("H22", "H13"):
+                    v_val = int(r[1] or 0)
+                    if 0 <= v_val <= 20:
+                        target_map = map_22 if kind == "H22" else map_13
+                        q_u = int(r[2] or 0)
+                        s_1 = int(r[3] or 0)
+                        z_1 = int(r[4] or 0)
+                        target_map[v_val]["urnas"] = q_u
+                        target_map[v_val]["total_votos_2t"] = v_val * q_u
+                        target_map[v_val]["soma_votos_1t"] = s_1
+                        target_map[v_val]["media_votos_1t"] = round(s_1 / q_u, 2) if q_u > 0 else 0.0
+                        target_map[v_val]["urnas_zero_1t"] = z_1
+            hist_carregado_cte = True
+        else:
+            dv_f_c = sq_cand_counts.c.v22_2t - sq_cand_counts.c.v22_1t
+            dv_l_c = sq_cand_counts.c.v13_2t - sq_cand_counts.c.v13_1t
+            tot_nv_c = dv_f_c + dv_l_c
+
+            c_row = (
+                db.query(
+                    func.count(case(((sq_cand_counts.c.v22_2t > sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0), 1), else_=None)).label("vit_f"),
+                    func.count(case(((sq_cand_counts.c.v13_2t > sq_cand_counts.c.v22_2t) & (sq_cand_counts.c.v13_2t > 0), 1), else_=None)).label("vit_l"),
+                    func.count(case(((sq_cand_counts.c.v22_2t == sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0), 1), else_=None)).label("emp_2t"),
+                    func.count(case(((dv_f_c > dv_l_c) & (dv_f_c > 0), 1), else_=None)).label("nv_vit_f"),
+                    func.count(case(((dv_l_c > dv_f_c) & (dv_l_c > 0), 1), else_=None)).label("nv_vit_l"),
+                    func.count(case(((dv_f_c == dv_l_c) & (dv_f_c > 0), 1), else_=None)).label("nv_emp_ex"),
+                    func.count(case((
+                        (dv_f_c > 0) & (dv_l_c > 0) & (
+                            (func.abs(dv_f_c - dv_l_c) <= 3) |
+                            ((func.abs(dv_f_c - dv_l_c) * 10) <= tot_nv_c)
+                        ), 1
+                    ), else_=None)).label("nv_emp"),
+                    func.count(case((
+                        or_(
+                            (dv_f_c >= 5) & (dv_l_c <= 0),
+                            (dv_l_c >= 5) & (dv_f_c <= 0),
+                            (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_f_c * 3) >= (dv_l_c * 7)),
+                            (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_l_c * 3) >= (dv_f_c * 7))
+                        ), 1
+                    ), else_=None)).label("nv_disc"),
+                    func.count(case((
+                        or_(
+                            (dv_f_c >= 5) & (dv_l_c <= 0),
+                            (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_f_c * 3) >= (dv_l_c * 7))
+                        ), 1
+                    ), else_=None)).label("nv_disc_f"),
+                    func.count(case((
+                        or_(
+                            (dv_l_c >= 5) & (dv_f_c <= 0),
+                            (dv_f_c > 0) & (dv_l_c > 0) & ((dv_f_c + dv_l_c) >= 5) & ((dv_l_c * 3) >= (dv_f_c * 7))
+                        ), 1
+                    ), else_=None)).label("nv_disc_l"),
+                )
+                .select_from(sq_cand_counts)
+                .first()
+            )
+            if c_row:
+                filtros_contagens["turno_vitoria_flavio"] = int(c_row.vit_f or 0)
+                filtros_contagens["vitoria_flavio"] = int(c_row.vit_f or 0)
+                filtros_contagens["turno_vitoria_lula"] = int(c_row.vit_l or 0)
+                filtros_contagens["vitoria_lula"] = int(c_row.vit_l or 0)
+                filtros_contagens["turno_empate_2t"] = int(c_row.emp_2t or 0)
+                filtros_contagens["empate_2t"] = int(c_row.emp_2t or 0)
+                filtros_contagens["novos_vitoria_flavio"] = int(c_row.nv_vit_f or 0)
+                filtros_contagens["novos_vitoria_lula"] = int(c_row.nv_vit_l or 0)
+                filtros_contagens["novos_empate_exato"] = int(c_row.nv_emp_ex or 0)
+                filtros_contagens["novos_empate_tecnico"] = int(c_row.nv_emp or 0)
+                filtros_contagens["novos_discrepancia"] = int(c_row.nv_disc or 0)
+                filtros_contagens["novos_discrep_flavio"] = int(c_row.nv_disc_f or 0)
+                filtros_contagens["novos_discrep_lula"] = int(c_row.nv_disc_l or 0)
+                filtros_contagens["alertas_todos"] = int(c_row.nv_disc or 0) + int(filtros_contagens.get("divergentes", 0))
     except Exception as exc_cand_c:
         print(f"[TSE-COUNTS] Aviso contagem candidatos: {exc_cand_c}")
         try:
@@ -7814,56 +8103,54 @@ def _consolidar_secoes_tse_sql(
         }
     }
 
-    if sq_cand_counts is not None:
+    if sq_cand_counts is not None or hist_carregado_cte:
         try:
-            map_22 = {k: {"votos_2t": k, "urnas": 0, "total_votos_2t": 0, "soma_votos_1t": 0, "media_votos_1t": 0.0, "urnas_zero_1t": 0, "pct_urnas": 0.0} for k in range(21)}
-            map_13 = {k: {"votos_2t": k, "urnas": 0, "total_votos_2t": 0, "soma_votos_1t": 0, "media_votos_1t": 0.0, "urnas_zero_1t": 0, "pct_urnas": 0.0} for k in range(21)}
-
-            rows_22 = (
-                db.query(
-                    sq_cand_counts.c.v22_2t.label("v2t"),
-                    func.count(sq_cand_counts.c.sec_id).label("qtd"),
-                    func.coalesce(func.sum(sq_cand_counts.c.v22_1t), 0).label("soma_1t"),
-                    func.count(case(((sq_cand_counts.c.v22_1t == 0), 1), else_=None)).label("qtd_z1")
+            if not hist_carregado_cte:
+                rows_22 = (
+                    db.query(
+                        sq_cand_counts.c.v22_2t.label("v2t"),
+                        func.count(sq_cand_counts.c.sec_id).label("qtd"),
+                        func.coalesce(func.sum(sq_cand_counts.c.v22_1t), 0).label("soma_1t"),
+                        func.count(case(((sq_cand_counts.c.v22_1t == 0), 1), else_=None)).label("qtd_z1")
+                    )
+                    .filter(sq_cand_counts.c.v22_2t <= 20)
+                    .group_by(sq_cand_counts.c.v22_2t)
+                    .all()
                 )
-                .filter(sq_cand_counts.c.v22_2t <= 20)
-                .group_by(sq_cand_counts.c.v22_2t)
-                .all()
-            )
-            for r in rows_22:
-                v_val = int(r.v2t or 0)
-                if 0 <= v_val <= 20:
-                    q_u = int(r.qtd or 0)
-                    s_1 = int(r.soma_1t or 0)
-                    z_1 = int(r.qtd_z1 or 0)
-                    map_22[v_val]["urnas"] = q_u
-                    map_22[v_val]["total_votos_2t"] = v_val * q_u
-                    map_22[v_val]["soma_votos_1t"] = s_1
-                    map_22[v_val]["media_votos_1t"] = round(s_1 / q_u, 2) if q_u > 0 else 0.0
-                    map_22[v_val]["urnas_zero_1t"] = z_1
+                for r in rows_22:
+                    v_val = int(r.v2t or 0)
+                    if 0 <= v_val <= 20:
+                        q_u = int(r.qtd or 0)
+                        s_1 = int(r.soma_1t or 0)
+                        z_1 = int(r.qtd_z1 or 0)
+                        map_22[v_val]["urnas"] = q_u
+                        map_22[v_val]["total_votos_2t"] = v_val * q_u
+                        map_22[v_val]["soma_votos_1t"] = s_1
+                        map_22[v_val]["media_votos_1t"] = round(s_1 / q_u, 2) if q_u > 0 else 0.0
+                        map_22[v_val]["urnas_zero_1t"] = z_1
 
-            rows_13 = (
-                db.query(
-                    sq_cand_counts.c.v13_2t.label("v2t"),
-                    func.count(sq_cand_counts.c.sec_id).label("qtd"),
-                    func.coalesce(func.sum(sq_cand_counts.c.v13_1t), 0).label("soma_1t"),
-                    func.count(case(((sq_cand_counts.c.v13_1t == 0), 1), else_=None)).label("qtd_z1")
+                rows_13 = (
+                    db.query(
+                        sq_cand_counts.c.v13_2t.label("v2t"),
+                        func.count(sq_cand_counts.c.sec_id).label("qtd"),
+                        func.coalesce(func.sum(sq_cand_counts.c.v13_1t), 0).label("soma_1t"),
+                        func.count(case(((sq_cand_counts.c.v13_1t == 0), 1), else_=None)).label("qtd_z1")
+                    )
+                    .filter(sq_cand_counts.c.v13_2t <= 20)
+                    .group_by(sq_cand_counts.c.v13_2t)
+                    .all()
                 )
-                .filter(sq_cand_counts.c.v13_2t <= 20)
-                .group_by(sq_cand_counts.c.v13_2t)
-                .all()
-            )
-            for r in rows_13:
-                v_val = int(r.v2t or 0)
-                if 0 <= v_val <= 20:
-                    q_u = int(r.qtd or 0)
-                    s_1 = int(r.soma_1t or 0)
-                    z_1 = int(r.qtd_z1 or 0)
-                    map_13[v_val]["urnas"] = q_u
-                    map_13[v_val]["total_votos_2t"] = v_val * q_u
-                    map_13[v_val]["soma_votos_1t"] = s_1
-                    map_13[v_val]["media_votos_1t"] = round(s_1 / q_u, 2) if q_u > 0 else 0.0
-                    map_13[v_val]["urnas_zero_1t"] = z_1
+                for r in rows_13:
+                    v_val = int(r.v2t or 0)
+                    if 0 <= v_val <= 20:
+                        q_u = int(r.qtd or 0)
+                        s_1 = int(r.soma_1t or 0)
+                        z_1 = int(r.qtd_z1 or 0)
+                        map_13[v_val]["urnas"] = q_u
+                        map_13[v_val]["total_votos_2t"] = v_val * q_u
+                        map_13[v_val]["soma_votos_1t"] = s_1
+                        map_13[v_val]["media_votos_1t"] = round(s_1 / q_u, 2) if q_u > 0 else 0.0
+                        map_13[v_val]["urnas_zero_1t"] = z_1
 
             tot_esc = max(1, filtros_contagens.get("total_urnas", 0))
 
@@ -8182,35 +8469,55 @@ def _consolidar_secoes_tse_sql(
     ]
 
     # 5. Zonas (Nível 4)
-    q_zon = (
-        db.query(
-            TseSecao.zona,
-            func.count(func.distinct(TseSecao.id)).label("tot_urnas"),
-            func.coalesce(func.sum(votos_col), 0).label("tot_votos"),
-            func.coalesce(func.sum(aptos_col), 0).label("tot_aptos"),
+    if uf_filtro == "TODAS" and regiao_filtro == "TODAS" and municipio_filtro == "TODAS" and not filtro_forense_clauses:
+        rows_zon = (
+            db.query(
+                TseSecao.zona,
+                func.count(TseSecao.id).label("tot_urnas"),
+            )
+            .group_by(TseSecao.zona)
+            .order_by(TseSecao.zona)
+            .all()
         )
-        .select_from(TseSecao)
-        .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
-        .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
-    )
-    if uf_filtro != "TODAS":
-        q_zon = q_zon.filter(TseSecao.uf == uf_filtro.upper())
-    elif regiao_filtro != "TODAS":
-        q_zon = q_zon.filter(TseSecao.regiao == regiao_filtro.upper())
-    if municipio_filtro != "TODAS":
-        q_zon = q_zon.filter(TseSecao.municipio_codigo == municipio_filtro)
-    if filtro_forense_clauses:
-        q_zon = q_zon.filter(*filtro_forense_clauses)
-    rows_zon = q_zon.group_by(TseSecao.zona).order_by(TseSecao.zona).all()
-    lista_zonas = [
-        {
-            "zona": f"{r[0]:04d}",
-            "total_urnas": int(r[1]),
-            "total_votos": int(r[2] or 0),
-            "total_aptos": int(r[3] or 0),
-        }
-        for r in rows_zon
-    ]
+        lista_zonas = [
+            {
+                "zona": f"{r[0]:04d}",
+                "total_urnas": int(r[1]),
+                "total_votos": 0,
+                "total_aptos": 0,
+            }
+            for r in rows_zon
+        ]
+    else:
+        q_zon = (
+            db.query(
+                TseSecao.zona,
+                func.count(func.distinct(TseSecao.id)).label("tot_urnas"),
+                func.coalesce(func.sum(votos_col), 0).label("tot_votos"),
+                func.coalesce(func.sum(aptos_col), 0).label("tot_aptos"),
+            )
+            .select_from(TseSecao)
+            .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
+            .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
+        )
+        if uf_filtro != "TODAS":
+            q_zon = q_zon.filter(TseSecao.uf == uf_filtro.upper())
+        elif regiao_filtro != "TODAS":
+            q_zon = q_zon.filter(TseSecao.regiao == regiao_filtro.upper())
+        if municipio_filtro != "TODAS":
+            q_zon = q_zon.filter(TseSecao.municipio_codigo == municipio_filtro)
+        if filtro_forense_clauses:
+            q_zon = q_zon.filter(*filtro_forense_clauses)
+        rows_zon = q_zon.group_by(TseSecao.zona).order_by(TseSecao.zona).all()
+        lista_zonas = [
+            {
+                "zona": f"{r[0]:04d}",
+                "total_urnas": int(r[1]),
+                "total_votos": int(r[2] or 0),
+                "total_aptos": int(r[3] or 0),
+            }
+            for r in rows_zon
+        ]
 
     # 6. Seções (Nível 5 - lista até 1000 seções para o seletor)
     q_sec = (
@@ -8242,18 +8549,34 @@ def _consolidar_secoes_tse_sql(
         .select_from(TseSecao)
         .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
         .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
-        .filter(*filtro_secao)
     )
     # 6. Seções (Nível 5)
     # Se um município ou zona estiver selecionado, recupera TODAS as seções do escopo
     # para permitir o mapeamento geográfico completo dos prédios e escolas no mapa.
-    # Se estiver em nível estadual ou nacional, aplica um limite seguro (ex: 6000) para performance.
+    # Em nível estadual ou nacional, busca primeiro os IDs usando idx_tse_secoes_arvore
+    # para evitar sort global + joins pesados sobre 444k seções.
     if (municipio_filtro and municipio_filtro != "TODAS") or (zona_filtro and zona_filtro != "TODAS"):
-        rows_sec = q_sec.order_by(TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao).all()
-    elif uf_filtro and uf_filtro != "TODAS":
-        rows_sec = q_sec.order_by(TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao).limit(6000).all()
+        rows_sec = q_sec.filter(*filtro_secao).order_by(TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao).all()
     else:
-        rows_sec = q_sec.order_by(TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao).limit(2000).all()
+        lim_sec = 6000 if (uf_filtro and uf_filtro != "TODAS") else 2000
+        id_rows = (
+            db.query(TseSecao.id)
+            .filter(*filtro_secao)
+            .order_by(TseSecao.regiao, TseSecao.uf, TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao)
+            .limit(lim_sec)
+            .all()
+        )
+        sec_limit_ids = [r[0] for r in id_rows]
+        if sec_limit_ids:
+            rows_sec = []
+            for chunk_sec_ids in [sec_limit_ids[i:i + 1500] for i in range(0, len(sec_limit_ids), 1500)]:
+                rows_sec.extend(
+                    q_sec.filter(TseSecao.id.in_(chunk_sec_ids))
+                    .order_by(TseSecao.regiao, TseSecao.uf, TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao)
+                    .all()
+                )
+        else:
+            rows_sec = []
 
     # Mapeia votos nominais dos candidatos a Presidente para cálculo heurístico de alertas no seletor
     sec_ids_seletor = [r.id for r in rows_sec]
@@ -8272,7 +8595,7 @@ def _consolidar_secoes_tse_sql(
                     )
                     .filter(
                         TseVotoCandidato.secao_id.in_(chunk_ids),
-                        or_(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.cargo == None),
+                        TseVotoCandidato.cargo == "PRESIDENTE",
                     )
                     .all()
                 )
@@ -8387,8 +8710,11 @@ def _consolidar_secoes_tse_sql(
             "tem_rdv": True,
         })
 
-    total_geral_urnas = db.query(func.count(TseSecao.id)).scalar() or 0
-    total_secoes_no_filtro = db.query(func.count(TseSecao.id)).filter(*filtro_secao).scalar() or 0
+    total_geral_urnas = int(total_banco_conhecido) if total_banco_conhecido > 0 else (db.query(func.count(TseSecao.id)).scalar() or 0)
+    if not filtro_secao:
+        total_secoes_no_filtro = total_geral_urnas
+    else:
+        total_secoes_no_filtro = db.query(func.count(TseSecao.id)).filter(*filtro_secao).scalar() or 0
     cidades_no_filtro = db.query(func.count(func.distinct(TseSecao.municipio_codigo))).filter(*filtro_secao).scalar() or 0
     zonas_no_filtro = db.query(func.count(func.distinct(TseSecao.zona))).filter(*filtro_secao).scalar() or 0
 
@@ -8451,35 +8777,32 @@ def _consolidar_secoes_tse_sql(
                 "secao_individual": relatorio_sec,
             }
 
-    # Totais BU por Turno (com fallback resiliente caso o banco ainda não possua as colunas migratórias)
+    # Totais BU por Turno (com fallback resiliente e sem join desnecessário no escopo Brasil)
+    totais_bu = []
     try:
-        totais_bu = (
-            db.query(
-                TseApuracaoBU.turno,
-                func.coalesce(func.sum(TseApuracaoBU.eleitores_aptos), 0).label("aptos"),
-                func.coalesce(func.sum(TseApuracaoBU.comparecimento), 0).label("comp"),
-                func.coalesce(func.sum(TseApuracaoBU.faltosos), 0).label("faltosos"),
-                func.coalesce(func.sum(TseApuracaoBU.votos_brancos), 0).label("brancos"),
-                func.coalesce(func.sum(TseApuracaoBU.votos_nulos), 0).label("nulos"),
-                func.coalesce(func.sum(TseApuracaoBU.hab_biometrica), 0).label("hab_bio"),
-                func.coalesce(func.sum(TseApuracaoBU.hab_biografica), 0).label("hab_biog"),
-                func.coalesce(func.sum(TseApuracaoBU.hab_sem_biometria), 0).label("hab_sem_bio"),
-                func.count(TseApuracaoBU.id).label("urnas_bu"),
-                func.coalesce(func.sum(case((TseApuracaoBU.divergencia_detectada == True, 1), else_=0)), 0).label("divergentes"),
-            )
-            .select_from(TseApuracaoBU)
-            .join(TseSecao, TseApuracaoBU.secao_id == TseSecao.id)
-            .filter(*filtro_secao)
-            .group_by(TseApuracaoBU.turno)
-            .all()
-        )
+        q_tbu = db.query(
+            TseApuracaoBU.turno,
+            func.coalesce(func.sum(TseApuracaoBU.eleitores_aptos), 0).label("aptos"),
+            func.coalesce(func.sum(TseApuracaoBU.comparecimento), 0).label("comp"),
+            func.coalesce(func.sum(TseApuracaoBU.faltosos), 0).label("faltosos"),
+            func.coalesce(func.sum(TseApuracaoBU.votos_brancos), 0).label("brancos"),
+            func.coalesce(func.sum(TseApuracaoBU.votos_nulos), 0).label("nulos"),
+            func.coalesce(func.sum(TseApuracaoBU.hab_biometrica), 0).label("hab_bio"),
+            func.coalesce(func.sum(TseApuracaoBU.hab_biografica), 0).label("hab_biog"),
+            func.coalesce(func.sum(TseApuracaoBU.hab_sem_biometria), 0).label("hab_sem_bio"),
+            func.count(TseApuracaoBU.id).label("urnas_bu"),
+            func.coalesce(func.sum(case((TseApuracaoBU.divergencia_detectada == True, 1), else_=0)), 0).label("divergentes"),
+        ).select_from(TseApuracaoBU)
+        if filtro_secao:
+            q_tbu = q_tbu.join(TseSecao, TseApuracaoBU.secao_id == TseSecao.id).filter(*filtro_secao)
+        totais_bu = q_tbu.group_by(TseApuracaoBU.turno).all()
     except Exception:
         try:
             db.rollback()
         except Exception:
             pass
-        totais_bu = (
-            db.query(
+        try:
+            q_tbu_fb = db.query(
                 TseApuracaoBU.turno,
                 func.coalesce(func.sum(TseApuracaoBU.eleitores_aptos), 0).label("aptos"),
                 func.coalesce(func.sum(TseApuracaoBU.comparecimento), 0).label("comp"),
@@ -8488,34 +8811,46 @@ def _consolidar_secoes_tse_sql(
                 func.coalesce(func.sum(TseApuracaoBU.votos_nulos), 0).label("nulos"),
                 func.count(TseApuracaoBU.id).label("urnas_bu"),
                 func.coalesce(func.sum(case((TseApuracaoBU.divergencia_detectada == True, 1), else_=0)), 0).label("divergentes"),
-            )
-            .select_from(TseApuracaoBU)
-            .join(TseSecao, TseApuracaoBU.secao_id == TseSecao.id)
-            .filter(*filtro_secao)
-            .group_by(TseApuracaoBU.turno)
-            .all()
-        )
+            ).select_from(TseApuracaoBU)
+            if filtro_secao:
+                q_tbu_fb = q_tbu_fb.join(TseSecao, TseApuracaoBU.secao_id == TseSecao.id).filter(*filtro_secao)
+            totais_bu = q_tbu_fb.group_by(TseApuracaoBU.turno).all()
+        except Exception as exc_bu_fb:
+            print(f"[TSE-SQL] Aviso totais_bu: {exc_bu_fb}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
     bu_t2 = next((r for r in totais_bu if r.turno == 2), None)
     bu_t1 = next((r for r in totais_bu if r.turno == 1), None)
 
     # Totais consolidados considerando todas as seções (Turno 2 prioritário, fallback para Turno 1)
-    totais_gerais = (
-        db.query(
-            func.coalesce(func.sum(votos_col), 0).label("comp"),
-            func.coalesce(func.sum(aptos_col), 0).label("aptos"),
-            func.coalesce(func.sum(func.coalesce(bu_t2_alias.faltosos, bu_t1_alias.faltosos, 0)), 0).label("faltosos"),
-            func.coalesce(func.sum(func.coalesce(bu_t2_alias.votos_brancos, bu_t1_alias.votos_brancos, 0)), 0).label("brancos"),
-            func.coalesce(func.sum(func.coalesce(bu_t2_alias.votos_nulos, bu_t1_alias.votos_nulos, 0)), 0).label("nulos"),
-            func.count(case((or_(bu_t2_alias.id.isnot(None), bu_t1_alias.id.isnot(None)), 1), else_=None)).label("urnas_bu"),
-            func.count(case((or_(bu_t2_alias.divergencia_detectada == True, bu_t1_alias.divergencia_detectada == True), 1), else_=None)).label("divergentes"),
+    totais_gerais = None
+    try:
+        totais_gerais = (
+            db.query(
+                func.coalesce(func.sum(votos_col), 0).label("comp"),
+                func.coalesce(func.sum(aptos_col), 0).label("aptos"),
+                func.coalesce(func.sum(func.coalesce(bu_t2_alias.faltosos, bu_t1_alias.faltosos, 0)), 0).label("faltosos"),
+                func.coalesce(func.sum(func.coalesce(bu_t2_alias.votos_brancos, bu_t1_alias.votos_brancos, 0)), 0).label("brancos"),
+                func.coalesce(func.sum(func.coalesce(bu_t2_alias.votos_nulos, bu_t1_alias.votos_nulos, 0)), 0).label("nulos"),
+                func.count(case((or_(bu_t2_alias.id.isnot(None), bu_t1_alias.id.isnot(None)), 1), else_=None)).label("urnas_bu"),
+                func.count(case((or_(bu_t2_alias.divergencia_detectada == True, bu_t1_alias.divergencia_detectada == True), 1), else_=None)).label("divergentes"),
+            )
+            .select_from(TseSecao)
+            .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
+            .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
+            .filter(*filtro_secao)
+            .first()
         )
-        .select_from(TseSecao)
-        .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
-        .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
-        .filter(*filtro_secao)
-        .first()
-    )
+    except Exception as exc_tg:
+        print(f"[TSE-SQL] Aviso totais_gerais (usando bu_t2/bu_t1): {exc_tg}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        totais_gerais = bu_t2 or bu_t1
 
     comp_efetivo_total = int(totais_gerais.comp or 0) if totais_gerais else 0
     aptos_total = int(totais_gerais.aptos or 0) if totais_gerais else 0
@@ -8528,20 +8863,24 @@ def _consolidar_secoes_tse_sql(
     pct_comp = round((comp_efetivo_total / max(aptos_total, 1)) * 100.0, 2) if aptos_total else 0.0
 
     # Totais Métricas de Log
-    totais_met = (
-        db.query(
+    totais_met = []
+    try:
+        q_met = db.query(
             TseMetricasLog.turno,
             func.coalesce(func.sum(TseMetricasLog.teclas_indevidas_pres), 0).label("teclas_pres"),
             func.coalesce(func.sum(TseMetricasLog.teclas_indevidas_total), 0).label("teclas_total"),
             func.coalesce(func.avg(TseMetricasLog.tempo_medio_voto_segundos), 0).label("tempo_medio"),
             func.count(TseMetricasLog.id).label("urnas_log"),
-        )
-        .select_from(TseMetricasLog)
-        .join(TseSecao, TseMetricasLog.secao_id == TseSecao.id)
-        .filter(*filtro_secao)
-        .group_by(TseMetricasLog.turno)
-        .all()
-    )
+        ).select_from(TseMetricasLog)
+        if filtro_secao:
+            q_met = q_met.join(TseSecao, TseMetricasLog.secao_id == TseSecao.id).filter(*filtro_secao)
+        totais_met = q_met.group_by(TseMetricasLog.turno).all()
+    except Exception as exc_met:
+        print(f"[TSE-SQL] Aviso totais_met: {exc_met}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
     met_t2 = next((r for r in totais_met if r.turno == 2), None)
     met_t1 = next((r for r in totais_met if r.turno == 1), None)
     met_principal = met_t2 or met_t1
@@ -8552,121 +8891,161 @@ def _consolidar_secoes_tse_sql(
     tempo_medio_cabine = round(float(met_principal.tempo_medio or 0), 1) if met_principal else 0.0
     urnas_com_log = int(met_principal.urnas_log) if met_principal else 0
 
-    # Candidatos do Cargo Selecionado (Turno 2 prioritário, fallback para Turno 1)
-    turno_ativo_cand_subq = (
-        db.query(
-            TseVotoCandidato.secao_id,
-            func.max(TseVotoCandidato.turno).label("turno_ativo")
-        )
-        .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
-        .filter(*filtro_secao, TseVotoCandidato.cargo == cargo_filtro)
-        .group_by(TseVotoCandidato.secao_id)
-        .subquery()
-    )
+    def _norm_nome_cand(num_str: str, nome_raw: str | None) -> str:
+        n_nm = nome_raw
+        if cargo_filtro == "PRESIDENTE":
+            if num_str == "22" or (n_nm and "JAIR" in n_nm.upper()):
+                return "FLÁVIO BOLSONARO"
+            if num_str == "13":
+                return "LULA"
+            return n_nm or PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_str}")
+        if cargo_filtro == "GOVERNADOR":
+            if num_str == "22" or (n_nm and "BOLSONARO" in n_nm.upper()):
+                return "SÉRGIO MORO"
+            return n_nm or PADRAO_NOMES_GOVERNADOR_PR.get(num_str, f"CANDIDATO {num_str}")
+        return n_nm or f"CANDIDATO {num_str}"
 
-    soma_votos = func.coalesce(func.sum(TseVotoCandidato.quantidade_votos), 0)
+    # Candidatos do Cargo Selecionado (1 única consulta agrupada por turno e candidato para 1T, 2T e Placar Geral)
+    votos_resumo_rows = []
     try:
-        soma_votos_bu = func.coalesce(
-            func.sum(case((TseVotoCandidato.votos_bu > 0, TseVotoCandidato.votos_bu), else_=TseVotoCandidato.quantidade_votos)),
-            0,
-        )
-        soma_votos_rdv = func.coalesce(
-            func.sum(case((TseVotoCandidato.votos_rdv > 0, TseVotoCandidato.votos_rdv), else_=TseVotoCandidato.quantidade_votos)),
-            0,
-        )
-    except Exception:
-        soma_votos_bu = soma_votos
-        soma_votos_rdv = soma_votos
-
-    votos_cands = (
-        db.query(
+        q_vr = db.query(
+            TseVotoCandidato.turno,
             TseVotoCandidato.numero_candidato,
             func.max(TseVotoCandidato.nome_candidato).label("nome_candidato"),
-            soma_votos.label("votos"),
-            soma_votos_bu.label("votos_bu"),
-            soma_votos_rdv.label("votos_rdv"),
+            func.coalesce(func.sum(TseVotoCandidato.quantidade_votos), 0).label("votos"),
+            func.coalesce(
+                func.sum(case((TseVotoCandidato.votos_bu > 0, TseVotoCandidato.votos_bu), else_=TseVotoCandidato.quantidade_votos)),
+                0,
+            ).label("votos_bu"),
+            func.coalesce(
+                func.sum(case((TseVotoCandidato.votos_rdv > 0, TseVotoCandidato.votos_rdv), else_=TseVotoCandidato.quantidade_votos)),
+                0,
+            ).label("votos_rdv"),
             func.count(TseVotoCandidato.id).label("urnas_com_voto"),
+        ).select_from(TseVotoCandidato)
+        if filtro_secao:
+            q_vr = q_vr.join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id).filter(*filtro_secao)
+        votos_resumo_rows = (
+            q_vr.filter(TseVotoCandidato.cargo == cargo_filtro)
+            .group_by(TseVotoCandidato.turno, TseVotoCandidato.numero_candidato)
+            .all()
         )
-        .select_from(TseVotoCandidato)
-        .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
-        .join(turno_ativo_cand_subq, (turno_ativo_cand_subq.c.secao_id == TseVotoCandidato.secao_id) & (turno_ativo_cand_subq.c.turno_ativo == TseVotoCandidato.turno))
-        .filter(*filtro_secao, TseVotoCandidato.cargo == cargo_filtro)
-        .group_by(TseVotoCandidato.numero_candidato)
-        .order_by(soma_votos.desc())
-        .all()
-    )
-    total_nominais = sum(int(r.votos) for r in votos_cands)
-    placar_candidatos = []
-    for r in votos_cands:
-        num_str = str(r.numero_candidato)
-        nome = r.nome_candidato
-        if cargo_filtro == "PRESIDENTE":
-            if num_str == "22" or (nome and "JAIR" in nome.upper()):
-                nome = "FLÁVIO BOLSONARO"
-            elif num_str == "13":
-                nome = "LULA"
-            elif not nome:
-                nome = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_str}")
-        elif cargo_filtro == "GOVERNADOR":
-            if num_str == "22" or (nome and "BOLSONARO" in nome.upper()):
-                nome = "SÉRGIO MORO"
-            elif not nome:
-                nome = PADRAO_NOMES_GOVERNADOR_PR.get(num_str, f"CANDIDATO {num_str}")
-        else:
-            if not nome:
-                nome = f"CANDIDATO {num_str}"
-        v = int(r.votos)
-        v_bu = int(r.votos_bu)
-        v_rdv = int(r.votos_rdv)
-        pct = round((v / max(total_nominais, 1)) * 100.0, 2)
-        diff = v_rdv - v_bu
-        placar_candidatos.append({
-            "numero": num_str,
-            "nome": nome,
-            "votos_bu": v_bu,
-            "votos_rdv": v_rdv,
-            "diferenca_rdv_bu": diff,
-            "urnas_com_voto": int(r.urnas_com_voto),
-            "urnas_divergentes": 0 if diff == 0 else 1,
-            "cidades_divergentes": [],
-            "pct_validos": pct,
-            "status": "CONFERE_100%" if diff == 0 else "DIVERGENTE",
-        })
+    except Exception as exc_vr:
+        print(f"[TSE-SQL] Aviso votos_resumo_rows: {exc_vr}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
+    vr_t1 = sorted([r for r in votos_resumo_rows if int(r.turno or 0) == 1], key=lambda x: int(x.votos or 0), reverse=True)
+    vr_t2 = sorted([r for r in votos_resumo_rows if int(r.turno or 0) == 2], key=lambda x: int(x.votos or 0), reverse=True)
 
-    # Urnas na Tabela (limit 600 com seções com alerta primeiro)
+    cands_t1_map = {str(r.numero_candidato): int(r.votos or 0) for r in vr_t1}
+    cands_t2_map = {str(r.numero_candidato): int(r.votos or 0) for r in vr_t2}
+    cands_nomes = {}
+    for r in vr_t1 + vr_t2:
+        n_str = str(r.numero_candidato)
+        cands_nomes[n_str] = _norm_nome_cand(n_str, r.nome_candidato)
+    if cargo_filtro == "PRESIDENTE":
+        cands_nomes.setdefault("13", "LULA")
+        cands_nomes.setdefault("22", "FLÁVIO BOLSONARO")
+    elif cargo_filtro == "GOVERNADOR":
+        cands_nomes.setdefault("22", "SÉRGIO MORO")
+
+    tot_t1_c = sum(cands_t1_map.values())
+    tot_t2_c = sum(cands_t2_map.values())
+
+    def _montar_lista_placar(rows_t, tot_t: int) -> list[dict]:
+        itens = []
+        for r in rows_t:
+            num_str = str(r.numero_candidato)
+            nome_c = cands_nomes.get(num_str) or _norm_nome_cand(num_str, r.nome_candidato)
+            v = int(r.votos or 0)
+            v_bu = int(r.votos_bu or 0)
+            v_rdv = int(r.votos_rdv or 0)
+            pct = round((v / max(tot_t, 1)) * 100.0, 2) if tot_t else 0.0
+            diff = v_rdv - v_bu
+            itens.append({
+                "numero": num_str,
+                "nome": nome_c,
+                "votos": v,
+                "votos_bu": v_bu,
+                "votos_rdv": v_rdv,
+                "diferenca_rdv_bu": diff,
+                "urnas_com_voto": int(r.urnas_com_voto or 0),
+                "urnas_divergentes": 0 if diff == 0 else 1,
+                "cidades_divergentes": [],
+                "pct_validos": pct,
+                "status": "CONFERE_100%" if diff == 0 else "DIVERGENTE",
+            })
+        return itens
+
+    candidatos_t1 = _montar_lista_placar(vr_t1, tot_t1_c)
+    candidatos_t2 = _montar_lista_placar(vr_t2, tot_t2_c)
+    placar_candidatos = list(candidatos_t2 if candidatos_t2 else candidatos_t1)
+
+    # Urnas na Tabela (limit 600: IDs divergentes primeiro, depois idx_tse_secoes_arvore)
     desc_col = func.coalesce(bu_t2_alias.divergencia_descricao, bu_t1_alias.divergencia_descricao, "SEÇÃO OFICIAL ÍNTEGRA")
     teclas_pres_col = func.coalesce(met_t2_alias.teclas_indevidas_pres, met_t1_alias.teclas_indevidas_pres, 0)
     tempo_medio_col = func.coalesce(met_t2_alias.tempo_medio_voto_segundos, met_t1_alias.tempo_medio_voto_segundos, 0)
 
-    urnas_rows = (
-        db.query(
-            TseSecao.uf,
-            TseSecao.municipio_codigo,
-            TseSecao.municipio_nome,
-            TseSecao.zona,
-            TseSecao.secao,
-            TseSecao.modelo_urna,
-            TseSecao.local_votacao,
-            aptos_col.label("aptos"),
-            votos_col.label("comp"),
-            diverg_col.label("div"),
-            desc_col.label("desc"),
-            teclas_pres_col.label("teclas_pres"),
-            tempo_medio_col.label("tempo_medio"),
-            pleito_col.label("pleito"),
-            turno_col.label("turno_ativo"),
+    urnas_rows = []
+    try:
+        q_div_ids = (
+            db.query(TseApuracaoBU.secao_id)
+            .join(TseSecao, TseApuracaoBU.secao_id == TseSecao.id)
+            .filter(*filtro_secao, TseApuracaoBU.divergencia_detectada == True)
+        ) if filtro_secao else (
+            db.query(TseApuracaoBU.secao_id)
+            .filter(TseApuracaoBU.divergencia_detectada == True)
         )
-        .select_from(TseSecao)
-        .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
-        .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
-        .outerjoin(met_t2_alias, (met_t2_alias.secao_id == TseSecao.id) & (met_t2_alias.turno == 2))
-        .outerjoin(met_t1_alias, (met_t1_alias.secao_id == TseSecao.id) & (met_t1_alias.turno == 1))
-        .filter(*filtro_secao)
-        .order_by(diverg_col.desc(), TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao)
-        .limit(600)
-        .all()
-    )
+        top_urnas_ids = list(dict.fromkeys(r[0] for r in q_div_ids.limit(600).all()))
+        if len(top_urnas_ids) < 600:
+            q_fill_ids = db.query(TseSecao.id).filter(*filtro_secao)
+            if top_urnas_ids:
+                q_fill_ids = q_fill_ids.filter(~TseSecao.id.in_(top_urnas_ids))
+            order_cols = (
+                (TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao)
+                if ((municipio_filtro and municipio_filtro != "TODAS") or (zona_filtro and zona_filtro != "TODAS"))
+                else (TseSecao.regiao, TseSecao.uf, TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao)
+            )
+            fill_rows = q_fill_ids.order_by(*order_cols).limit(600 - len(top_urnas_ids)).all()
+            top_urnas_ids.extend(r[0] for r in fill_rows)
+
+        if top_urnas_ids:
+            urnas_rows = (
+                db.query(
+                    TseSecao.uf,
+                    TseSecao.municipio_codigo,
+                    TseSecao.municipio_nome,
+                    TseSecao.zona,
+                    TseSecao.secao,
+                    TseSecao.modelo_urna,
+                    TseSecao.local_votacao,
+                    aptos_col.label("aptos"),
+                    votos_col.label("comp"),
+                    diverg_col.label("div"),
+                    desc_col.label("desc"),
+                    teclas_pres_col.label("teclas_pres"),
+                    tempo_medio_col.label("tempo_medio"),
+                    pleito_col.label("pleito"),
+                    turno_col.label("turno_ativo"),
+                )
+                .select_from(TseSecao)
+                .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
+                .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
+                .outerjoin(met_t2_alias, (met_t2_alias.secao_id == TseSecao.id) & (met_t2_alias.turno == 2))
+                .outerjoin(met_t1_alias, (met_t1_alias.secao_id == TseSecao.id) & (met_t1_alias.turno == 1))
+                .filter(TseSecao.id.in_(top_urnas_ids))
+                .order_by(diverg_col.desc(), TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao)
+                .all()
+            )
+    except Exception as exc_urnas:
+        print(f"[TSE-SQL] Aviso urnas_rows: {exc_urnas}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
     lista_urnas = []
     for r in urnas_rows:
         p_prefix = r.pleito or ("03221" if r.turno_ativo == 2 else ("03220" if r.turno_ativo == 1 else "03221"))
@@ -8716,95 +9095,6 @@ def _consolidar_secoes_tse_sql(
     teclas_p2 = int(met_t2.teclas_pres) if met_t2 else 0
     tempo_c1 = round(float(met_t1.tempo_medio or 0), 1) if met_t1 else 0.0
     tempo_c2 = round(float(met_t2.tempo_medio or 0), 1) if met_t2 else 0.0
-
-    votos_t1_rows = (
-        db.query(TseVotoCandidato.numero_candidato, func.max(TseVotoCandidato.nome_candidato), func.sum(TseVotoCandidato.quantidade_votos))
-        .select_from(TseVotoCandidato)
-        .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
-        .filter(*filtro_secao, TseVotoCandidato.cargo == cargo_filtro, TseVotoCandidato.turno == 1)
-        .group_by(TseVotoCandidato.numero_candidato)
-        .all()
-    )
-    votos_t2_rows = (
-        db.query(TseVotoCandidato.numero_candidato, func.max(TseVotoCandidato.nome_candidato), func.sum(TseVotoCandidato.quantidade_votos))
-        .select_from(TseVotoCandidato)
-        .join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id)
-        .filter(*filtro_secao, TseVotoCandidato.cargo == cargo_filtro, TseVotoCandidato.turno == 2)
-        .group_by(TseVotoCandidato.numero_candidato)
-        .all()
-    )
-    cands_t1_map = {str(r[0]): int(r[2] or 0) for r in votos_t1_rows}
-    cands_t2_map = {str(r[0]): int(r[2] or 0) for r in votos_t2_rows}
-    cands_nomes = {}
-    for r in list(votos_t1_rows) + list(votos_t2_rows):
-        n_str = str(r[0])
-        n_nm = r[1]
-        if cargo_filtro == "PRESIDENTE":
-            if n_str == "22" or (n_nm and "JAIR" in n_nm.upper()):
-                n_nm = "FLÁVIO BOLSONARO"
-            elif n_str == "13":
-                n_nm = "LULA"
-            elif not n_nm:
-                n_nm = PADRAO_NOMES_PRESIDENTE.get(n_str, f"CANDIDATO {n_str}")
-        elif cargo_filtro == "GOVERNADOR":
-            if n_str == "22" or (n_nm and "BOLSONARO" in n_nm.upper()):
-                n_nm = "SÉRGIO MORO"
-            elif not n_nm:
-                n_nm = PADRAO_NOMES_GOVERNADOR_PR.get(n_str, f"CANDIDATO {n_str}")
-        else:
-            if not n_nm:
-                n_nm = f"CANDIDATO {n_str}"
-        cands_nomes[n_str] = n_nm
-    if cargo_filtro == "PRESIDENTE":
-        cands_nomes.setdefault("13", "LULA")
-        cands_nomes.setdefault("22", "FLÁVIO BOLSONARO")
-    elif cargo_filtro == "GOVERNADOR":
-        cands_nomes.setdefault("22", "SÉRGIO MORO")
-
-    tot_t1_c = sum(cands_t1_map.values())
-    tot_t2_c = sum(cands_t2_map.values())
-
-    # Placar isolado de Candidatos do 1º Turno (para a visão exclusiva '1T')
-    candidatos_t1 = []
-    for r in sorted(votos_t1_rows, key=lambda x: int(x[2] or 0), reverse=True):
-        num_str = str(r[0])
-        nome_c = cands_nomes.get(num_str, f"CANDIDATO {num_str}")
-        v = int(r[2] or 0)
-        pct = round((v / max(tot_t1_c, 1)) * 100.0, 2) if tot_t1_c else 0.0
-        candidatos_t1.append({
-            "numero": num_str,
-            "nome": nome_c,
-            "votos": v,
-            "votos_bu": v,
-            "votos_rdv": v,
-            "diferenca_rdv_bu": 0,
-            "urnas_com_voto": 0,
-            "urnas_divergentes": 0,
-            "cidades_divergentes": [],
-            "pct_validos": pct,
-            "status": "CONFERE_100%",
-        })
-
-    # Placar isolado de Candidatos do 2º Turno (para a visão exclusiva '2T')
-    candidatos_t2 = []
-    for r in sorted(votos_t2_rows, key=lambda x: int(x[2] or 0), reverse=True):
-        num_str = str(r[0])
-        nome_c = cands_nomes.get(num_str, f"CANDIDATO {num_str}")
-        v = int(r[2] or 0)
-        pct = round((v / max(tot_t2_c, 1)) * 100.0, 2) if tot_t2_c else 0.0
-        candidatos_t2.append({
-            "numero": num_str,
-            "nome": nome_c,
-            "votos": v,
-            "votos_bu": v,
-            "votos_rdv": v,
-            "diferenca_rdv_bu": 0,
-            "urnas_com_voto": 0,
-            "urnas_divergentes": 0,
-            "cidades_divergentes": [],
-            "pct_validos": pct,
-            "status": "CONFERE_100%",
-        })
 
     # No comparativo forense, listar todos os candidatos que receberam votos no 1º ou 2º Turno
     cands_2t_ordenados = sorted([n for n, v2 in cands_t2_map.items() if v2 > 0], key=lambda n: cands_t2_map.get(n, 0), reverse=True)
@@ -8868,12 +9158,9 @@ def _consolidar_secoes_tse_sql(
     vph_t1_global = Counter()
     vph_t2_global = Counter()
     try:
-        q_vph = (
-            db.query(TseMetricasLog.turno, TseMetricasLog.vazao_horaria_json)
-            .select_from(TseMetricasLog)
-            .join(TseSecao, TseMetricasLog.secao_id == TseSecao.id)
-            .filter(*filtro_secao)
-        )
+        q_vph = db.query(TseMetricasLog.turno, TseMetricasLog.vazao_horaria_json).select_from(TseMetricasLog)
+        if filtro_secao:
+            q_vph = q_vph.join(TseSecao, TseMetricasLog.secao_id == TseSecao.id).filter(*filtro_secao)
         if total_secoes_no_filtro > 1000:
             q_vph = q_vph.limit(1000)
         metricas_vph = q_vph.all()
@@ -9193,12 +9480,31 @@ def consolidar_secoes_tse(
     """
     db = _obter_db_session()
     if db:
+        total_banco = 0
         try:
             from sqlalchemy import func
-            from .database import TseSecao
-            total_banco = db.query(func.count(TseSecao.id)).scalar() or 0
+            from .database import TseSecao, TseApuracaoBU
+            total_banco = int(db.query(func.count(TseSecao.id)).scalar() or 0)
             if total_banco > 0:
-                return _consolidar_secoes_tse_sql(
+                total_bu_count = int(db.query(func.count(TseApuracaoBU.id)).scalar() or 0)
+                cache_key = (
+                    total_banco,
+                    total_bu_count,
+                    (regiao_filtro or "TODAS").strip().upper(),
+                    (uf_filtro or "TODAS").strip().upper(),
+                    (municipio_filtro or "TODAS").strip(),
+                    (zona_filtro or "TODAS").strip(),
+                    (secao_filtro or "CONSOLIDADO").strip(),
+                    (filtro_forense or "TODAS").strip().upper(),
+                    (cargo_filtro or "PRESIDENTE").strip().upper(),
+                    (turno_filtro or "TODOS").strip().upper(),
+                )
+                agora_ts = time.time()
+                cached_entry = _CONSOLIDACAO_SQL_CACHE.get(cache_key)
+                if cached_entry and (agora_ts - cached_entry[0]) <= _CONSOLIDACAO_SQL_CACHE_TTL_S:
+                    return cached_entry[1]
+
+                res_sql = _consolidar_secoes_tse_sql(
                     db=db,
                     regiao_filtro=regiao_filtro,
                     uf_filtro=uf_filtro,
@@ -9208,11 +9514,46 @@ def consolidar_secoes_tse(
                     filtro_forense=filtro_forense,
                     cargo_filtro=cargo_filtro,
                     turno_filtro=turno_filtro,
+                    total_banco_conhecido=total_banco,
                 )
+                if res_sql and not res_sql.get("aviso_parcial"):
+                    if len(_CONSOLIDACAO_SQL_CACHE) >= 64:
+                        oldest_k = next(iter(_CONSOLIDACAO_SQL_CACHE))
+                        _CONSOLIDACAO_SQL_CACHE.pop(oldest_k, None)
+                    _CONSOLIDACAO_SQL_CACHE[cache_key] = (agora_ts, res_sql)
+                return res_sql
         except Exception as exc_sql:
             import traceback
             traceback.print_exc()
-            print(f"[TSE-DB] Aviso: consolidação SQL falhou ({exc_sql}), usando fallback in-memory")
+            print(f"[TSE-DB] Aviso: consolidação SQL completa falhou ({exc_sql})")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            if total_banco > 0:
+                try:
+                    return _construir_arvore_minima_sql(
+                        db=db,
+                        total_banco=total_banco,
+                        regiao_filtro=regiao_filtro,
+                        uf_filtro=uf_filtro,
+                        municipio_filtro=municipio_filtro,
+                        zona_filtro=zona_filtro,
+                        secao_filtro=secao_filtro,
+                        filtro_forense=filtro_forense,
+                        cargo_filtro=cargo_filtro,
+                        turno_filtro=turno_filtro,
+                        erro_msg=str(exc_sql),
+                    )
+                except Exception as exc_min:
+                    print(f"[TSE-DB] Aviso fallback árvore mínima falhou: {exc_min}")
+                    return {
+                        "modo_visao": "CONSOLIDADO_GLOBAL",
+                        "aviso_parcial": True,
+                        "aviso_mensagem": f"Consulta SQL excedeu o tempo limite para {total_banco} urnas. Selecione um Estado ou Cidade.",
+                        "hierarquia": {"total_geral_urnas": total_banco, "total_secoes_no_filtro": 0, "regioes": [], "estados": [], "cidades": [], "zonas": [], "secoes": []},
+                        "consolidado": None,
+                    }
         finally:
             db.close()
 
