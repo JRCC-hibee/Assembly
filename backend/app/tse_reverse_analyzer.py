@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import os
 import re
+import gzip
 import json
 import time
 import shutil
@@ -7136,19 +7137,105 @@ COORDENADAS_MUNICIPIOS = {
     "PA": (-1.4558, -48.4902),
 }
 
-# Centróides reais dos setores urbanos/bairros das zonas eleitorais de Curitiba (TSE 75353)
+# Centróides reais dos setores urbanos/bairros das zonas eleitorais de Curitiba (TSE 75353 - fallback caso ausente no cadastro 2026)
 ZONAS_CURITIBA_CENTROIDES = {
-    1: (-25.4284, -49.2733),   # Centro / Batel / Mercês / Bom Retiro / Ahú
-    2: (-25.4740, -49.2980),   # Portão / Fazendinha / Água Verde / Santa Quitéria / Vila Izabel
-    3: (-25.3850, -49.2520),   # Boa Vista / Bacacheri / Cabral / Santa Cândida
-    4: (-25.5050, -49.2380),   # Boqueirão / Hauer / Alto Boqueirão / Xaxim
-    145: (-25.4950, -49.3450), # Cidade Industrial de Curitiba (CIC) / Augusta / São Miguel
-    174: (-25.4550, -49.2150), # Cajuru / Jardim das Américas / Uberaba / Guabirotuba
-    175: (-25.5180, -49.2950), # Pinheirinho / Capão Raso / Novo Mundo / Tatuquara
-    176: (-25.3950, -49.3300), # Santa Felicidade / Vista Alegre / São João / Pilarzinho / Butiatuvinha
-    177: (-25.5500, -49.2600), # Sítio Cercado / Ganchinho / Umbará
-    178: (-25.4050, -49.2150), # Bairro Alto / Tarumã / Atuba / Tingui
+    1: (-25.3880, -49.2660),   # Centro / São Francisco / Pilarzinho / Abranches / Santa Cândida
+    2: (-25.3960, -49.2330),   # Bacacheri / Boa Vista / Bairro Alto / Atuba
+    3: (-25.4350, -49.2220),   # Cristo Rei / Jardim Social / Cajuru / Capão da Imbuia
+    4: (-25.4250, -49.3350),   # Santa Felicidade / Campo Comprido / Orleans / Cascatinha
+    145: (-25.5250, -49.2950), # Pinheirinho / Novo Mundo / Sítio Cercado (parcial)
+    174: (-25.4750, -49.2350), # Uberaba / Jardim das Américas / Guabirotuba / Alto Boqueirão
+    175: (-25.5150, -49.3400), # CIC / Tatuquara / Fazendinha
+    176: (-25.5050, -49.2650), # Xaxim / Vila Fanny / Boqueirão / Hauer
+    177: (-25.4480, -49.2680), # Prado Velho / Rebouças / Água Verde / Guaíra / Centro
+    178: (-25.4320, -49.3050), # Batel / Bigorrilho / Mercês / Mossunguê / Santo Inácio
 }
+
+_CADASTRO_LOCAIS_TSE_CACHE: dict | None = None
+_CADASTRO_LOCAIS_LOCK = threading.Lock()
+
+
+def _normalizar_loc_id(val: str | int | None) -> str:
+    """Normaliza NR_LOCAL_VOTACAO removendo zeros à esquerda quando numérico."""
+    s = str(val or "").strip()
+    if s.isdigit():
+        return str(int(s))
+    return s
+
+
+def _carregar_cadastro_locais_tse() -> dict:
+    """
+    Carrega em memória (com cache singleton thread-safe) os 95.632 locais de votação
+    oficiais do TSE 2026 (nome do estabelecimento, endereço, bairro, CEP, lat/lon)
+    a partir de `backend/app/data/locais_votacao_tse_2026.tsv.gz`.
+    """
+    global _CADASTRO_LOCAIS_TSE_CACHE
+    if _CADASTRO_LOCAIS_TSE_CACHE is not None:
+        return _CADASTRO_LOCAIS_TSE_CACHE
+
+    with _CADASTRO_LOCAIS_LOCK:
+        if _CADASTRO_LOCAIS_TSE_CACHE is not None:
+            return _CADASTRO_LOCAIS_TSE_CACHE
+
+        por_chave: dict[tuple[str, str, int, str], tuple] = {}
+        por_mun_loc: dict[tuple[str, str, str], tuple] = {}
+        mun_acc: dict[tuple[str, str], list[float]] = {}
+        uf_acc: dict[str, list[float]] = {}
+
+        data_path = os.path.join(os.path.dirname(__file__), "data", "locais_votacao_tse_2026.tsv.gz")
+        if os.path.isfile(data_path):
+            try:
+                with gzip.open(data_path, "rt", encoding="utf-8") as f:
+                    for line in f:
+                        parts = line.rstrip("\n").split("\t")
+                        if len(parts) < 11:
+                            continue
+                        uf, mun_cod, zona_s, loc_s, nm_loc, end, bairro, cep, lat_s, lon_s, ex_s = parts[:11]
+                        if not lat_s or not lon_s:
+                            continue
+                        try:
+                            lat = float(lat_s)
+                            lon = float(lon_s)
+                        except Exception:
+                            continue
+                        z_int = int(zona_s) if zona_s.isdigit() else 0
+                        loc_norm = _normalizar_loc_id(loc_s)
+                        exata = (ex_s == "1")
+                        rec = (nm_loc, end, bairro, cep, lat, lon, exata)
+
+                        por_chave[(uf, mun_cod, z_int, loc_norm)] = rec
+                        if (uf, mun_cod, loc_norm) not in por_mun_loc or exata:
+                            por_mun_loc[(uf, mun_cod, loc_norm)] = rec
+
+                        if exata:
+                            ma = mun_acc.setdefault((uf, mun_cod), [0.0, 0.0, 0])
+                            ma[0] += lat
+                            ma[1] += lon
+                            ma[2] += 1
+                            ua = uf_acc.setdefault(uf, [0.0, 0.0, 0])
+                            ua[0] += lat
+                            ua[1] += lon
+                            ua[2] += 1
+            except Exception as exc_cad:
+                print(f"[TSE-LOCAIS] Aviso ao carregar cadastro TSE 2026: {exc_cad}")
+
+        mun_coords = {
+            k: (round(v[0] / v[2], 6), round(v[1] / v[2], 6))
+            for k, v in mun_acc.items()
+            if v[2] > 0
+        }
+        uf_coords = {
+            k: (round(v[0] / v[2], 6), round(v[1] / v[2], 6))
+            for k, v in uf_acc.items()
+            if v[2] > 0
+        }
+        _CADASTRO_LOCAIS_TSE_CACHE = {
+            "por_chave": por_chave,
+            "por_mun_loc": por_mun_loc,
+            "mun_coords": mun_coords,
+            "uf_coords": uf_coords,
+        }
+        return _CADASTRO_LOCAIS_TSE_CACHE
 
 
 # Sedes dos Tribunais Regionais Eleitorais (Capitais/DF) e Principais Fóruns Eleitorais Regionais
@@ -7275,8 +7362,9 @@ def _compilar_tres_foruns_para_mapa(locais_lista: list[dict], uf_filtro: str = "
             endereco = cat["endereco"]
             origem_coord = "OFICIAL"
         else:
-            # Fórum Eleitoral municipal posicionado no centróide cívico da cidade
-            base_coord = COORDENADAS_MUNICIPIOS.get(m_cod)
+            # Fórum Eleitoral municipal posicionado no centróide cívico real da cidade
+            cad_tse = _carregar_cadastro_locais_tse()
+            base_coord = COORDENADAS_MUNICIPIOS.get(m_cod) or cad_tse["mun_coords"].get((u_up, m_cod))
             if base_coord:
                 t_lat, t_lon = float(base_coord[0]), float(base_coord[1])
             else:
@@ -7311,44 +7399,77 @@ def _compilar_tres_foruns_para_mapa(locais_lista: list[dict], uf_filtro: str = "
     return tres_lista
 
 
-def _obter_coordenadas_local(uf: str, mun_cod: str, mun_nome: str, zona: int, loc_id: str) -> tuple[float, float]:
+def _obter_dados_local_oficial(uf: str, mun_cod: str, mun_nome: str, zona: int, loc_id: str) -> dict:
     """
-    Retorna as coordenadas geográficas (lat, lon) estáveis e unívocas para o Local de Votação (prédio físico).
-    Todas as seções instaladas no mesmo local de votação recebem exatamente a mesma coordenada geográfica.
-    Distribui os prédios de forma realista de acordo com as zonas eleitorais e bairros da cidade.
+    Resolve coordenadas geográficas reais (NR_LATITUDE / NR_LONGITUDE), nome oficial do estabelecimento,
+    endereço completo, bairro e CEP a partir do cadastro oficial do TSE 2026 (`eleitorado_local_votacao_2026`).
+    Quando ausente (ex: local sintético), faz fallback limpo para o centróide real do município.
     """
     u_up = (uf or "PR").strip().upper()
     m_cod = str(mun_cod or "").strip().zfill(5)
+    z_int = int(zona or 0)
+    loc_raw = str(loc_id or "").strip()
+    loc_norm = _normalizar_loc_id(loc_raw)
 
-    base_lat, base_lon = COORDENADAS_MUNICIPIOS.get(m_cod) or COORDENADAS_MUNICIPIOS.get(u_up) or COORDENADAS_MUNICIPIOS["BRASIL"]
+    cad = _carregar_cadastro_locais_tse()
+    rec = cad["por_chave"].get((u_up, m_cod, z_int, loc_norm)) or cad["por_mun_loc"].get((u_up, m_cod, loc_norm))
 
-    h_str = f"{u_up}_{m_cod}_{zona:04d}_{loc_id}"
-    seed_val = int(hashlib.md5(h_str.encode("utf-8")).hexdigest()[:8], 16)
+    if rec:
+        nm_loc, end, bairro, cep, lat, lon, exata = rec
+        nome_final = nm_loc.strip() if nm_loc and nm_loc.strip() else (f"Local de Votação nº {loc_raw}" if loc_raw.isdigit() else loc_raw)
+        end_limpo = " ".join(end.split()) if end else ""
+        bairro_limpo = " ".join(bairro.split()) if bairro else ""
+        cep_fmt = f"{cep[:5]}-{cep[5:]}" if (cep and len(cep) == 8 and cep.isdigit()) else (cep or "")
+        return {
+            "latitude": round(float(lat), 6),
+            "longitude": round(float(lon), 6),
+            "nome_local": nome_final,
+            "endereco": end_limpo,
+            "bairro": bairro_limpo,
+            "cep": cep_fmt,
+            "coord_exata": bool(exata),
+        }
 
-    # Curitiba (75353): mapeamento de precisão por zona eleitoral e bairros
-    if m_cod == "75353" and zona in ZONAS_CURITIBA_CENTROIDES:
-        z_lat, z_lon = ZONAS_CURITIBA_CENTROIDES[zona]
-        angle_rad = (seed_val % 360) * (math.pi / 180.0)
-        radius_km = 0.25 + ((seed_val // 360) % 24) * 0.1  # 0.25 km a 2.55 km do centro do bairro/zona
-        lat_offset = (radius_km / 111.0) * math.cos(angle_rad)
-        lon_offset = (radius_km / (111.0 * max(0.2, math.cos(math.radians(z_lat))))) * math.sin(angle_rad)
-        return round(z_lat + lat_offset, 6), round(z_lon + lon_offset, 6)
+    # Fallback determinístico quando o local não consta na tabela oficial 2026
+    mun_base = cad["mun_coords"].get((u_up, m_cod)) or COORDENADAS_MUNICIPIOS.get(m_cod)
+    if mun_base:
+        base_lat, base_lon = float(mun_base[0]), float(mun_base[1])
+    elif m_cod == "75353" and z_int in ZONAS_CURITIBA_CENTROIDES:
+        base_lat, base_lon = ZONAS_CURITIBA_CENTROIDES[z_int]
+    else:
+        uf_base = cad["uf_coords"].get(u_up) or COORDENADAS_MUNICIPIOS.get(u_up) or COORDENADAS_MUNICIPIOS["BRASIL"]
+        base_lat, base_lon = float(uf_base[0]), float(uf_base[1])
 
-    # Demais municípios com múltiplas zonas eleitorais
-    if zona > 0:
-        z_angle = ((zona * 137.5) % 360) * (math.pi / 180.0)
-        z_radius_km = 1.0 + ((zona * 17) % 7) * 0.8  # 1.0 km a 5.8 km
-        z_lat = base_lat + (z_radius_km / 111.0) * math.cos(z_angle)
-        z_lon = base_lon + (z_radius_km / (111.0 * max(0.2, math.cos(math.radians(base_lat))))) * math.sin(z_angle)
+    if m_cod == "75353" and z_int in ZONAS_CURITIBA_CENTROIDES:
+        z_lat, z_lon = ZONAS_CURITIBA_CENTROIDES[z_int]
     else:
         z_lat, z_lon = base_lat, base_lon
 
+    h_str = f"{u_up}_{m_cod}_{z_int:04d}_{loc_raw}"
+    seed_val = int(hashlib.md5(h_str.encode("utf-8")).hexdigest()[:8], 16)
     angle_rad = (seed_val % 360) * (math.pi / 180.0)
-    radius_km = 0.2 + ((seed_val // 360) % 20) * 0.1  # 0.2 km a 2.1 km
+    radius_km = 0.15 + ((seed_val // 360) % 16) * 0.08  # 0.15 km a 1.35 km
     lat_offset = (radius_km / 111.0) * math.cos(angle_rad)
     lon_offset = (radius_km / (111.0 * max(0.2, math.cos(math.radians(z_lat))))) * math.sin(angle_rad)
 
-    return round(z_lat + lat_offset, 6), round(z_lon + lon_offset, 6)
+    nome_fallback = f"Local de Votação nº {loc_raw}" if loc_raw.isdigit() else loc_raw
+    return {
+        "latitude": round(z_lat + lat_offset, 6),
+        "longitude": round(z_lon + lon_offset, 6),
+        "nome_local": nome_fallback,
+        "endereco": f"Zona Eleitoral {z_int:04d} (Local nº {loc_raw})",
+        "bairro": mun_nome or "",
+        "cep": "",
+        "coord_exata": False,
+    }
+
+
+def _obter_coordenadas_local(uf: str, mun_cod: str, mun_nome: str, zona: int, loc_id: str) -> tuple[float, float]:
+    """
+    Retorna as coordenadas geográficas (lat, lon) estáveis e unívocas para o Local de Votação (prédio físico).
+    """
+    dados = _obter_dados_local_oficial(uf, mun_cod, mun_nome, zona, loc_id)
+    return dados["latitude"], dados["longitude"]
 
 
 def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODAS", mun_filtro="TODAS", zona_filtro="TODAS") -> tuple[list[dict], dict]:
@@ -7403,18 +7524,21 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
         pref = f"{p_prefix}{u_up.lower()}{m_cod}{z_int:04d}{s_int:04d}"
 
         if key_loc not in locais_dict:
-            lat, lon = _obter_coordenadas_local(u_up, m_cod, m_nome, z_int, loc_val)
-            nome_amigavel = f"Local de Votação nº {loc_val}" if loc_val.isdigit() else loc_val
+            info_loc = _obter_dados_local_oficial(u_up, m_cod, m_nome, z_int, loc_val)
             locais_dict[key_loc] = {
                 "key": key_loc,
                 "local_id": loc_val,
-                "nome_local": nome_amigavel,
+                "nome_local": info_loc["nome_local"],
+                "endereco": info_loc["endereco"],
+                "bairro": info_loc["bairro"],
+                "cep": info_loc["cep"],
+                "coord_exata": info_loc["coord_exata"],
                 "municipio_codigo": m_cod,
                 "municipio_nome": m_nome,
                 "zona": z_int,
                 "uf": u_up,
-                "latitude": lat,
-                "longitude": lon,
+                "latitude": info_loc["latitude"],
+                "longitude": info_loc["longitude"],
                 "qtd_secoes": 0,
                 "secoes": [],
                 "votos_22": 0,
@@ -7630,11 +7754,44 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
     # Ordenação por prioridade forense: primeiro prédios com discrepância interna, depois mais seções
     locais_lista.sort(key=lambda x: (not x["tem_anomalia_intra_local"], -x["qtd_secoes"], -x["votos_22"]))
 
+    # Dessobreposição suave (~28 m em anel espiralado) quando 2+ locais distintos compartilham exatamente o mesmo ponto GPS
+    coords_ocupadas: dict[tuple[int, int], int] = {}
+    for loc in locais_lista:
+        lat_v = float(loc["latitude"])
+        lon_v = float(loc["longitude"])
+        grade_pt = (round(lat_v * 5000), round(lon_v * 5000))  # ~22m
+        idx_col = coords_ocupadas.get(grade_pt, 0)
+        coords_ocupadas[grade_pt] = idx_col + 1
+        if idx_col > 0:
+            ang = idx_col * 2.39996  # ângulo áureo para separação limpa
+            dist_deg = 0.00024 * math.sqrt(idx_col)
+            loc["latitude"] = round(lat_v + dist_deg * math.cos(ang), 6)
+            loc["longitude"] = round(lon_v + (dist_deg / max(0.3, math.cos(math.radians(lat_v)))) * math.sin(ang), 6)
+
     # Centróide e zoom sugerido do mapa baseado no escopo ativo
+    cad_tse = _carregar_cadastro_locais_tse()
     m_cod_filtro = str(mun_filtro or "").strip().zfill(5)
     u_filtro = str(uf_filtro or "PR").strip().upper()
-    c_lat, c_lon = COORDENADAS_MUNICIPIOS.get(m_cod_filtro) or COORDENADAS_MUNICIPIOS.get(u_filtro) or COORDENADAS_MUNICIPIOS["BRASIL"]
-    zoom_sugerido = 13 if (mun_filtro and mun_filtro != "TODAS") else (8 if (uf_filtro and uf_filtro != "TODAS") else 5)
+    if (mun_filtro and mun_filtro != "TODAS") or (zona_filtro and zona_filtro != "TODAS"):
+        pts_validos = [(l["latitude"], l["longitude"]) for l in locais_lista if l.get("latitude") and l.get("longitude")]
+        if pts_validos:
+            c_lat = round(sum(p[0] for p in pts_validos) / len(pts_validos), 6)
+            c_lon = round(sum(p[1] for p in pts_validos) / len(pts_validos), 6)
+        else:
+            c_lat, c_lon = (
+                cad_tse["mun_coords"].get((u_filtro, m_cod_filtro))
+                or COORDENADAS_MUNICIPIOS.get(m_cod_filtro)
+                or cad_tse["uf_coords"].get(u_filtro)
+                or COORDENADAS_MUNICIPIOS.get(u_filtro)
+                or COORDENADAS_MUNICIPIOS["BRASIL"]
+            )
+    else:
+        c_lat, c_lon = (
+            cad_tse["uf_coords"].get(u_filtro)
+            or COORDENADAS_MUNICIPIOS.get(u_filtro)
+            or COORDENADAS_MUNICIPIOS["BRASIL"]
+        )
+    zoom_sugerido = 14 if (zona_filtro and zona_filtro != "TODAS") else (13 if (mun_filtro and mun_filtro != "TODAS") else (7 if (uf_filtro and uf_filtro != "TODAS") else 5))
 
     tres_foruns_lista = _compilar_tres_foruns_para_mapa(
         locais_lista,
@@ -7664,15 +7821,391 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
     return locais_lista, resumo_locais
 
 
+def _construir_sq_cand_counts_sql(db, filtro_geo: list):
+    """Subquery agregada de votos em 1ºT e 2ºT para Presidente (13 e 22) usada nos filtros forenses."""
+    from sqlalchemy import func, case
+    from .database import TseSecao, TseVotoCandidato
+
+    q_sq_base = db.query(
+        TseVotoCandidato.secao_id.label("sec_id"),
+        func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_2t"),
+        func.coalesce(func.sum(case(((TseVotoCandidato.turno == 2) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_2t"),
+        func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 22), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v22_1t"),
+        func.coalesce(func.sum(case(((TseVotoCandidato.turno == 1) & (TseVotoCandidato.numero_candidato == 13), TseVotoCandidato.quantidade_votos), else_=0)), 0).label("v13_1t"),
+    )
+    if filtro_geo:
+        q_sq_base = q_sq_base.select_from(TseSecao).join(TseVotoCandidato, TseVotoCandidato.secao_id == TseSecao.id).filter(*filtro_geo)
+    return (
+        q_sq_base.filter(
+            TseVotoCandidato.cargo == "PRESIDENTE",
+            TseVotoCandidato.numero_candidato.in_([13, 22]),
+        )
+        .group_by(TseVotoCandidato.secao_id)
+        .subquery()
+    )
+
+
+def _construir_filtro_forense_clauses(db, filtro_forense: str, sq_cand_counts) -> list:
+    """Constrói cláusulas relacionais SQLAlchemy para o filtro forense selecionado."""
+    from sqlalchemy import func, or_
+    from .database import TseSecao, TseApuracaoBU, TseVotoCandidato
+
+    filtro_forense = (filtro_forense or "TODAS").strip()
+    clauses = []
+    if filtro_forense == "TODAS":
+        return clauses
+
+    if filtro_forense == "APENAS_DIVERGENTES":
+        subq_div = db.query(TseApuracaoBU.secao_id).filter(TseApuracaoBU.divergencia_detectada == True)
+        clauses.append(TseSecao.id.in_(subq_div))
+    elif sq_cand_counts is not None and filtro_forense in ("TURNO_VITORIA_FLAVIO", "VITORIA_FLAVIO"):
+        subq_vf = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v22_2t > sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0))
+        clauses.append(TseSecao.id.in_(subq_vf))
+    elif sq_cand_counts is not None and filtro_forense in ("TURNO_VITORIA_LULA", "VITORIA_LULA"):
+        subq_vl = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v13_2t > sq_cand_counts.c.v22_2t) & (sq_cand_counts.c.v13_2t > 0))
+        clauses.append(TseSecao.id.in_(subq_vl))
+    elif sq_cand_counts is not None and filtro_forense in ("TURNO_EMPATE_2T", "EMPATE_2T"):
+        subq_emp = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v22_2t == sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0))
+        clauses.append(TseSecao.id.in_(subq_emp))
+    elif sq_cand_counts is not None and filtro_forense in (
+        "NOVOS_VITORIA_FLAVIO",
+        "NOVOS_VITORIA_LULA",
+        "NOVOS_EMPATE_EXATO",
+        "NOVOS_EMPATE_TECNICO",
+        "NOVOS_DISCREPANCIA",
+        "NOVOS_DISCREP_FLAVIO",
+        "NOVOS_DISCREP_LULA",
+        "ALERTAS_TODOS",
+    ):
+        dv_f = sq_cand_counts.c.v22_2t - sq_cand_counts.c.v22_1t
+        dv_l = sq_cand_counts.c.v13_2t - sq_cand_counts.c.v13_1t
+        tot_nv = dv_f + dv_l
+
+        if filtro_forense == "NOVOS_VITORIA_FLAVIO":
+            clauses.append(TseSecao.id.in_(db.query(sq_cand_counts.c.sec_id).filter((dv_f > dv_l) & (dv_f > 0))))
+        elif filtro_forense == "NOVOS_VITORIA_LULA":
+            clauses.append(TseSecao.id.in_(db.query(sq_cand_counts.c.sec_id).filter((dv_l > dv_f) & (dv_l > 0))))
+        elif filtro_forense == "NOVOS_EMPATE_EXATO":
+            clauses.append(TseSecao.id.in_(db.query(sq_cand_counts.c.sec_id).filter((dv_f == dv_l) & (dv_f > 0))))
+        elif filtro_forense == "NOVOS_EMPATE_TECNICO":
+            cond_empate = (
+                (dv_f > 0) & (dv_l > 0) & (
+                    (func.abs(dv_f - dv_l) <= 3) |
+                    ((func.abs(dv_f - dv_l) * 10) <= tot_nv)
+                )
+            )
+            clauses.append(TseSecao.id.in_(db.query(sq_cand_counts.c.sec_id).filter(cond_empate)))
+        elif filtro_forense == "NOVOS_DISCREPANCIA":
+            cond_disc_f = or_((dv_f >= 5) & (dv_l <= 0), (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7)))
+            cond_disc_l = or_((dv_l >= 5) & (dv_f <= 0), (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7)))
+            clauses.append(TseSecao.id.in_(db.query(sq_cand_counts.c.sec_id).filter(or_(cond_disc_f, cond_disc_l))))
+        elif filtro_forense == "NOVOS_DISCREP_FLAVIO":
+            cond_disc_f = or_((dv_f >= 5) & (dv_l <= 0), (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7)))
+            clauses.append(TseSecao.id.in_(db.query(sq_cand_counts.c.sec_id).filter(cond_disc_f)))
+        elif filtro_forense == "NOVOS_DISCREP_LULA":
+            cond_disc_l = or_((dv_l >= 5) & (dv_f <= 0), (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7)))
+            clauses.append(TseSecao.id.in_(db.query(sq_cand_counts.c.sec_id).filter(cond_disc_l)))
+        elif filtro_forense == "ALERTAS_TODOS":
+            cond_disc_qualquer = or_(
+                (dv_f >= 5) & (dv_l <= 0),
+                (dv_l >= 5) & (dv_f <= 0),
+                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7)),
+                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7))
+            )
+            cond_empate_2t = (sq_cand_counts.c.v22_2t == sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0)
+            subq_alertas_cand = db.query(sq_cand_counts.c.sec_id).filter(or_(cond_disc_qualquer, cond_empate_2t))
+            subq_div = db.query(TseApuracaoBU.secao_id).filter(TseApuracaoBU.divergencia_detectada == True)
+            clauses.append(or_(TseSecao.id.in_(subq_alertas_cand), TseSecao.id.in_(subq_div)))
+
+    elif filtro_forense.startswith("CAND:"):
+        try:
+            num_cand = int(filtro_forense.split(":", 1)[1].strip())
+            subq_cand = db.query(TseVotoCandidato.secao_id).filter(
+                TseVotoCandidato.numero_candidato == num_cand,
+                TseVotoCandidato.quantidade_votos > 0
+            )
+            clauses.append(TseSecao.id.in_(subq_cand))
+        except Exception:
+            pass
+    elif filtro_forense.startswith("DIV_CAND:"):
+        try:
+            num_cand = int(filtro_forense.split(":", 1)[1].strip())
+            subq_div_cand = db.query(TseVotoCandidato.secao_id).filter(
+                TseVotoCandidato.numero_candidato == num_cand,
+                TseVotoCandidato.votos_bu != TseVotoCandidato.votos_rdv
+            )
+            clauses.append(TseSecao.id.in_(subq_div_cand))
+        except Exception:
+            pass
+    elif sq_cand_counts is not None:
+        exact_map = {
+            "BAIXA_22_ZERO": sq_cand_counts.c.v22_2t == 0,
+            "BAIXA_13_ZERO": sq_cand_counts.c.v13_2t == 0,
+            "ZERO_DUPLO_22": (sq_cand_counts.c.v22_2t == 0) & (sq_cand_counts.c.v22_1t == 0),
+            "ZERO_DUPLO_13": (sq_cand_counts.c.v13_2t == 0) & (sq_cand_counts.c.v13_1t == 0),
+            "BAIXA_22_ATE_5": sq_cand_counts.c.v22_2t <= 5,
+            "BAIXA_13_ATE_5": sq_cand_counts.c.v13_2t <= 5,
+            "BAIXA_22_ATE_10": sq_cand_counts.c.v22_2t <= 10,
+            "BAIXA_13_ATE_10": sq_cand_counts.c.v13_2t <= 10,
+            "BAIXA_22_ATE_20": sq_cand_counts.c.v22_2t <= 20,
+            "BAIXA_13_ATE_20": sq_cand_counts.c.v13_2t <= 20,
+        }
+        if filtro_forense in exact_map:
+            clauses.append(TseSecao.id.in_(db.query(sq_cand_counts.c.sec_id).filter(exact_map[filtro_forense])))
+        elif filtro_forense.startswith("VOTOS_EXATOS_22:"):
+            try:
+                k_val = int(filtro_forense.split(":", 1)[1])
+                clauses.append(TseSecao.id.in_(db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t == k_val)))
+            except Exception:
+                pass
+        elif filtro_forense.startswith("VOTOS_EXATOS_13:"):
+            try:
+                k_val = int(filtro_forense.split(":", 1)[1])
+                clauses.append(TseSecao.id.in_(db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t == k_val)))
+            except Exception:
+                pass
+    return clauses
+
+
+def _buscar_votos_cands_secoes(db, sec_ids: list[int]) -> dict:
+    """Consulta em lotes os votos nominais de Presidente por seção."""
+    from .database import TseVotoCandidato
+    votos_cands_sec: dict[int, dict[int, dict[str, int]]] = {}
+    if not sec_ids:
+        return votos_cands_sec
+    try:
+        for chunk_ids in [sec_ids[i:i + 1500] for i in range(0, len(sec_ids), 1500)]:
+            rows_vc = (
+                db.query(
+                    TseVotoCandidato.secao_id,
+                    TseVotoCandidato.turno,
+                    TseVotoCandidato.numero_candidato,
+                    TseVotoCandidato.quantidade_votos,
+                )
+                .filter(
+                    TseVotoCandidato.secao_id.in_(chunk_ids),
+                    TseVotoCandidato.cargo == "PRESIDENTE",
+                )
+                .all()
+            )
+            for vc in rows_vc:
+                votos_cands_sec.setdefault(vc.secao_id, {}).setdefault(vc.turno, {})[str(vc.numero_candidato)] = int(vc.quantidade_votos or 0)
+    except Exception as exc_vc:
+        print(f"[TSE-MAP] Aviso ao consultar votos candidatos: {exc_vc}")
+    return votos_cands_sec
+
+
+def _consultar_locais_viewport_mapa_sql(
+    db,
+    regiao: str = "TODAS",
+    uf: str = "TODAS",
+    filtro_forense: str = "TODAS",
+    lat_min: float | None = None,
+    lat_max: float | None = None,
+    lon_min: float | None = None,
+    lon_max: float | None = None,
+) -> dict:
+    """
+    Consulta dinâmica por bounding box do mapa para escopos estaduais, regionais ou nacionais.
+    Seleciona os municípios presentes no PostgreSQL enquadrados na área visível da câmera,
+    ordenados pela proximidade ao centro do viewport, garantindo resposta rápida ao arrastar o mapa.
+    """
+    from sqlalchemy.orm import aliased
+    from sqlalchemy import func, case, or_
+    from .database import TseSecao, TseApuracaoBU
+
+    regiao_up = (regiao or "TODAS").strip()
+    uf_up = (uf or "TODAS").strip().upper()
+    filtro_forense = (filtro_forense or "TODAS").strip()
+
+    filtro_geo = []
+    if uf_up != "TODAS":
+        filtro_geo.append(TseSecao.uf == uf_up)
+    elif regiao_up.upper() != "TODAS":
+        filtro_geo.append(TseSecao.regiao == regiao_up.upper())
+
+    cad_tse = _carregar_cadastro_locais_tse()
+    mun_coords = cad_tse["mun_coords"]
+    uf_coords = cad_tse["uf_coords"]
+
+    # Lista rápida de municípios que possuem urnas carregadas no banco dentro do filtro UF/Região
+    rows_muns = (
+        db.query(TseSecao.uf, TseSecao.municipio_codigo, func.count(TseSecao.id))
+        .filter(*filtro_geo)
+        .group_by(TseSecao.uf, TseSecao.municipio_codigo)
+        .all()
+    )
+
+    has_bounds = all(v is not None for v in (lat_min, lat_max, lon_min, lon_max))
+    if has_bounds:
+        c_lat = (float(lat_min) + float(lat_max)) / 2.0
+        c_lon = (float(lon_min) + float(lon_max)) / 2.0
+        b_lat_min, b_lat_max = float(lat_min), float(lat_max)
+        b_lon_min, b_lon_max = float(lon_min), float(lon_max)
+    else:
+        c_lat, c_lon = (
+            uf_coords.get(uf_up)
+            or COORDENADAS_MUNICIPIOS.get(uf_up)
+            or COORDENADAS_MUNICIPIOS["BRASIL"]
+        )
+        span_lat = 1.6 if uf_up != "TODAS" else 5.0
+        span_lon = 1.8 if uf_up != "TODAS" else 6.0
+        b_lat_min, b_lat_max = c_lat - span_lat, c_lat + span_lat
+        b_lon_min, b_lon_max = c_lon - span_lon, c_lon + span_lon
+
+    candidatos_muns = []
+    for m_uf, m_cod_raw, cnt in rows_muns:
+        m_cod = str(m_cod_raw or "").strip().zfill(5)
+        u_m = str(m_uf or uf_up).strip().upper()
+        coord = mun_coords.get((u_m, m_cod)) or COORDENADAS_MUNICIPIOS.get(m_cod) or uf_coords.get(u_m) or COORDENADAS_MUNICIPIOS.get(u_m)
+        if not coord:
+            continue
+        mlat, mlon = float(coord[0]), float(coord[1])
+        dentro = (b_lat_min <= mlat <= b_lat_max) and (b_lon_min <= mlon <= b_lon_max)
+        if has_bounds and not dentro:
+            continue
+        dist2 = (mlat - c_lat) ** 2 + (mlon - c_lon) ** 2
+        candidatos_muns.append((dist2, m_cod, int(cnt or 0)))
+
+    candidatos_muns.sort(key=lambda x: x[0])
+
+    # Seleciona os municípios mais próximos do centro da câmera respeitando teto seguro (~6000 seções)
+    muns_selecionados = []
+    acumulado_secs = 0
+    for _, m_cod, cnt in candidatos_muns:
+        if acumulado_secs > 0 and (acumulado_secs + cnt) > 6200:
+            break
+        muns_selecionados.append(m_cod)
+        acumulado_secs += cnt
+        if len(muns_selecionados) >= 45:
+            break
+
+    escopo_completo = (len(muns_selecionados) == len(rows_muns)) and not has_bounds
+    if not muns_selecionados:
+        tres_vazio = _compilar_tres_foruns_para_mapa([], uf_filtro=uf_up, mun_filtro="TODAS")
+        return {
+            "regiao": regiao_up,
+            "uf": uf_up,
+            "municipio": "TODAS",
+            "zona": "TODAS",
+            "filtro_forense": filtro_forense,
+            "total_urnas": sum(int(r[2] or 0) for r in rows_muns),
+            "locais_votacao": [],
+            "tres_foruns": tres_vazio,
+            "resumo_locais": {
+                "total_locais": 0,
+                "total_tres_foruns": len(tres_vazio),
+                "tres_foruns": tres_vazio,
+                "centro_mapa": [c_lat, c_lon],
+                "zoom_sugerido": 7 if uf_up != "TODAS" else 5,
+            },
+            "escopo_completo": len(rows_muns) == 0,
+            "modo_viewport_dinamico": True,
+        }
+
+    filtro_viewport = list(filtro_geo)
+    filtro_viewport.append(TseSecao.municipio_codigo.in_(muns_selecionados))
+    if filtro_forense != "TODAS":
+        sq_cc = _construir_sq_cand_counts_sql(db, filtro_viewport)
+        filtro_viewport.extend(_construir_filtro_forense_clauses(db, filtro_forense, sq_cc))
+
+    bu_t2_alias = aliased(TseApuracaoBU)
+    bu_t1_alias = aliased(TseApuracaoBU)
+    votos_col = func.coalesce(bu_t2_alias.comparecimento, bu_t1_alias.comparecimento, 0)
+    aptos_col = func.coalesce(bu_t2_alias.eleitores_aptos, bu_t1_alias.eleitores_aptos, 0)
+    pleito_col = func.coalesce(bu_t2_alias.pleito, bu_t1_alias.pleito)
+    diverg_col = case(
+        (or_(bu_t2_alias.divergencia_detectada == True, bu_t1_alias.divergencia_detectada == True), True),
+        else_=False,
+    )
+    turno_col = case((bu_t2_alias.id.isnot(None), 2), else_=case((bu_t1_alias.id.isnot(None), 1), else_=0))
+
+    rows_sec = (
+        db.query(
+            TseSecao.id,
+            TseSecao.secao,
+            TseSecao.zona,
+            TseSecao.uf,
+            TseSecao.regiao,
+            TseSecao.municipio_codigo,
+            TseSecao.municipio_nome,
+            TseSecao.chave_secao,
+            TseSecao.modelo_urna,
+            TseSecao.local_votacao,
+            votos_col.label("votos"),
+            aptos_col.label("aptos"),
+            pleito_col.label("pleito"),
+            diverg_col.label("divergencia"),
+            turno_col.label("turno_ativo"),
+            bu_t2_alias.divergencia_descricao.label("desc_div2"),
+            bu_t1_alias.divergencia_descricao.label("desc_div1"),
+            bu_t2_alias.votos_brancos.label("brancos_2t"),
+            bu_t2_alias.votos_nulos.label("nulos_2t"),
+            bu_t1_alias.votos_brancos.label("brancos_1t"),
+            bu_t1_alias.votos_nulos.label("nulos_1t"),
+            bu_t2_alias.comparecimento.label("comp_2t"),
+            bu_t1_alias.comparecimento.label("comp_1t"),
+        )
+        .select_from(TseSecao)
+        .outerjoin(bu_t2_alias, (bu_t2_alias.secao_id == TseSecao.id) & (bu_t2_alias.turno == 2))
+        .outerjoin(bu_t1_alias, (bu_t1_alias.secao_id == TseSecao.id) & (bu_t1_alias.turno == 1))
+        .filter(*filtro_viewport)
+        .limit(6500)
+        .all()
+    )
+    votos_cands_sec = _buscar_votos_cands_secoes(db, [r.id for r in rows_sec])
+    locais_lista, resumo_locais = compilar_locais_votacao_para_mapa(
+        rows_sec=rows_sec,
+        votos_cands_sec=votos_cands_sec,
+        uf_filtro=uf_up,
+        mun_filtro="TODAS",
+        zona_filtro="TODAS",
+    )
+    if has_bounds:
+        resumo_locais["centro_mapa"] = [c_lat, c_lon]
+
+    return {
+        "regiao": regiao_up,
+        "uf": uf_up,
+        "municipio": "TODAS",
+        "zona": "TODAS",
+        "filtro_forense": filtro_forense,
+        "total_urnas": len(rows_sec),
+        "locais_votacao": locais_lista,
+        "tres_foruns": resumo_locais.get("tres_foruns", []),
+        "resumo_locais": resumo_locais,
+        "escopo_completo": escopo_completo,
+        "modo_viewport_dinamico": not escopo_completo,
+    }
+
+
 def obter_locais_votacao_mapa_api(
     db,
     regiao: str = "TODAS",
     uf: str = "TODAS",
     municipio: str = "TODAS",
     zona: str = "TODAS",
-    filtro_forense: str = "TODAS"
+    filtro_forense: str = "TODAS",
+    lat_min: float | None = None,
+    lat_max: float | None = None,
+    lon_min: float | None = None,
+    lon_max: float | None = None,
 ) -> dict:
     """API para consulta dedicada dos locais de votação com coordenadas para mapa Leaflet."""
+    mun_norm = (municipio or "TODAS").strip()
+    zon_norm = (zona or "TODAS").strip()
+    if mun_norm == "TODAS" and zon_norm == "TODAS":
+        return _consultar_locais_viewport_mapa_sql(
+            db=db,
+            regiao=regiao,
+            uf=uf,
+            filtro_forense=filtro_forense,
+            lat_min=lat_min,
+            lat_max=lat_max,
+            lon_min=lon_min,
+            lon_max=lon_max,
+        )
+
     res = _consolidar_secoes_tse_sql(
         db,
         regiao_filtro=regiao,
@@ -7696,6 +8229,8 @@ def obter_locais_votacao_mapa_api(
         "locais_votacao": hier.get("locais_votacao", []),
         "tres_foruns": resumo.get("tres_foruns", []),
         "resumo_locais": resumo,
+        "escopo_completo": True,
+        "modo_viewport_dinamico": False,
     }
 
 
@@ -8396,160 +8931,7 @@ def _consolidar_secoes_tse_sql(
                 pass
 
     # 1.2 Aplicação Relacional do Filtro Forense Solicitado
-    filtro_forense_clauses = []
-    if filtro_forense == "APENAS_DIVERGENTES":
-        subq_div = db.query(TseApuracaoBU.secao_id).filter(TseApuracaoBU.divergencia_detectada == True)
-        filtro_forense_clauses.append(TseSecao.id.in_(subq_div))
-    elif sq_cand_counts is not None and filtro_forense in ("TURNO_VITORIA_FLAVIO", "VITORIA_FLAVIO"):
-        subq_vf = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v22_2t > sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0))
-        filtro_forense_clauses.append(TseSecao.id.in_(subq_vf))
-    elif sq_cand_counts is not None and filtro_forense in ("TURNO_VITORIA_LULA", "VITORIA_LULA"):
-        subq_vl = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v13_2t > sq_cand_counts.c.v22_2t) & (sq_cand_counts.c.v13_2t > 0))
-        filtro_forense_clauses.append(TseSecao.id.in_(subq_vl))
-    elif sq_cand_counts is not None and filtro_forense in ("TURNO_EMPATE_2T", "EMPATE_2T"):
-        subq_emp = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v22_2t == sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0))
-        filtro_forense_clauses.append(TseSecao.id.in_(subq_emp))
-    elif sq_cand_counts is not None and filtro_forense in (
-        "NOVOS_VITORIA_FLAVIO",
-        "NOVOS_VITORIA_LULA",
-        "NOVOS_EMPATE_EXATO",
-        "NOVOS_EMPATE_TECNICO",
-        "NOVOS_DISCREPANCIA",
-        "NOVOS_DISCREP_FLAVIO",
-        "NOVOS_DISCREP_LULA",
-        "ALERTAS_TODOS",
-    ):
-        dv_f = sq_cand_counts.c.v22_2t - sq_cand_counts.c.v22_1t
-        dv_l = sq_cand_counts.c.v13_2t - sq_cand_counts.c.v13_1t
-        tot_nv = dv_f + dv_l
-
-        if filtro_forense == "NOVOS_VITORIA_FLAVIO":
-            subq_nv = db.query(sq_cand_counts.c.sec_id).filter((dv_f > dv_l) & (dv_f > 0))
-            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
-
-        elif filtro_forense == "NOVOS_VITORIA_LULA":
-            subq_nv = db.query(sq_cand_counts.c.sec_id).filter((dv_l > dv_f) & (dv_l > 0))
-            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
-
-        elif filtro_forense == "NOVOS_EMPATE_EXATO":
-            subq_nv = db.query(sq_cand_counts.c.sec_id).filter((dv_f == dv_l) & (dv_f > 0))
-            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
-
-        elif filtro_forense == "NOVOS_EMPATE_TECNICO":
-            cond_empate = (
-                (dv_f > 0) & (dv_l > 0) & (
-                    (func.abs(dv_f - dv_l) <= 3) |
-                    ((func.abs(dv_f - dv_l) * 10) <= tot_nv)
-                )
-            )
-            subq_nv = db.query(sq_cand_counts.c.sec_id).filter(cond_empate)
-            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
-
-        elif filtro_forense == "NOVOS_DISCREPANCIA":
-            cond_disc_f = or_(
-                (dv_f >= 5) & (dv_l <= 0),
-                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7))
-            )
-            cond_disc_l = or_(
-                (dv_l >= 5) & (dv_f <= 0),
-                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7))
-            )
-            subq_nv = db.query(sq_cand_counts.c.sec_id).filter(or_(cond_disc_f, cond_disc_l))
-            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
-
-        elif filtro_forense == "NOVOS_DISCREP_FLAVIO":
-            cond_disc_f = or_(
-                (dv_f >= 5) & (dv_l <= 0),
-                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7))
-            )
-            subq_nv = db.query(sq_cand_counts.c.sec_id).filter(cond_disc_f)
-            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
-
-        elif filtro_forense == "NOVOS_DISCREP_LULA":
-            cond_disc_l = or_(
-                (dv_l >= 5) & (dv_f <= 0),
-                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7))
-            )
-            subq_nv = db.query(sq_cand_counts.c.sec_id).filter(cond_disc_l)
-            filtro_forense_clauses.append(TseSecao.id.in_(subq_nv))
-
-        elif filtro_forense == "ALERTAS_TODOS":
-            cond_disc_qualquer = or_(
-                (dv_f >= 5) & (dv_l <= 0),
-                (dv_l >= 5) & (dv_f <= 0),
-                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_f * 3) >= (dv_l * 7)),
-                (dv_f > 0) & (dv_l > 0) & ((dv_f + dv_l) >= 5) & ((dv_l * 3) >= (dv_f * 7))
-            )
-            cond_empate_2t = (sq_cand_counts.c.v22_2t == sq_cand_counts.c.v13_2t) & (sq_cand_counts.c.v22_2t > 0)
-            subq_alertas_cand = db.query(sq_cand_counts.c.sec_id).filter(or_(cond_disc_qualquer, cond_empate_2t))
-            subq_div = db.query(TseApuracaoBU.secao_id).filter(TseApuracaoBU.divergencia_detectada == True)
-            filtro_forense_clauses.append(or_(TseSecao.id.in_(subq_alertas_cand), TseSecao.id.in_(subq_div)))
-
-    elif filtro_forense.startswith("CAND:"):
-        try:
-            num_cand = int(filtro_forense.split(":", 1)[1].strip())
-            subq_cand = db.query(TseVotoCandidato.secao_id).filter(
-                TseVotoCandidato.numero_candidato == num_cand,
-                TseVotoCandidato.quantidade_votos > 0
-            )
-            filtro_forense_clauses.append(TseSecao.id.in_(subq_cand))
-        except Exception:
-            pass
-    elif filtro_forense.startswith("DIV_CAND:"):
-        try:
-            num_cand = int(filtro_forense.split(":", 1)[1].strip())
-            subq_div_cand = db.query(TseVotoCandidato.secao_id).filter(
-                TseVotoCandidato.numero_candidato == num_cand,
-                TseVotoCandidato.votos_bu != TseVotoCandidato.votos_rdv
-            )
-            filtro_forense_clauses.append(TseSecao.id.in_(subq_div_cand))
-        except Exception:
-            pass
-    elif sq_cand_counts is not None and filtro_forense == "BAIXA_22_ZERO":
-        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t == 0)
-        filtro_forense_clauses.append(TseSecao.id.in_(subq))
-    elif sq_cand_counts is not None and filtro_forense == "BAIXA_13_ZERO":
-        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t == 0)
-        filtro_forense_clauses.append(TseSecao.id.in_(subq))
-    elif sq_cand_counts is not None and filtro_forense == "ZERO_DUPLO_22":
-        subq = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v22_2t == 0) & (sq_cand_counts.c.v22_1t == 0))
-        filtro_forense_clauses.append(TseSecao.id.in_(subq))
-    elif sq_cand_counts is not None and filtro_forense == "ZERO_DUPLO_13":
-        subq = db.query(sq_cand_counts.c.sec_id).filter((sq_cand_counts.c.v13_2t == 0) & (sq_cand_counts.c.v13_1t == 0))
-        filtro_forense_clauses.append(TseSecao.id.in_(subq))
-    elif sq_cand_counts is not None and filtro_forense == "BAIXA_22_ATE_5":
-        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t <= 5)
-        filtro_forense_clauses.append(TseSecao.id.in_(subq))
-    elif sq_cand_counts is not None and filtro_forense == "BAIXA_13_ATE_5":
-        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t <= 5)
-        filtro_forense_clauses.append(TseSecao.id.in_(subq))
-    elif sq_cand_counts is not None and filtro_forense == "BAIXA_22_ATE_10":
-        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t <= 10)
-        filtro_forense_clauses.append(TseSecao.id.in_(subq))
-    elif sq_cand_counts is not None and filtro_forense == "BAIXA_13_ATE_10":
-        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t <= 10)
-        filtro_forense_clauses.append(TseSecao.id.in_(subq))
-    elif sq_cand_counts is not None and filtro_forense == "BAIXA_22_ATE_20":
-        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t <= 20)
-        filtro_forense_clauses.append(TseSecao.id.in_(subq))
-    elif sq_cand_counts is not None and filtro_forense == "BAIXA_13_ATE_20":
-        subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t <= 20)
-        filtro_forense_clauses.append(TseSecao.id.in_(subq))
-    elif sq_cand_counts is not None and filtro_forense.startswith("VOTOS_EXATOS_22:"):
-        try:
-            k_val = int(filtro_forense.split(":", 1)[1])
-            subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v22_2t == k_val)
-            filtro_forense_clauses.append(TseSecao.id.in_(subq))
-        except Exception:
-            pass
-    elif sq_cand_counts is not None and filtro_forense.startswith("VOTOS_EXATOS_13:"):
-        try:
-            k_val = int(filtro_forense.split(":", 1)[1])
-            subq = db.query(sq_cand_counts.c.sec_id).filter(sq_cand_counts.c.v13_2t == k_val)
-            filtro_forense_clauses.append(TseSecao.id.in_(subq))
-        except Exception:
-            pass
-
+    filtro_forense_clauses = _construir_filtro_forense_clauses(db, filtro_forense, sq_cand_counts)
     filtro_secao.extend(filtro_forense_clauses)
 
     # 2. Regiões (Nível 1)
@@ -8750,29 +9132,7 @@ def _consolidar_secoes_tse_sql(
 
     # Mapeia votos nominais dos candidatos a Presidente para cálculo heurístico de alertas no seletor
     sec_ids_seletor = [r.id for r in rows_sec]
-    votos_cands_sec = {}
-    if sec_ids_seletor:
-        try:
-            from .database import TseVotoCandidato
-            # Em escopos com mais de 1000 seções, busca em lotes para total segurança de parâmetros SQL
-            for chunk_ids in [sec_ids_seletor[i:i + 1500] for i in range(0, len(sec_ids_seletor), 1500)]:
-                rows_vc = (
-                    db.query(
-                        TseVotoCandidato.secao_id,
-                        TseVotoCandidato.turno,
-                        TseVotoCandidato.numero_candidato,
-                        TseVotoCandidato.quantidade_votos,
-                    )
-                    .filter(
-                        TseVotoCandidato.secao_id.in_(chunk_ids),
-                        TseVotoCandidato.cargo == "PRESIDENTE",
-                    )
-                    .all()
-                )
-                for vc in rows_vc:
-                    votos_cands_sec.setdefault(vc.secao_id, {}).setdefault(vc.turno, {})[str(vc.numero_candidato)] = int(vc.quantidade_votos or 0)
-        except Exception as exc_vc:
-            print(f"[TSE-TREE] Aviso ao consultar votos candidatos para seletor: {exc_vc}")
+    votos_cands_sec = _buscar_votos_cands_secoes(db, sec_ids_seletor)
 
     lista_secoes_seletor = []
     # No seletor HTML (coluna 5 da árvore), limita a 1000 itens para não sobrecarregar o DOM do browser

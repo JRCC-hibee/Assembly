@@ -92,8 +92,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-14-rev67"
-SYSTEM_COMMIT = "rev67-pins-roxos-tre-foruns-eleitorais-proximidade"
+SYSTEM_BUILD = "2026-11-14-rev68"
+SYSTEM_COMMIT = "rev68-enderecos-reais-tse-2026-pins-limpos-mapa-dinamico"
 
 def obter_basemaps_apikey() -> str:
     """Retorna a API key do CartoDB Basemaps a partir de variáveis de ambiente do Portainer/Docker."""
@@ -1445,6 +1445,10 @@ def api_tse_reverso_locais_votacao_mapa(
     municipio: str = "TODAS",
     zona: str = "TODAS",
     filtro_forense: str = "TODAS",
+    lat_min: Optional[float] = None,
+    lat_max: Optional[float] = None,
+    lon_min: Optional[float] = None,
+    lon_max: Optional[float] = None,
     db: Session = Depends(get_db),
 ):
     """
@@ -1459,6 +1463,10 @@ def api_tse_reverso_locais_votacao_mapa(
         municipio=municipio,
         zona=zona,
         filtro_forense=filtro_forense,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
     )
 
 

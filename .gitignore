@@ -11,7 +11,9 @@ ENV/
 # Database & Cartridges local runtime
 *.db
 *.sqlite3
-data/
+/data/
+!backend/app/data/
+!backend/app/data/*.tsv.gz
 cartuchos/*.zip
 cartuchos/*.rdv
 cartuchos/*.bu

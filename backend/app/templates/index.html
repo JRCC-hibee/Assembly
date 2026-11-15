@@ -135,13 +135,14 @@
       font-family: 'JetBrains Mono', monospace;
       font-weight: 800;
       cursor: pointer;
-      box-shadow: 0 4px 14px rgba(0,0,0,0.7);
-      transition: transform 0.15s ease-in-out;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.72);
+      transition: transform 0.14s ease-in-out, box-shadow 0.14s ease-in-out;
       text-align: center;
     }
     .pin-urna-container:hover {
-      transform: scale(1.18);
+      transform: scale(1.22);
       z-index: 1000 !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.9);
     }
     .pin-verde {
       background: linear-gradient(135deg, #059669 0%, #047857 100%);
@@ -159,44 +160,46 @@
       color: #ffffff;
     }
     .pin-anomalia {
-      box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.4), 0 0 18px rgba(239, 68, 68, 0.9) !important;
+      box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.75), 0 2px 8px rgba(239, 68, 68, 0.65) !important;
       animation: pulse-pin 1.8s infinite;
     }
     @keyframes pulse-pin {
-      0% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.7); }
-      50% { box-shadow: 0 0 0 9px rgba(239, 68, 68, 0.2); }
-      100% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.7); }
+      0% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.8), 0 2px 6px rgba(0, 0, 0, 0.6); }
+      50% { box-shadow: 0 0 0 5px rgba(239, 68, 68, 0.25), 0 2px 10px rgba(239, 68, 68, 0.7); }
+      100% { box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.8), 0 2px 6px rgba(0, 0, 0, 0.6); }
     }
     /* Alerta Âmbar Piscante: Divergência Interna / Sem Unanimidade em Votos Novos */
     .pin-divergencia-novos {
-      box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.5), 0 0 18px rgba(245, 158, 11, 0.95) !important;
-      animation: pulse-pin-amber 1.5s infinite !important;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.88), 0 2px 8px rgba(0, 0, 0, 0.7) !important;
+      animation: pulse-pin-amber 1.7s infinite !important;
     }
     @keyframes pulse-pin-amber {
-      0% { box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.85), 0 0 8px rgba(245, 158, 11, 0.6); }
-      50% { box-shadow: 0 0 0 10px rgba(245, 158, 11, 0.25), 0 0 22px rgba(245, 158, 11, 1); }
-      100% { box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.85), 0 0 8px rgba(245, 158, 11, 0.6); }
+      0% { box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.9), 0 2px 6px rgba(0, 0, 0, 0.65); }
+      50% { box-shadow: 0 0 0 5px rgba(245, 158, 11, 0.28), 0 2px 10px rgba(245, 158, 11, 0.75); }
+      100% { box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.9), 0 2px 6px rgba(0, 0, 0, 0.65); }
     }
     /* Caso ocorra anomalia estatística E divergência interna de unanimidade */
     .pin-anomalia-e-divergencia {
-      box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.7), 0 0 0 7px rgba(239, 68, 68, 0.4), 0 0 22px rgba(245, 158, 11, 0.9) !important;
-      animation: pulse-pin-amber 1.5s infinite !important;
+      box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.92), 0 0 0 4px rgba(239, 68, 68, 0.5), 0 2px 8px rgba(0, 0, 0, 0.7) !important;
+      animation: pulse-pin-amber 1.7s infinite !important;
     }
     .pin-inversao {
-      outline: 2px dashed #38bdf8 !important;
-      outline-offset: 2px;
+      outline: 1.5px solid #38bdf8 !important;
+      outline-offset: 1px;
     }
     /* PIN Roxo Destacado: TRE Estadual ou Fórum Eleitoral Municipal */
     .pin-tre-container {
-      display: flex;
+      display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 3px;
-      padding: 0 7px;
-      height: 30px;
-      border-radius: 10px;
+      gap: 4px;
+      padding: 0 8px;
+      height: 28px;
+      width: max-content;
+      transform: translate(-50%, -50%);
+      border-radius: 9px;
       background: linear-gradient(135deg, #9333ea 0%, #6b21a8 100%);
-      border: 2.5px solid #e9d5ff;
+      border: 2px solid #e9d5ff;
       color: #ffffff;
       font-family: 'JetBrains Mono', monospace;
       font-weight: 900;
@@ -204,12 +207,12 @@
       letter-spacing: 0.03em;
       white-space: nowrap;
       cursor: pointer;
-      box-shadow: 0 0 0 4px rgba(168, 85, 247, 0.35), 0 6px 18px rgba(88, 28, 135, 0.9);
+      box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.32), 0 4px 12px rgba(88, 28, 135, 0.85);
       transition: transform 0.16s ease-in-out, box-shadow 0.16s ease-in-out;
     }
     .pin-tre-container:hover {
-      transform: scale(1.16);
-      box-shadow: 0 0 0 6px rgba(192, 132, 252, 0.55), 0 8px 24px rgba(126, 34, 206, 1);
+      transform: translate(-50%, -50%) scale(1.14);
+      box-shadow: 0 0 0 5px rgba(192, 132, 252, 0.5), 0 6px 18px rgba(126, 34, 206, 0.95);
       z-index: 1200 !important;
     }
     .pin-tre-ativo {
@@ -13188,7 +13191,17 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
     window.tseCriterioCorPinsMapa = "TOTAL"; // "TOTAL" | "NOVOS" | "INVERSAO"
     window.tseEstiloMapaTile = window.tseEstiloMapaTile || "dark";
     window.tseUltimoEscopoCarregado = null;
+    window.tseMapaEscopoCacheKey = null;
+    window.tseMapaEscopoCompleto = false;
+    window.tseViewportBoundsCarregado = null;
+    window.tseViewportZoomCarregado = null;
+    window.tseViewportAbortCtrl = null;
     window.tseMapMoveListenerAttached = false;
+
+    function obterChaveEscopoMapaTse() {
+      const st = window.arvoreTseState || {};
+      return `${st.regiao || 'TODAS'}|${st.uf || 'TODAS'}|${st.municipio || 'TODAS'}|${st.zona || 'TODAS'}|${st.filtro_forense || 'TODAS'}|${st.cargo || 'PRESIDENTE'}`;
+    }
 
     function calcularDistanciaKmTse(lat1, lon1, lat2, lon2) {
       if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return null;
@@ -13389,20 +13402,29 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
     function atualizarDadosLocaisVotacaoMapaTse(payload) {
       if (!payload) return;
-      const locais = payload.consolidado?.locais_votacao || payload.hierarquia?.locais_votacao || [];
+      const locais = payload.consolidado?.locais_votacao || payload.hierarquia?.locais_votacao;
+      if (!Array.isArray(locais)) return;
+
       const resumo = payload.consolidado?.resumo_locais || payload.hierarquia?.resumo_locais || null;
       const tres = resumo?.tres_foruns || payload.tres_foruns || [];
+      const st = window.arvoreTseState || {};
 
-      if (Array.isArray(locais) && locais.length > 0) {
-        window.tseLocaisVotacaoCache = locais;
-        window.tseTodosLocaisCache = locais;
-        window.tseLocaisVotacaoResumo = resumo;
-        popularSeletorTresForunsTse(tres);
+      window.tseLocaisVotacaoCache = locais;
+      window.tseTodosLocaisCache = locais;
+      window.tseLocaisVotacaoResumo = resumo;
+      window.tseMapaEscopoCacheKey = obterChaveEscopoMapaTse();
+      window.tseMapaEscopoCompleto = Boolean(
+        resumo?.escopo_completo ||
+        (st.municipio && st.municipio !== "TODAS") ||
+        (st.zona && st.zona !== "TODAS")
+      );
+      window.tseViewportBoundsCarregado = null;
+      window.tseViewportZoomCarregado = null;
+      popularSeletorTresForunsTse(tres);
 
-        const painel = document.getElementById("tsePainelMapaLocais");
-        if (painel && !painel.classList.contains("hidden")) {
-          renderizarMapaLocaisTse(locais, resumo);
-        }
+      const painel = document.getElementById("tsePainelMapaLocais");
+      if (painel && !painel.classList.contains("hidden")) {
+        renderizarMapaLocaisTse(locais, resumo, false);
       }
     }
 
@@ -13421,19 +13443,31 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         painel.classList.remove("hidden");
         if (btnTexto) btnTexto.textContent = "🌳 Árvore de 5 Níveis";
 
-        // Se ainda não temos dados em cache ou o filtro mudou, busca do backend
-        if (!window.tseTodosLocaisCache || window.tseTodosLocaisCache.length === 0) {
+        if (window.tseLeafletMapInstance) {
+          window.tseLeafletMapInstance.invalidateSize();
+        }
+
+        const chaveAtual = obterChaveEscopoMapaTse();
+        const precisaBuscar =
+          !window.tseTodosLocaisCache ||
+          window.tseTodosLocaisCache.length === 0 ||
+          window.tseMapaEscopoCacheKey !== chaveAtual;
+
+        if (precisaBuscar) {
           await carregarLocaisVotacaoBackendTse();
         } else {
-          renderizarMapaLocaisTse(window.tseTodosLocaisCache, window.tseLocaisVotacaoResumo);
+          renderizarMapaLocaisTse(window.tseTodosLocaisCache, window.tseLocaisVotacaoResumo, false);
         }
 
         setTimeout(() => {
           if (window.tseLeafletMapInstance) {
             window.tseLeafletMapInstance.invalidateSize();
             atualizarLocaisVisiveisViewportTse(true);
+            if (!window.tseMapaEscopoCompleto) {
+              carregarLocaisViewportDinamicoTse(true);
+            }
           }
-        }, 200);
+        }, 180);
       } else {
         painel.classList.add("hidden");
         if (colunas) colunas.classList.remove("hidden");
@@ -13441,7 +13475,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }
     }
 
-    async function carregarLocaisVotacaoBackendTse() {
+    async function carregarLocaisVotacaoBackendTse(bounds = null) {
       const st = window.arvoreTseState || {};
       const qs = new URLSearchParams({
         regiao: st.regiao || "TODAS",
@@ -13452,18 +13486,79 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         cargo: st.cargo || "PRESIDENTE"
       });
 
+      const isViewport = Boolean(
+        bounds &&
+        bounds.lat_min != null &&
+        bounds.lat_max != null &&
+        bounds.lon_min != null &&
+        bounds.lon_max != null
+      );
+      if (isViewport) {
+        qs.set("lat_min", Number(bounds.lat_min).toFixed(5));
+        qs.set("lat_max", Number(bounds.lat_max).toFixed(5));
+        qs.set("lon_min", Number(bounds.lon_min).toFixed(5));
+        qs.set("lon_max", Number(bounds.lon_max).toFixed(5));
+      }
+
+      if (window.tseViewportAbortCtrl) {
+        try { window.tseViewportAbortCtrl.abort(); } catch (_) {}
+      }
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      window.tseViewportAbortCtrl = ctrl;
+
       try {
-        const res = await fetch(`/api/tse-reverso/locais-votacao-mapa?${qs.toString()}`);
+        const res = await fetch(`/api/tse-reverso/locais-votacao-mapa?${qs.toString()}`, ctrl ? { signal: ctrl.signal } : undefined);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        window.tseLocaisVotacaoCache = data.locais_votacao || [];
-        window.tseTodosLocaisCache = data.locais_votacao || [];
+        const novosLocais = Array.isArray(data.locais_votacao) ? data.locais_votacao : [];
+
+        window.tseMapaEscopoCacheKey = obterChaveEscopoMapaTse();
+        window.tseMapaEscopoCompleto = Boolean(data.escopo_completo);
+        window.tseLocaisVotacaoCache = novosLocais;
+        window.tseTodosLocaisCache = novosLocais;
         window.tseLocaisVotacaoResumo = data.resumo_locais || null;
         popularSeletorTresForunsTse(data.tres_foruns || data.resumo_locais?.tres_foruns || []);
-        renderizarMapaLocaisTse(window.tseTodosLocaisCache, window.tseLocaisVotacaoResumo);
+
+        if (isViewport && window.tseLeafletMapInstance && typeof L !== "undefined") {
+          window.tseViewportBoundsCarregado = L.latLngBounds(
+            [bounds.lat_min, bounds.lon_min],
+            [bounds.lat_max, bounds.lon_max]
+          );
+          window.tseViewportZoomCarregado = window.tseLeafletMapInstance.getZoom();
+        } else {
+          window.tseViewportBoundsCarregado = null;
+          window.tseViewportZoomCarregado = window.tseLeafletMapInstance ? window.tseLeafletMapInstance.getZoom() : null;
+        }
+
+        renderizarMapaLocaisTse(window.tseTodosLocaisCache, window.tseLocaisVotacaoResumo, isViewport);
       } catch (err) {
+        if (err && err.name === "AbortError") return;
         console.error("[MAPA-TSE] Erro ao carregar locais:", err);
       }
+    }
+
+    async function carregarLocaisViewportDinamicoTse(forcar = false) {
+      if (!window.tseLeafletMapInstance || window.tseMapaEscopoCompleto) return;
+      const painel = document.getElementById("tsePainelMapaLocais");
+      if (!painel || painel.classList.contains("hidden")) return;
+
+      const map = window.tseLeafletMapInstance;
+      const bVis = map.getBounds();
+      const zoomAtual = map.getZoom();
+
+      if (!forcar && window.tseViewportBoundsCarregado) {
+        const jaCoberto = window.tseViewportBoundsCarregado.contains(bVis);
+        const zoomSubiu = window.tseViewportZoomCarregado !== null && zoomAtual >= window.tseViewportZoomCarregado + 2;
+        if (jaCoberto && !zoomSubiu) return;
+      }
+
+      const bPad = bVis.pad(0.35);
+      await carregarLocaisVotacaoBackendTse({
+        lat_min: bPad.getSouth(),
+        lat_max: bPad.getNorth(),
+        lon_min: bPad.getWest(),
+        lon_max: bPad.getEast()
+      });
     }
 
     function obterTileLayerUrl(estilo) {
@@ -13532,9 +13627,18 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         window.tseMapMoveListenerAttached = true;
         const debouncedViewportUpdate = debounceTse(() => {
           atualizarLocaisVisiveisViewportTse();
-        }, 90);
-        window.tseLeafletMapInstance.on('moveend', debouncedViewportUpdate);
-        window.tseLeafletMapInstance.on('zoomend', debouncedViewportUpdate);
+        }, 80);
+        const debouncedBackendViewportFetch = debounceTse(() => {
+          if (!window.tseMapaEscopoCompleto) {
+            carregarLocaisViewportDinamicoTse(false);
+          }
+        }, 220);
+        const onCameraMoved = () => {
+          debouncedViewportUpdate();
+          debouncedBackendViewportFetch();
+        };
+        window.tseLeafletMapInstance.on('moveend', onCameraMoved);
+        window.tseLeafletMapInstance.on('zoomend', onCameraMoved);
       }
 
       return window.tseLeafletMapInstance;
@@ -13564,8 +13668,8 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         const icon = L.divIcon({
           className: "leaflet-data-marker",
           html: iconHtml,
-          iconSize: [72, 30],
-          iconAnchor: [36, 15],
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
           popupAnchor: [0, -16]
         });
 
@@ -13645,6 +13749,65 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       });
     }
 
+    function selecionarLocaisComGradeEspacialTse(locaisNoBounds, bounds, maxPins, treAtivo) {
+      const priorizados = [...locaisNoBounds].sort((a, b) => {
+        if (a.key === window.tseLocalAtivoKey) return -1;
+        if (b.key === window.tseLocalAtivoKey) return 1;
+        if (treAtivo && a._distTreKm !== null && b._distTreKm !== null) {
+          return a._distTreKm - b._distTreKm;
+        }
+        if (a.tem_divergencia_interna_novos !== b.tem_divergencia_interna_novos) {
+          return a.tem_divergencia_interna_novos ? -1 : 1;
+        }
+        if (a.houve_inversao !== b.houve_inversao) {
+          return a.houve_inversao ? -1 : 1;
+        }
+        if (a.tem_anomalia_intra_local !== b.tem_anomalia_intra_local) {
+          return a.tem_anomalia_intra_local ? -1 : 1;
+        }
+        return (b.qtd_secoes || 0) - (a.qtd_secoes || 0);
+      });
+
+      const south = bounds.getSouth();
+      const north = bounds.getNorth();
+      const west = bounds.getWest();
+      const east = bounds.getEast();
+      const latSpan = Math.max(north - south, 1e-6);
+      const lonSpan = Math.max(east - west, 1e-6);
+      const GRID_COLS = 9;
+      const GRID_ROWS = 6;
+
+      const selecionados = [];
+      const usados = new Set();
+      const celulasOcupadas = new Set();
+
+      // Passo 1: garante distribuição geográfica escolhendo o prioritário de cada célula visível
+      for (const loc of priorizados) {
+        if (selecionados.length >= maxPins) break;
+        const c = Math.min(GRID_COLS - 1, Math.max(0, Math.floor(((loc.longitude - west) / lonSpan) * GRID_COLS)));
+        const r = Math.min(GRID_ROWS - 1, Math.max(0, Math.floor(((loc.latitude - south) / latSpan) * GRID_ROWS)));
+        const cellKey = `${r}_${c}`;
+        if (!celulasOcupadas.has(cellKey)) {
+          celulasOcupadas.add(cellKey);
+          selecionados.push(loc);
+          usados.add(loc.key);
+        }
+      }
+
+      // Passo 2: completa a cota de PINs com os locais prioritários restantes
+      if (selecionados.length < maxPins) {
+        for (const loc of priorizados) {
+          if (selecionados.length >= maxPins) break;
+          if (!usados.has(loc.key)) {
+            selecionados.push(loc);
+            usados.add(loc.key);
+          }
+        }
+      }
+
+      return selecionados;
+    }
+
     function atualizarLocaisVisiveisViewportTse(forcarRecalculo = false) {
       if (!window.tseLeafletMapInstance) return;
       const map = window.tseLeafletMapInstance;
@@ -13686,14 +13849,14 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       // Obtém o bounding box da área visível atual com padding de 6% para suavidade nas bordas
       const bounds = map.getBounds().pad(0.06);
+      const zoomAtual = map.getZoom();
+      const MAX_PINS_VIEWPORT = zoomAtual >= 15 ? 220 : (zoomAtual >= 13 ? 110 : 80);
 
-      // Filtra os locais elegíveis dentro do enquadramento atual (se raio TRE ativo e <= 75, mantém todo o raio visível)
-      const locaisNoBounds = (filtroRaioTreAtivo && locaisElegiveis.length <= 75)
+      // Filtra os locais elegíveis dentro do enquadramento atual (se raio TRE ativo, mantém até o teto)
+      const locaisNoBounds = (filtroRaioTreAtivo && locaisElegiveis.length <= MAX_PINS_VIEWPORT)
         ? locaisElegiveis
         : locaisElegiveis.filter(l => l.latitude && l.longitude && bounds.contains([l.latitude, l.longitude]));
 
-      // Teto seguro de anti-estouro (MAX_PINS_VIEWPORT = 75) para evitar poluição visual e lentidão no DOM
-      const MAX_PINS_VIEWPORT = 75;
       let locaisVisiveis = [];
       let antiEstouroAtivo = false;
 
@@ -13701,24 +13864,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         locaisVisiveis = locaisNoBounds;
       } else {
         antiEstouroAtivo = true;
-        const priorizados = [...locaisNoBounds].sort((a, b) => {
-          if (a.key === window.tseLocalAtivoKey) return -1;
-          if (b.key === window.tseLocalAtivoKey) return 1;
-          if (treAtivo && a._distTreKm !== null && b._distTreKm !== null) {
-            return a._distTreKm - b._distTreKm;
-          }
-          if (a.tem_divergencia_interna_novos !== b.tem_divergencia_interna_novos) {
-            return a.tem_divergencia_interna_novos ? -1 : 1;
-          }
-          if (a.houve_inversao !== b.houve_inversao) {
-            return a.houve_inversao ? -1 : 1;
-          }
-          if (a.tem_anomalia_intra_local !== b.tem_anomalia_intra_local) {
-            return a.tem_anomalia_intra_local ? -1 : 1;
-          }
-          return (b.qtd_secoes || 0) - (a.qtd_secoes || 0);
-        });
-        locaisVisiveis = priorizados.slice(0, MAX_PINS_VIEWPORT);
+        locaisVisiveis = selecionarLocaisComGradeEspacialTse(locaisNoBounds, bounds, MAX_PINS_VIEWPORT, treAtivo);
       }
 
       window.tseLocaisVisiveisCache = locaisVisiveis;
@@ -13793,8 +13939,8 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       if (badge) {
         if (antiEstouroAtivo) {
           badge.className = "px-2 py-0.5 rounded-full bg-amber-950 text-amber-300 border border-amber-600 text-[10px] font-extrabold mono";
-          badge.textContent = `⚡ Exibindo ${locaisVisiveis.length} de ${totalNoBounds} (Anti-estouro ativo)`;
-          badge.title = `Área densa com ${totalNoBounds} prédios. Exibindo os 75 principais com prioridade a alertas forenses. Aproxime o zoom para detalhar todos.`;
+          badge.textContent = `⚡ Exibindo ${locaisVisiveis.length} de ${totalNoBounds} (Distribuídos no visor)`;
+          badge.title = `Área densa com ${totalNoBounds} prédios. Exibindo ${locaisVisiveis.length} distribuídos geograficamente com prioridade a alertas forenses. Aproxime o zoom para detalhar todos.`;
         } else {
           badge.className = "px-2 py-0.5 rounded-full bg-indigo-950 text-indigo-300 border border-indigo-700 text-[10px] font-extrabold mono";
           badge.textContent = `📍 ${locaisVisiveis.length} prédios nesta área (${totalEscopo} no total)`;
@@ -13811,7 +13957,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }
     }
 
-    function renderizarMapaLocaisTse(locais, resumo) {
+    function renderizarMapaLocaisTse(locais, resumo, preserveCamera = false) {
       if (!locais) locais = [];
       window.tseTodosLocaisCache = locais;
       window.tseLocaisVotacaoCache = locais;
@@ -13868,34 +14014,35 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         }
 
         const inversaoClass = loc.houve_inversao ? "pin-inversao" : "";
+        const endLinha = [loc.endereco, loc.bairro].filter(Boolean).join(" • ");
 
         const iconHtml = `
-          <div class="pin-urna-container ${corClass} ${alertaClass} ${inversaoClass} w-8 h-8 text-[11px] shadow-lg relative cursor-pointer" title="${loc.nome_local} (${loc.qtd_secoes} urnas)">
+          <div class="pin-urna-container ${corClass} ${alertaClass} ${inversaoClass} w-[26px] h-[26px] text-[10px] relative cursor-pointer" title="${loc.nome_local}${endLinha ? ' — ' + endLinha : ''} (${loc.qtd_secoes} urnas)">
             <span>${loc.qtd_secoes}u</span>
-            ${loc.tem_divergencia_interna_novos ? '<span class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-slate-950 animate-ping" title="Divergência interna nos votos novos"></span>' : ''}
           </div>
         `;
 
         const icon = L.divIcon({
           className: "leaflet-data-marker",
           html: iconHtml,
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
-          popupAnchor: [0, -16]
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
+          popupAnchor: [0, -14]
         });
 
         const marker = L.marker([loc.latitude, loc.longitude], { icon: icon });
 
         const corBadge = loc.cor_pin === 'verde' ? 'bg-emerald-950 text-emerald-300 border border-emerald-600/40' : (loc.cor_pin === 'vermelho' ? 'bg-rose-950 text-rose-300 border border-rose-600/40' : 'bg-amber-950 text-amber-300 border border-amber-600/40');
 
-        // Popup Compacto do Mapa (não transborda nem exige movimentação de tela)
+        // Popup Compacto do Mapa com endereço oficial TSE
         const popupContent = `
-          <div class="p-2.5 text-xs mono text-slate-100 min-w-[280px] max-w-[320px]">
+          <div class="p-2.5 text-xs mono text-slate-100 min-w-[280px] max-w-[330px]">
             <div class="flex items-start justify-between gap-1.5 border-b border-slate-700/80 pb-1.5 mb-1.5">
               <div class="overflow-hidden">
-                <span class="text-[9px] text-indigo-400 font-extrabold uppercase tracking-wider block">🏢 Local de Votação</span>
-                <h3 class="text-xs font-black text-white leading-tight truncate" title="${loc.nome_local}">${loc.nome_local}</h3>
-                <span class="text-[10px] text-slate-400 block truncate">${loc.municipio_nome} • Zona ${String(loc.zona).padStart(4, '0')}</span>
+                <span class="text-[9px] text-indigo-400 font-extrabold uppercase tracking-wider block">🏢 Local nº ${loc.local_id}${loc.bairro ? ` • ${loc.bairro}` : ''}</span>
+                <h3 class="text-xs font-black text-white leading-snug" title="${loc.nome_local}">${loc.nome_local}</h3>
+                ${loc.endereco ? `<span class="text-[10px] text-slate-300 block mt-0.5 leading-tight">${loc.endereco}${loc.cep ? ` • CEP ${loc.cep}` : ''}</span>` : ''}
+                <span class="text-[10px] text-slate-400 block truncate mt-0.5">${loc.municipio_nome}${loc.uf ? '/' + loc.uf : ''} • Zona ${String(loc.zona).padStart(4, '0')}</span>
               </div>
               <span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-black ${corBadge}">
                 ${loc.qtd_secoes}u
@@ -13971,9 +14118,9 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         window.tseMarkersByLocalKey.set(loc.key, marker);
       });
 
-      // Se mudou de escopo (ex: selecionou nova cidade), centraliza a câmera na nova localização
-      const escopoChave = `${st.uf || ''}_${st.municipio || ''}_${st.zona || ''}`;
-      if (window.tseUltimoEscopoCarregado !== escopoChave) {
+      // Se mudou de escopo (e não é recarga dinâmica de câmera), centraliza a câmera na nova localização
+      const escopoChave = `${st.regiao || ''}_${st.uf || ''}_${st.municipio || ''}_${st.zona || ''}`;
+      if (!preserveCamera && window.tseUltimoEscopoCarregado !== escopoChave) {
         window.tseUltimoEscopoCarregado = escopoChave;
         window.tseTreAtivoKey = null;
         if (window.tseLeafletTreCircleLayer) {
@@ -14016,6 +14163,8 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           : (window.tseLocaisVotacaoCache || []);
         filtrados = poolBusca.filter(l => {
           if (l.nome_local && l.nome_local.toLowerCase().includes(q)) return true;
+          if (l.endereco && l.endereco.toLowerCase().includes(q)) return true;
+          if (l.bairro && l.bairro.toLowerCase().includes(q)) return true;
           if (l.local_id && l.local_id.toLowerCase().includes(q)) return true;
           if (l.municipio_nome && l.municipio_nome.toLowerCase().includes(q)) return true;
           if (Array.isArray(l.secoes) && l.secoes.some(s => String(s).includes(q) || String(s).padStart(4, "0").includes(q))) return true;
@@ -14075,7 +14224,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             <span>📍</span>
             <span>${temFiltroTexto ? `Busca: <strong class="text-white">${filtrados.length}</strong> encontrados` : `Nesta área: <strong class="text-white">${filtrados.length}</strong> prédios`}</span>
           </span>
-          ${antiEstouroAtivo ? '<span class="px-1.5 py-0.2 rounded bg-amber-950 border border-amber-600/60 text-amber-300 font-extrabold text-[9px]">⚡ Anti-estouro (Max 75)</span>' : '<span class="text-emerald-400 font-bold text-[9px]">✓ 100% visíveis</span>'}
+          ${antiEstouroAtivo ? `<span class="px-1.5 py-0.2 rounded bg-amber-950 border border-amber-600/60 text-amber-300 font-extrabold text-[9px]">⚡ Distribuídos (${filtrados.length}/${totalNoEnquadramento || filtrados.length})</span>` : '<span class="text-emerald-400 font-bold text-[9px]">✓ 100% visíveis</span>'}
         </div>
       `;
 
@@ -14118,6 +14267,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
                   ${loc.tem_anomalia_intra_local ? `<span class="px-1.5 py-0.2 rounded bg-rose-600 text-[9px] font-black text-white">DESVIO σ</span>` : ''}
                   ${(treAtivo && loc._distTreKm !== null && loc._distTreKm !== undefined) ? `<span class="px-1.5 py-0.2 rounded bg-purple-900/90 border border-purple-400/60 text-[9px] font-black text-purple-100">🟣 ${typeof formatarDistanciaTse === "function" ? formatarDistanciaTse(loc._distTreKm) : `${loc._distTreKm.toFixed(2)} km`}</span>` : ''}
                 </div>
+                ${(loc.endereco || loc.bairro) ? `<div class="text-[10px] text-slate-300 mono mt-0.5 truncate" title="${[loc.endereco, loc.bairro].filter(Boolean).join(' • ')}">📍 ${[loc.endereco, loc.bairro].filter(Boolean).join(' • ')}</div>` : ''}
                 <div class="text-[10px] text-slate-400 mono mt-0.5">
                   ${loc.municipio_nome} • Zona ${String(loc.zona).padStart(4, '0')} • ${loc.tem_divergencia_interna_novos ? `<strong class="text-amber-300">${loc.placar_urnas_novos}</strong>` : (loc.qtd_secoes > 1 ? '<strong class="text-emerald-400">100% Unânime</strong>' : '1 urna')}
                 </div>
@@ -14248,6 +14398,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       if (elSub) {
         elSub.innerHTML = `
+          ${(loc.endereco || loc.bairro) ? `<span class="px-2 py-0.5 rounded bg-indigo-950/70 text-indigo-200 border border-indigo-500/40">🏫 ${[loc.endereco, loc.bairro, loc.cep ? 'CEP ' + loc.cep : ''].filter(Boolean).join(' • ')}</span>` : ''}
           <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">🏛️ ${loc.municipio_nome} (${loc.municipio_codigo}) - ${loc.uf}</span>
           <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">Zona ${String(loc.zona).padStart(4, '0')}</span>
           <span class="px-2 py-0.5 rounded bg-slate-800 text-slate-200 border border-slate-700">Local nº ${loc.local_id}</span>
@@ -15038,6 +15189,10 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
             <!-- Grid de Metadados do Estabelecimento -->
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 text-[11px] text-slate-300">
+              <div class="p-2 rounded bg-slate-900/60 border border-slate-800 sm:col-span-2">
+                <span class="text-[9px] text-slate-500 uppercase block font-bold">Endereço Oficial (TSE):</span>
+                <span class="font-bold text-white truncate block">${[loc.endereco, loc.bairro, loc.cep ? 'CEP ' + loc.cep : ''].filter(Boolean).join(' • ') || 'Não informado'}</span>
+              </div>
               <div class="p-2 rounded bg-slate-900/60 border border-slate-800">
                 <span class="text-[9px] text-slate-500 uppercase block font-bold">Município / UF:</span>
                 <span class="font-bold text-white truncate block">${loc.municipio_nome} (${loc.municipio_codigo}) - ${loc.uf}</span>
@@ -15050,7 +15205,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
                 <span class="text-[9px] text-slate-500 uppercase block font-bold">Total de Urnas (Seções):</span>
                 <span class="font-black text-emerald-400">${loc.qtd_secoes} ${loc.qtd_secoes === 1 ? 'Urna' : 'Urnas Eleitorais'}</span>
               </div>
-              <div class="p-2 rounded bg-slate-900/60 border border-slate-800">
+              <div class="p-2 rounded bg-slate-900/60 border border-slate-800 sm:col-span-3">
                 <span class="text-[9px] text-slate-500 uppercase block font-bold">Eleitorado & Comparecimento:</span>
                 <span class="font-bold text-white">${totComp.toLocaleString('pt-BR')} comp. (${pctComp}%) • ${totAbst.toLocaleString('pt-BR')} abst.</span>
               </div>
