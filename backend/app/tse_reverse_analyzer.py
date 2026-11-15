@@ -7151,6 +7151,166 @@ ZONAS_CURITIBA_CENTROIDES = {
 }
 
 
+# Sedes dos Tribunais Regionais Eleitorais (Capitais/DF) e Principais Fóruns Eleitorais Regionais
+TRES_FORUNS_ELEITORAIS: dict[str, dict] = {
+    # Capitais / Sedes de TRE
+    "75353": {"tipo": "TRE", "uf": "PR", "municipio": "CURITIBA", "nome": "TRE-PR — Sede & Fórum Eleitoral Central", "endereco": "Rua João Parolin, 224 — Prado Velho, Curitiba/PR", "lat": -25.4486, "lon": -49.2618},
+    "71072": {"tipo": "TRE", "uf": "SP", "municipio": "SÃO PAULO", "nome": "TRE-SP — Tribunal Regional Eleitoral de São Paulo", "endereco": "Rua Francisca Miquelina, 123 — Bela Vista, São Paulo/SP", "lat": -23.5539, "lon": -46.6391},
+    "60011": {"tipo": "TRE", "uf": "RJ", "municipio": "RIO DE JANEIRO", "nome": "TRE-RJ — Tribunal Regional Eleitoral do Rio de Janeiro", "endereco": "Av. Presidente Wilson, 194 — Centro, Rio de Janeiro/RJ", "lat": -22.9114, "lon": -43.1731},
+    "41238": {"tipo": "TRE", "uf": "MG", "municipio": "BELO HORIZONTE", "nome": "TRE-MG — Tribunal Regional Eleitoral de Minas Gerais", "endereco": "Av. Prudente de Morais, 100 — Cidade Jardim, Belo Horizonte/MG", "lat": -19.9325, "lon": -43.9498},
+    "85995": {"tipo": "TRE", "uf": "RS", "municipio": "PORTO ALEGRE", "nome": "TRE-RS — Tribunal Regional Eleitoral do Rio Grande do Sul", "endereco": "Rua Duque de Caxias, 350 — Centro Histórico, Porto Alegre/RS", "lat": -30.0329, "lon": -51.2367},
+    "81051": {"tipo": "TRE", "uf": "SC", "municipio": "FLORIANÓPOLIS", "nome": "TRE-SC — Tribunal Regional Eleitoral de Santa Catarina", "endereco": "Rua Esteves Júnior, 68 — Centro, Florianópolis/SC", "lat": -27.5903, "lon": -48.5504},
+    "57053": {"tipo": "TRE", "uf": "ES", "municipio": "VITÓRIA", "nome": "TRE-ES — Tribunal Regional Eleitoral do Espírito Santo", "endereco": "Av. João Baptista Parra, 575 — Praia do Suá, Vitória/ES", "lat": -20.3137, "lon": -40.2966},
+    "38490": {"tipo": "TRE", "uf": "BA", "municipio": "SALVADOR", "nome": "TRE-BA — Tribunal Regional Eleitoral da Bahia", "endereco": "1ª Avenida do CAB, 150 — Centro Adm. da Bahia, Salvador/BA", "lat": -12.9482, "lon": -38.4316},
+    "25313": {"tipo": "TRE", "uf": "PE", "municipio": "RECIFE", "nome": "TRE-PE — Tribunal Regional Eleitoral de Pernambuco", "endereco": "Av. Agamenon Magalhães, 1160 — Graças, Recife/PE", "lat": -8.0489, "lon": -34.8962},
+    "13897": {"tipo": "TRE", "uf": "CE", "municipio": "FORTALEZA", "nome": "TRE-CE — Tribunal Regional Eleitoral do Ceará", "endereco": "Rua Jaime Benévolo, 21 — Centro, Fortaleza/CE", "lat": -3.7336, "lon": -38.5266},
+    "93734": {"tipo": "TRE", "uf": "GO", "municipio": "GOIÂNIA", "nome": "TRE-GO — Tribunal Regional Eleitoral de Goiás", "endereco": "Praça Cívica, 300 — Centro, Goiânia/GO", "lat": -16.6805, "lon": -49.2564},
+    "97012": {"tipo": "TRE", "uf": "DF", "municipio": "BRASÍLIA", "nome": "TRE-DF — Tribunal Regional Eleitoral do Distrito Federal", "endereco": "Praça Municipal, Q. 2, Lote 6 — Brasília/DF", "lat": -15.7995, "lon": -47.8737},
+    "90670": {"tipo": "TRE", "uf": "MT", "municipio": "CUIABÁ", "nome": "TRE-MT — Tribunal Regional Eleitoral de Mato Grosso", "endereco": "Av. Historiador Rubens de Mendonça, 4750 — Cuiabá/MT", "lat": -15.5724, "lon": -56.0715},
+    "90514": {"tipo": "TRE", "uf": "MS", "municipio": "CAMPO GRANDE", "nome": "TRE-MS — Tribunal Regional Eleitoral de Mato Grosso do Sul", "endereco": "Rua Des. Leão Neto do Carmo, 23 — Campo Grande/MS", "lat": -20.4517, "lon": -54.5665},
+    "02550": {"tipo": "TRE", "uf": "AM", "municipio": "MANAUS", "nome": "TRE-AM — Tribunal Regional Eleitoral do Amazonas", "endereco": "Av. André Araújo, 200 — Aleixo, Manaus/AM", "lat": -3.0956, "lon": -59.9985},
+    "04278": {"tipo": "TRE", "uf": "PA", "municipio": "BELÉM", "nome": "TRE-PA — Tribunal Regional Eleitoral do Pará", "endereco": "Rua João Diogo, 288 — Campina, Belém/PA", "lat": -1.4526, "lon": -48.5008},
+    "09210": {"tipo": "TRE", "uf": "MA", "municipio": "SÃO LUÍS", "nome": "TRE-MA — Tribunal Regional Eleitoral do Maranhão", "endereco": "Av. Sen. Vitorino Freire — Areinha, São Luís/MA", "lat": -2.5405, "lon": -44.2932},
+    "20516": {"tipo": "TRE", "uf": "PB", "municipio": "JOÃO PESSOA", "nome": "TRE-PB — Tribunal Regional Eleitoral da Paraíba", "endereco": "Av. Princesa Isabel, 201 — Tambiá, João Pessoa/PB", "lat": -7.1185, "lon": -34.8768},
+    "17612": {"tipo": "TRE", "uf": "RN", "municipio": "NATAL", "nome": "TRE-RN — Tribunal Regional Eleitoral do Rio Grande do Norte", "endereco": "Praça André de Albuquerque, 534 — Cidade Alta, Natal/RN", "lat": -5.7832, "lon": -35.2072},
+    "27855": {"tipo": "TRE", "uf": "AL", "municipio": "MACEIÓ", "nome": "TRE-AL — Tribunal Regional Eleitoral de Alagoas", "endereco": "Av. Aristeu de Andrade, 377 — Farol, Maceió/AL", "lat": -9.6552, "lon": -35.7364},
+    "12190": {"tipo": "TRE", "uf": "PI", "municipio": "TERESINA", "nome": "TRE-PI — Tribunal Regional Eleitoral do Piauí", "endereco": "Praça Des. Edgar Nogueira — Cabral, Teresina/PI", "lat": -5.0837, "lon": -42.7966},
+    "31054": {"tipo": "TRE", "uf": "SE", "municipio": "ARACAJU", "nome": "TRE-SE — Tribunal Regional Eleitoral de Sergipe", "endereco": "Rua Itabaiana, 680 — Centro, Aracaju/SE", "lat": -10.9168, "lon": -37.0558},
+    "00035": {"tipo": "TRE", "uf": "RO", "municipio": "PORTO VELHO", "nome": "TRE-RO — Tribunal Regional Eleitoral de Rondônia", "endereco": "Av. Presidente Dutra, 1889 — Porto Velho/RO", "lat": -8.7611, "lon": -63.9022},
+    "01392": {"tipo": "TRE", "uf": "AC", "municipio": "RIO BRANCO", "nome": "TRE-AC — Tribunal Regional Eleitoral do Acre", "endereco": "Alameda Ministro Miguel Ferrante — Rio Branco/AC", "lat": -9.9636, "lon": -67.8342},
+    "06050": {"tipo": "TRE", "uf": "AP", "municipio": "MACAPÁ", "nome": "TRE-AP — Tribunal Regional Eleitoral do Amapá", "endereco": "Av. Mendonça Júnior, 1502 — Central, Macapá/AP", "lat": 0.0365, "lon": -51.0663},
+    "03018": {"tipo": "TRE", "uf": "RR", "municipio": "BOA VISTA", "nome": "TRE-RR — Tribunal Regional Eleitoral de Roraima", "endereco": "Av. Juscelino Kubitschek, 543 — São Pedro, Boa Vista/RR", "lat": 2.8152, "lon": -60.6695},
+    "97330": {"tipo": "TRE", "uf": "TO", "municipio": "PALMAS", "nome": "TRE-TO — Tribunal Regional Eleitoral do Tocantins", "endereco": "Av. Teotônio Segurado, Q. 202 Norte — Palmas/TO", "lat": -10.1753, "lon": -48.3328},
+    # Grandes Cidades & Fóruns Eleitorais Regionais (PR / SC / RS / SP / RJ / MG / ES)
+    "76678": {"tipo": "FORUM", "uf": "PR", "municipio": "LONDRINA", "nome": "Fórum Eleitoral de Londrina", "endereco": "Rua Gov. Parigot de Souza, 231 — Caiçaras, Londrina/PR", "lat": -23.3210, "lon": -51.1636},
+    "76910": {"tipo": "FORUM", "uf": "PR", "municipio": "MARINGÁ", "nome": "Fórum Eleitoral de Maringá", "endereco": "Av. Gastão Vidigal, 605 — Zona 08, Maringá/PR", "lat": -23.4310, "lon": -51.9195},
+    "74934": {"tipo": "FORUM", "uf": "PR", "municipio": "CASCAVEL", "nome": "Fórum Eleitoral de Cascavel", "endereco": "Av. Tancredo Neves, 2320 — Cascavel/PR", "lat": -24.9619, "lon": -53.4648},
+    "74837": {"tipo": "FORUM", "uf": "PR", "municipio": "CASCAVEL", "nome": "Fórum Eleitoral de Cascavel", "endereco": "Av. Tancredo Neves, 2320 — Cascavel/PR", "lat": -24.9619, "lon": -53.4648},
+    "77771": {"tipo": "FORUM", "uf": "PR", "municipio": "PONTA GROSSA", "nome": "Fórum Eleitoral de Ponta Grossa", "endereco": "Rua Bonifácio Ribas, 303 — Ponta Grossa/PR", "lat": -25.0983, "lon": -50.1536},
+    "75639": {"tipo": "FORUM", "uf": "PR", "municipio": "FOZ DO IGUAÇU", "nome": "Fórum Eleitoral de Foz do Iguaçu", "endereco": "Rua Antonio Raposo, 761 — Centro, Foz do Iguaçu/PR", "lat": -25.5245, "lon": -54.5732},
+    "78859": {"tipo": "FORUM", "uf": "PR", "municipio": "SÃO JOSÉ DOS PINHAIS", "nome": "Fórum Eleitoral de São José dos Pinhais", "endereco": "Rua Veríssimo Marques, 1280 — São José dos Pinhais/PR", "lat": -25.5378, "lon": -49.2022},
+    "78670": {"tipo": "FORUM", "uf": "PR", "municipio": "SÃO JOSÉ DOS PINHAIS", "nome": "Fórum Eleitoral de São José dos Pinhais", "endereco": "Rua Veríssimo Marques, 1280 — São José dos Pinhais/PR", "lat": -25.5378, "lon": -49.2022},
+    "75833": {"tipo": "FORUM", "uf": "PR", "municipio": "GUARAPUAVA", "nome": "Fórum Eleitoral de Guarapuava", "endereco": "Rua Padre Chagas, 2680 — Guarapuava/PR", "lat": -25.3910, "lon": -51.4581},
+    "77453": {"tipo": "FORUM", "uf": "PR", "municipio": "PARANAGUÁ", "nome": "Fórum Eleitoral de Paranaguá", "endereco": "Rua Vieira dos Santos, 430 — Paranaguá/PR", "lat": -25.5191, "lon": -48.5138},
+    "74152": {"tipo": "FORUM", "uf": "PR", "municipio": "APUCARANA", "nome": "Fórum Eleitoral de Apucarana", "endereco": "Travessa João Gurgel de Macedo, 100 — Apucarana/PR", "lat": -23.5508, "lon": -51.4601},
+    "79154": {"tipo": "FORUM", "uf": "PR", "municipio": "TOLEDO", "nome": "Fórum Eleitoral de Toledo", "endereco": "Rua Almirante Barroso, 3200 — Toledo/PR", "lat": -24.7253, "lon": -53.7385},
+    "80551": {"tipo": "FORUM", "uf": "SC", "municipio": "JOINVILLE", "nome": "Central / Fórum Eleitoral de Joinville", "endereco": "Rua Otto Boehm, 71 — América, Joinville/SC", "lat": -26.2995, "lon": -48.8512},
+    "80470": {"tipo": "FORUM", "uf": "SC", "municipio": "BLUMENAU", "nome": "Fórum Eleitoral de Blumenau", "endereco": "Rua João Pessoa, 161 — Velha, Blumenau/SC", "lat": -26.9212, "lon": -49.0725},
+    "80810": {"tipo": "FORUM", "uf": "SC", "municipio": "CHAPECÓ", "nome": "Fórum Eleitoral de Chapecó", "endereco": "Av. Getúlio Vargas, 1212-N — Chapecó/SC", "lat": -27.0956, "lon": -52.6178},
+    "80870": {"tipo": "FORUM", "uf": "SC", "municipio": "CRICIÚMA", "nome": "Fórum Eleitoral de Criciúma", "endereco": "Rua Coronel Marcos Rovaris, 270 — Criciúma/SC", "lat": -28.6789, "lon": -49.3694},
+    "81612": {"tipo": "FORUM", "uf": "SC", "municipio": "ITAJAÍ", "nome": "Fórum Eleitoral de Itajaí", "endereco": "Rua Uruguai, 222 — Centro, Itajaí/SC", "lat": -26.9102, "lon": -48.6652},
+    "85294": {"tipo": "FORUM", "uf": "RS", "municipio": "CAXIAS DO SUL", "nome": "Central Eleitoral de Caxias do Sul", "endereco": "Rua Garibaldi, 589 — Centro, Caxias do Sul/RS", "lat": -29.1688, "lon": -51.1812},
+    "87971": {"tipo": "FORUM", "uf": "RS", "municipio": "PELOTAS", "nome": "Central Eleitoral de Pelotas", "endereco": "Rua Xavier Ferreira, 326 — Centro, Pelotas/RS", "lat": -31.7681, "lon": -52.3412},
+    "88013": {"tipo": "FORUM", "uf": "RS", "municipio": "SANTA MARIA", "nome": "Central Eleitoral de Santa Maria", "endereco": "Rua Venâncio Aires, 1110 — Centro, Santa Maria/RS", "lat": -29.6865, "lon": -53.8112},
+    "62910": {"tipo": "FORUM", "uf": "SP", "municipio": "CAMPINAS", "nome": "Fórum Eleitoral de Campinas", "endereco": "Rua Barão de Jaguara, 901 — Centro, Campinas/SP", "lat": -22.9056, "lon": -47.0589},
+    "70718": {"tipo": "FORUM", "uf": "SP", "municipio": "SANTOS", "nome": "Fórum Eleitoral de Santos", "endereco": "Praça José Bonifácio, 50 — Centro, Santos/SP", "lat": -23.9362, "lon": -46.3264},
+    "69698": {"tipo": "FORUM", "uf": "SP", "municipio": "RIBEIRÃO PRETO", "nome": "Fórum Eleitoral de Ribeirão Preto", "endereco": "Rua Alice Além Saad, 1010 — Ribeirão Preto/SP", "lat": -21.2015, "lon": -47.7872},
+    "71455": {"tipo": "FORUM", "uf": "SP", "municipio": "SOROCABA", "nome": "Fórum Eleitoral de Sorocaba", "endereco": "Av. Rudolf Dafferner, 200 — Alto da Boa Vista, Sorocaba/SP", "lat": -23.4852, "lon": -47.4258},
+    "64777": {"tipo": "FORUM", "uf": "SP", "municipio": "GUARULHOS", "nome": "Fórum Eleitoral de Guarulhos", "endereco": "Rua José Maurício, 103 — Centro, Guarulhos/SP", "lat": -23.4675, "lon": -46.5318},
+    "70750": {"tipo": "FORUM", "uf": "SP", "municipio": "SÃO BERNARDO DO CAMPO", "nome": "Fórum Eleitoral de São Bernardo do Campo", "endereco": "Av. Lucas Nogueira Garcez, 519 — São Bernardo do Campo/SP", "lat": -23.6948, "lon": -46.5512},
+    "58653": {"tipo": "FORUM", "uf": "RJ", "municipio": "NITERÓI", "nome": "Central Eleitoral de Niterói", "endereco": "Rua Visconde de Sepetiba, 987 — Centro, Niterói/RJ", "lat": -22.8935, "lon": -43.1188},
+    "58335": {"tipo": "FORUM", "uf": "RJ", "municipio": "DUQUE DE CAXIAS", "nome": "Fórum Eleitoral de Duque de Caxias", "endereco": "Rua General Dionísio, 764 — 25 de Agosto, Duque de Caxias/RJ", "lat": -22.7905, "lon": -43.3075},
+    "54038": {"tipo": "FORUM", "uf": "MG", "municipio": "UBERLÂNDIA", "nome": "Central Eleitoral de Uberlândia", "endereco": "Av. Vasconcelos Costa, 1646 — Martins, Uberlândia/MG", "lat": -18.9125, "lon": -48.2842},
+    "47333": {"tipo": "FORUM", "uf": "MG", "municipio": "JUIZ DE FORA", "nome": "Central Eleitoral de Juiz de Fora", "endereco": "Av. Barão do Rio Branco, 2001 — Centro, Juiz de Fora/MG", "lat": -21.7621, "lon": -43.3489},
+    "57037": {"tipo": "FORUM", "uf": "ES", "municipio": "VILA VELHA", "nome": "Fórum Eleitoral de Vila Velha", "endereco": "Rua Antônio Ataíde, 823 — Centro, Vila Velha/ES", "lat": -20.3335, "lon": -40.2908},
+    "56995": {"tipo": "FORUM", "uf": "ES", "municipio": "SERRA", "nome": "Fórum Eleitoral da Serra", "endereco": "Av. Jones dos Santos Neves, 770 — Serra/ES", "lat": -20.1292, "lon": -40.3045},
+}
+
+_TRES_POR_UF_CAPITAL: dict[str, str] = {
+    v["uf"]: k for k, v in TRES_FORUNS_ELEITORAIS.items() if v["tipo"] == "TRE"
+}
+
+
+def _compilar_tres_foruns_para_mapa(locais_lista: list[dict], uf_filtro: str = "TODAS", mun_filtro: str = "TODAS") -> list[dict]:
+    """
+    Compila a lista de PINs roxos (TRE em capitais/grandes sedes ou Fórum Eleitoral nas demais cidades)
+    para todas as cidades presentes no recorte do mapa.
+    """
+    cidades_agrupadas: dict[tuple[str, str], dict] = {}
+    for loc in locais_lista:
+        u_up = str(loc.get("uf") or "PR").strip().upper()
+        m_cod = str(loc.get("municipio_codigo") or "").strip().zfill(5)
+        m_nome = str(loc.get("municipio_nome") or m_cod).strip()
+        lat = loc.get("latitude")
+        lon = loc.get("longitude")
+        if not lat or not lon:
+            continue
+        grp = cidades_agrupadas.setdefault(
+            (u_up, m_cod),
+            {"uf": u_up, "municipio_codigo": m_cod, "municipio_nome": m_nome, "lats": [], "lons": [], "zonas": set(), "qtd_locais": 0, "qtd_urnas": 0},
+        )
+        grp["lats"].append(float(lat))
+        grp["lons"].append(float(lon))
+        if loc.get("zona"):
+            grp["zonas"].add(int(loc["zona"]))
+        grp["qtd_locais"] += 1
+        grp["qtd_urnas"] += int(loc.get("qtd_secoes") or 0)
+
+    # Garante a inclusão da Sede do TRE da UF quando filtrado por Estado específico
+    if uf_filtro and uf_filtro != "TODAS" and (not mun_filtro or mun_filtro == "TODAS"):
+        u_f = uf_filtro.strip().upper()
+        cap_cod = _TRES_POR_UF_CAPITAL.get(u_f)
+        if cap_cod and (u_f, cap_cod) not in cidades_agrupadas:
+            cat = TRES_FORUNS_ELEITORAIS[cap_cod]
+            cidades_agrupadas[(u_f, cap_cod)] = {
+                "uf": u_f,
+                "municipio_codigo": cap_cod,
+                "municipio_nome": cat["municipio"],
+                "lats": [cat["lat"]],
+                "lons": [cat["lon"]],
+                "zonas": set(),
+                "qtd_locais": 0,
+                "qtd_urnas": 0,
+            }
+
+    tres_lista: list[dict] = []
+    for (u_up, m_cod), grp in cidades_agrupadas.items():
+        cat = TRES_FORUNS_ELEITORAIS.get(m_cod)
+        is_capital_tre = bool(cat and cat["tipo"] == "TRE")
+        if cat:
+            t_lat = cat["lat"]
+            t_lon = cat["lon"]
+            tipo = cat["tipo"]
+            nome = cat["nome"]
+            endereco = cat["endereco"]
+            origem_coord = "OFICIAL"
+        else:
+            # Fórum Eleitoral municipal posicionado no centróide cívico da cidade
+            base_coord = COORDENADAS_MUNICIPIOS.get(m_cod)
+            if base_coord:
+                t_lat, t_lon = float(base_coord[0]), float(base_coord[1])
+            else:
+                t_lat = sum(grp["lats"]) / max(1, len(grp["lats"]))
+                t_lon = sum(grp["lons"]) / max(1, len(grp["lons"]))
+                if len(grp["lats"]) == 1:
+                    t_lat += 0.0022
+                    t_lon += 0.0022
+            tipo = "FORUM"
+            nome = f"Fórum Eleitoral de {grp['municipio_nome']} - {u_up}"
+            endereco = f"Centro Cívico / Zona(s) {', '.join(f'{z:04d}' for z in sorted(grp['zonas'])) or 'Local'} — {grp['municipio_nome']}/{u_up}"
+            origem_coord = "CENTROIDE_MUNICIPIO"
+
+        tres_lista.append({
+            "key": f"TRE_{u_up}_{m_cod}",
+            "tipo": tipo,
+            "sigla": f"TRE-{u_up}" if is_capital_tre else "FÓRUM",
+            "nome": nome,
+            "municipio_codigo": m_cod,
+            "municipio_nome": grp["municipio_nome"],
+            "uf": u_up,
+            "endereco": endereco,
+            "origem_coord": origem_coord,
+            "latitude": round(float(t_lat), 6),
+            "longitude": round(float(t_lon), 6),
+            "zonas": sorted(grp["zonas"]),
+            "qtd_locais_cidade": grp["qtd_locais"],
+            "qtd_urnas_cidade": grp["qtd_urnas"],
+        })
+
+    tres_lista.sort(key=lambda t: (0 if t["tipo"] == "TRE" else 1, -t["qtd_locais_cidade"], t["uf"], t["municipio_nome"]))
+    return tres_lista
+
+
 def _obter_coordenadas_local(uf: str, mun_cod: str, mun_nome: str, zona: int, loc_id: str) -> tuple[float, float]:
     """
     Retorna as coordenadas geográficas (lat, lon) estáveis e unívocas para o Local de Votação (prédio físico).
@@ -7476,8 +7636,15 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
     c_lat, c_lon = COORDENADAS_MUNICIPIOS.get(m_cod_filtro) or COORDENADAS_MUNICIPIOS.get(u_filtro) or COORDENADAS_MUNICIPIOS["BRASIL"]
     zoom_sugerido = 13 if (mun_filtro and mun_filtro != "TODAS") else (8 if (uf_filtro and uf_filtro != "TODAS") else 5)
 
+    tres_foruns_lista = _compilar_tres_foruns_para_mapa(
+        locais_lista,
+        uf_filtro=uf_filtro,
+        mun_filtro=mun_filtro,
+    )
+
     resumo_locais = {
         "total_locais": len(locais_lista),
+        "total_tres_foruns": len(tres_foruns_lista),
         "locais_vitoria_22": sum(1 for l in locais_lista if l["vencedor"] == 22),
         "locais_vitoria_13": sum(1 for l in locais_lista if l["vencedor"] == 13),
         "locais_empate": sum(1 for l in locais_lista if l["vencedor"] == 0),
@@ -7489,6 +7656,7 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
         "locais_inversao_22geral_13novos": sum(1 for l in locais_lista if l.get("tipo_inversao") == "22_GERAL_13_NOVOS"),
         "locais_inversao_13geral_22novos": sum(1 for l in locais_lista if l.get("tipo_inversao") == "13_GERAL_22_NOVOS"),
         "locais_com_anomalia": sum(1 for l in locais_lista if l["tem_anomalia_intra_local"]),
+        "tres_foruns": tres_foruns_lista,
         "centro_mapa": [c_lat, c_lon],
         "zoom_sugerido": zoom_sugerido,
     }
@@ -7517,6 +7685,7 @@ def obter_locais_votacao_mapa_api(
         turno_filtro="2",
     )
     hier = res.get("hierarquia", {})
+    resumo = hier.get("resumo_locais", {})
     return {
         "regiao": hier.get("regiao_selecionada", regiao),
         "uf": hier.get("uf_selecionada", uf),
@@ -7525,7 +7694,8 @@ def obter_locais_votacao_mapa_api(
         "filtro_forense": hier.get("filtro_forense_selecionado", filtro_forense),
         "total_urnas": hier.get("total_secoes_no_filtro", 0),
         "locais_votacao": hier.get("locais_votacao", []),
-        "resumo_locais": hier.get("resumo_locais", {}),
+        "tres_foruns": resumo.get("tres_foruns", []),
+        "resumo_locais": resumo,
     }
 
 

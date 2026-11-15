@@ -186,6 +186,45 @@
       outline: 2px dashed #38bdf8 !important;
       outline-offset: 2px;
     }
+    /* PIN Roxo Destacado: TRE Estadual ou Fórum Eleitoral Municipal */
+    .pin-tre-container {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 3px;
+      padding: 0 7px;
+      height: 30px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #9333ea 0%, #6b21a8 100%);
+      border: 2.5px solid #e9d5ff;
+      color: #ffffff;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 900;
+      font-size: 10px;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+      cursor: pointer;
+      box-shadow: 0 0 0 4px rgba(168, 85, 247, 0.35), 0 6px 18px rgba(88, 28, 135, 0.9);
+      transition: transform 0.16s ease-in-out, box-shadow 0.16s ease-in-out;
+    }
+    .pin-tre-container:hover {
+      transform: scale(1.16);
+      box-shadow: 0 0 0 6px rgba(192, 132, 252, 0.55), 0 8px 24px rgba(126, 34, 206, 1);
+      z-index: 1200 !important;
+    }
+    .pin-tre-ativo {
+      box-shadow: 0 0 0 6px rgba(192, 132, 252, 0.75), 0 0 26px rgba(168, 85, 247, 1) !important;
+      border-color: #ffffff !important;
+      animation: pulse-pin-tre 1.7s infinite;
+    }
+    @keyframes pulse-pin-tre {
+      0% { box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.8), 0 0 12px rgba(168, 85, 247, 0.7); }
+      50% { box-shadow: 0 0 0 10px rgba(192, 132, 252, 0.25), 0 0 28px rgba(168, 85, 247, 1); }
+      100% { box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.8), 0 0 12px rgba(168, 85, 247, 0.7); }
+    }
+    .pin-proximo-tre {
+      box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.75), 0 4px 14px rgba(0,0,0,0.75) !important;
+    }
     .leaflet-popup-content-wrapper {
       background: #0f172a !important;
       color: #f8fafc !important;
@@ -1689,6 +1728,16 @@ o Boletim de Urna (apos encerramento da votacao).
 
             <!-- Indicadores Visuais da Legenda -->
             <div class="flex flex-wrap items-center gap-2">
+              <button
+                id="btnTogglePinsTreMapa"
+                type="button"
+                onclick="alternarVisibilidadePinsTreTse()"
+                class="flex items-center gap-1.5 text-[11px] text-purple-200 font-black bg-purple-950/90 hover:bg-purple-900 px-2.5 py-1 rounded-lg border border-purple-400/70 shadow transition cursor-pointer"
+                title="Mostrar/ocultar os PINs roxos do TRE e dos Fóruns Eleitorais de cada cidade"
+              >
+                <span class="w-2.5 h-2.5 rounded-sm bg-purple-500 border border-purple-200 inline-block"></span>
+                <span>🏛️ TRE / Fórum (Roxo)</span>
+              </button>
               <span class="flex items-center gap-1.5 text-[11px] text-amber-300 font-bold bg-amber-950/80 px-2.5 py-1 rounded-lg border border-amber-500/50" title="Alerta âmbar pulsante: nem todas as urnas deste prédio votaram igualmente nos votos novos (houve divergência interna)">
                 <span class="w-2 h-2 rounded-full bg-amber-400 animate-ping inline-block"></span>
                 <span>Âmbar Piscante: Sem Unanimidade</span>
@@ -1696,6 +1745,73 @@ o Boletim de Urna (apos encerramento da votacao).
               <span class="flex items-center gap-1.5 text-[11px] text-cyan-300 font-bold bg-cyan-950/80 px-2.5 py-1 rounded-lg border border-cyan-500/50" title="Borda tracejada ciano: candidato ganhou no total, mas perdeu nos votos novos (ou vice-versa)">
                 <span>🔄 Borda Tracejada: Inversão</span>
               </span>
+            </div>
+          </div>
+
+          <!-- Acesso Facilitado: Localizar TRE / Fórum Eleitoral & Ver Locais de Votação Próximos -->
+          <div class="flex flex-wrap items-center justify-between gap-2 bg-purple-950/30 border border-purple-500/40 rounded-xl p-2.5 text-xs mono">
+            <div class="flex flex-wrap items-center gap-2 flex-1 min-w-[260px]">
+              <span class="text-purple-300 font-black flex items-center gap-1 whitespace-nowrap">
+                <span>🏛️</span>
+                <span>TRE / Fórum Eleitoral:</span>
+              </span>
+              <select
+                id="selectTreProximidadeTse"
+                onchange="if(this.value) { focarTreProximidadeTse(this.value); } else { limparFiltroProximidadeTreTse(); }"
+                class="bg-slate-950 border border-purple-500/50 focus:border-purple-400 text-purple-100 rounded-lg px-2.5 py-1 text-xs mono outline-none cursor-pointer max-w-[280px] flex-1"
+                title="Selecione o TRE (capital) ou Fórum Eleitoral (cidade) para centralizar e ver os locais de votação próximos"
+              >
+                <option value="">🟣 Selecione um TRE / Fórum no escopo...</option>
+              </select>
+              <select
+                id="selectRaioTreTse"
+                onchange="atualizarRaioProximidadeTreTse(this.value)"
+                class="bg-slate-950 border border-purple-500/50 text-purple-200 rounded-lg px-2 py-1 text-xs mono outline-none cursor-pointer"
+                title="Raio de distância ao redor do TRE / Fórum Eleitoral"
+              >
+                <option value="1">📏 Raio 1 km</option>
+                <option value="2" selected>📏 Raio 2 km</option>
+                <option value="5">📏 Raio 5 km</option>
+                <option value="10">📏 Raio 10 km</option>
+                <option value="0">🌐 Toda a Cidade (Ordenar)</option>
+              </select>
+            </div>
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button
+                id="btnFocarTreRapidoMapa"
+                type="button"
+                onclick="focarTrePrincipalOuSelecionadoTse()"
+                class="px-3 py-1 rounded-lg bg-purple-600 hover:bg-purple-500 active:scale-95 text-white font-black text-[11px] shadow-md transition flex items-center gap-1.5 cursor-pointer"
+                title="Ir direto para o TRE / Fórum Eleitoral da cidade e listar locais próximos"
+              >
+                <span>🟣</span>
+                <span id="lblBtnFocarTreRapido">Ver Próximos do TRE</span>
+              </button>
+              <button
+                id="btnLimparProximidadeTreMapa"
+                type="button"
+                onclick="limparFiltroProximidadeTreTse()"
+                class="hidden px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-purple-200 border border-purple-500/40 font-bold text-[11px] transition cursor-pointer"
+                title="Limpar filtro de proximidade do TRE e voltar a ver toda a área"
+              >
+                ✕ Limpar Raio TRE
+              </button>
+            </div>
+          </div>
+
+          <!-- Banner Informativo Quando o Filtro de Proximidade do TRE Estiver Ativo -->
+          <div id="bannerProximidadeTreTse" class="hidden flex flex-wrap items-center justify-between gap-2 bg-purple-950/60 border border-purple-400/70 rounded-xl px-3 py-2 text-xs mono shadow-lg">
+            <div class="flex items-center gap-2 text-purple-100">
+              <span class="text-base">🟣</span>
+              <span id="textoBannerProximidadeTreTse" class="font-bold">-</span>
+            </div>
+            <div class="flex flex-wrap items-center gap-1">
+              <button type="button" onclick="atualizarRaioProximidadeTreTse('1')" class="px-2 py-0.5 rounded bg-purple-900/80 hover:bg-purple-600 text-purple-100 border border-purple-400/40 text-[10px] font-bold cursor-pointer">1 km</button>
+              <button type="button" onclick="atualizarRaioProximidadeTreTse('2')" class="px-2 py-0.5 rounded bg-purple-900/80 hover:bg-purple-600 text-purple-100 border border-purple-400/40 text-[10px] font-bold cursor-pointer">2 km</button>
+              <button type="button" onclick="atualizarRaioProximidadeTreTse('5')" class="px-2 py-0.5 rounded bg-purple-900/80 hover:bg-purple-600 text-purple-100 border border-purple-400/40 text-[10px] font-bold cursor-pointer">5 km</button>
+              <button type="button" onclick="atualizarRaioProximidadeTreTse('10')" class="px-2 py-0.5 rounded bg-purple-900/80 hover:bg-purple-600 text-purple-100 border border-purple-400/40 text-[10px] font-bold cursor-pointer">10 km</button>
+              <button type="button" onclick="atualizarRaioProximidadeTreTse('0')" class="px-2 py-0.5 rounded bg-purple-900/80 hover:bg-purple-600 text-purple-100 border border-purple-400/40 text-[10px] font-bold cursor-pointer">Todos</button>
+              <button type="button" onclick="limparFiltroProximidadeTreTse()" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[10px] font-bold ml-1 cursor-pointer">✕ Sair</button>
             </div>
           </div>
 
@@ -1749,7 +1865,7 @@ o Boletim de Urna (apos encerramento da votacao).
             <div class="lg:col-span-7 xl:col-span-8 flex flex-col">
               <div id="tseLeafletMap" class="w-full h-[520px] rounded-xl border border-slate-800 bg-slate-900 shadow-inner z-10"></div>
               <div class="flex flex-wrap items-center justify-between text-[11px] text-slate-400 mt-2 px-1 mono gap-2">
-                <span>Legenda: 🟢 Flávio (22) | 🔴 Lula (13) | 🟡 Empate | <strong class="text-amber-300">⚠️ Âmbar: sem unanimidade</strong> | <strong class="text-cyan-300">🔄 Ciano: inversão</strong></span>
+                <span>Legenda: 🟢 Flávio (22) | 🔴 Lula (13) | 🟡 Empate | <strong class="text-purple-300">🟣 TRE / Fórum Eleitoral</strong> | <strong class="text-amber-300">⚠️ Âmbar: sem unanimidade</strong> | <strong class="text-cyan-300">🔄 Ciano: inversão</strong></span>
                 <div class="flex items-center gap-1.5">
                   <div class="inline-flex rounded-md bg-slate-950 p-0.5 border border-slate-800">
                     <button id="btnEstiloTile_dark" onclick="alternarEstiloMapaTileTse('dark')" class="px-2 py-0.5 rounded text-[10px] font-black bg-indigo-600 text-white shadow transition cursor-pointer" title="CartoDB Dark Matter">🌙 Escuro</button>
@@ -1774,9 +1890,10 @@ o Boletim de Urna (apos encerramento da votacao).
                 <select
                   id="selectOrdemLocaisMapa"
                   onchange="reordenarListaLocaisMapaTse(this.value)"
-                  class="bg-slate-900 border border-slate-800 text-slate-300 rounded-lg px-2 py-1.5 text-xs mono outline-none cursor-pointer max-w-[150px]"
+                  class="bg-slate-900 border border-slate-800 text-slate-300 rounded-lg px-2 py-1.5 text-xs mono outline-none cursor-pointer max-w-[165px]"
                 >
-                  <option value="DIVERGENCIA_NOVOS">⚠️ Sem Unanimidade (Âmbar)</option>
+                  <option value="PROXIMIDADE_TRE">🟣 Mais Próximos do TRE/Fórum</option>
+                  <option value="DIVERGENCIA_NOVOS" selected>⚠️ Sem Unanimidade (Âmbar)</option>
                   <option value="INVERSAO">🔄 Inversão (Geral × Novos)</option>
                   <option value="ANOMALIA">🚨 Desvio Estatístico (σ)</option>
                   <option value="SECOES">🗳️ Mais Seções</option>
@@ -13053,18 +13170,197 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
     window.tseLeafletMapInstance = null;
     window.tseLeafletTileLayer = null;
     window.tseLeafletMarkersLayer = null;
+    window.tseLeafletTreLayer = null;
+    window.tseLeafletTreCircleLayer = null;
     window.tseMarkersByLocalKey = new Map();
+    window.tseTreMarkersByKey = new Map();
     window.tseMarkersAtivosNoLayer = new Set();
     window.tseLocaisVotacaoCache = [];
     window.tseTodosLocaisCache = [];
     window.tseLocaisVisiveisCache = [];
     window.tseLocaisVotacaoResumo = null;
+    window.tseTresForunsCache = [];
+    window.tseTreAtivoKey = null;
+    window.tseRaioProximidadeKm = 2;
+    window.tseMostrarPinsTre = true;
     window.tseFiltroTextoLocaisMapa = "";
     window.tseOrdemLocaisMapa = "DIVERGENCIA_NOVOS";
     window.tseCriterioCorPinsMapa = "TOTAL"; // "TOTAL" | "NOVOS" | "INVERSAO"
     window.tseEstiloMapaTile = window.tseEstiloMapaTile || "dark";
     window.tseUltimoEscopoCarregado = null;
     window.tseMapMoveListenerAttached = false;
+
+    function calcularDistanciaKmTse(lat1, lon1, lat2, lon2) {
+      if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return null;
+      const R = 6371.0;
+      const dLat = (lat2 - lat1) * Math.PI / 180.0;
+      const dLon = (lon2 - lon1) * Math.PI / 180.0;
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(lat1 * Math.PI / 180.0) * Math.cos(lat2 * Math.PI / 180.0) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2);
+      return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+    }
+
+    function formatarDistanciaTse(km) {
+      if (km == null || isNaN(km)) return "-";
+      if (km < 1.0) return `${Math.round(km * 1000)} m`;
+      return `${km.toFixed(1).replace(".", ",")} km`;
+    }
+
+    function obterTreAtivoObjTse() {
+      if (!window.tseTreAtivoKey) return null;
+      return (window.tseTresForunsCache || []).find(t => t.key === window.tseTreAtivoKey) || null;
+    }
+
+    function popularSeletorTresForunsTse(tresLista) {
+      const lista = Array.isArray(tresLista) ? tresLista : [];
+      window.tseTresForunsCache = lista;
+      if (window.tseTreAtivoKey && !lista.some(t => t.key === window.tseTreAtivoKey)) {
+        window.tseTreAtivoKey = null;
+      }
+
+      const sel = document.getElementById("selectTreProximidadeTse");
+      if (sel) {
+        const atual = window.tseTreAtivoKey || "";
+        let opts = `<option value="">🟣 Selecione um TRE / Fórum (${lista.length} no escopo)...</option>`;
+        opts += lista.map(t => {
+          const icone = t.tipo === "TRE" ? "🏛️" : "⚖️";
+          const label = t.tipo === "TRE"
+            ? `${icone} ${t.sigla} — ${t.municipio_nome} (${t.qtd_locais_cidade || 0} locais)`
+            : `${icone} Fórum de ${t.municipio_nome}/${t.uf} (${t.qtd_locais_cidade || 0} locais)`;
+          return `<option value="${t.key}" ${t.key === atual ? "selected" : ""}>${label}</option>`;
+        }).join("");
+        sel.innerHTML = opts;
+      }
+
+      const lblRapido = document.getElementById("lblBtnFocarTreRapido");
+      if (lblRapido) {
+        if (lista.length > 0) {
+          const principal = lista.find(t => t.key === window.tseTreAtivoKey) || lista[0];
+          const nmCurto = principal.tipo === "TRE" ? principal.sigla : `Fórum ${principal.municipio_nome}`;
+          lblRapido.textContent = `Ver Próximos: ${nmCurto}`;
+        } else {
+          lblRapido.textContent = "Ver Próximos do TRE";
+        }
+      }
+    }
+
+    function alternarVisibilidadePinsTreTse() {
+      window.tseMostrarPinsTre = !window.tseMostrarPinsTre;
+      const btn = document.getElementById("btnTogglePinsTreMapa");
+      if (btn) {
+        btn.className = window.tseMostrarPinsTre
+          ? "flex items-center gap-1.5 text-[11px] text-purple-200 font-black bg-purple-950/90 hover:bg-purple-900 px-2.5 py-1 rounded-lg border border-purple-400/70 shadow transition cursor-pointer"
+          : "flex items-center gap-1.5 text-[11px] text-slate-400 font-bold bg-slate-900 hover:bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700 transition cursor-pointer";
+      }
+      if (window.tseLeafletMapInstance && window.tseLeafletTreLayer) {
+        if (window.tseMostrarPinsTre) {
+          window.tseLeafletTreLayer.addTo(window.tseLeafletMapInstance);
+          renderizarPinsTresForunsTse(window.tseTresForunsCache);
+        } else {
+          window.tseLeafletMapInstance.removeLayer(window.tseLeafletTreLayer);
+        }
+      }
+    }
+
+    function focarTrePrincipalOuSelecionadoTse() {
+      const sel = document.getElementById("selectTreProximidadeTse");
+      let treKey = (sel && sel.value) || window.tseTreAtivoKey;
+      if (!treKey && Array.isArray(window.tseTresForunsCache) && window.tseTresForunsCache.length > 0) {
+        treKey = window.tseTresForunsCache[0].key;
+      }
+      if (treKey) {
+        focarTreProximidadeTse(treKey);
+      }
+    }
+
+    function atualizarRaioProximidadeTreTse(raioVal) {
+      const r = Number(raioVal);
+      window.tseRaioProximidadeKm = isNaN(r) ? 2 : r;
+      const selR = document.getElementById("selectRaioTreTse");
+      if (selR) selR.value = String(window.tseRaioProximidadeKm);
+      if (window.tseTreAtivoKey) {
+        focarTreProximidadeTse(window.tseTreAtivoKey, window.tseRaioProximidadeKm);
+      }
+    }
+
+    function focarTreProximidadeTse(treKey, raioOpcional = null) {
+      const tre = (window.tseTresForunsCache || []).find(t => t.key === treKey);
+      if (!tre) return;
+
+      window.tseTreAtivoKey = tre.key;
+      if (raioOpcional !== null && raioOpcional !== undefined) {
+        window.tseRaioProximidadeKm = Number(raioOpcional);
+      } else {
+        const selR = document.getElementById("selectRaioTreTse");
+        if (selR) window.tseRaioProximidadeKm = Number(selR.value);
+      }
+
+      const sel = document.getElementById("selectTreProximidadeTse");
+      if (sel) sel.value = tre.key;
+      const selR = document.getElementById("selectRaioTreTse");
+      if (selR) selR.value = String(window.tseRaioProximidadeKm);
+
+      window.tseOrdemLocaisMapa = "PROXIMIDADE_TRE";
+      const selOrd = document.getElementById("selectOrdemLocaisMapa");
+      if (selOrd) selOrd.value = "PROXIMIDADE_TRE";
+
+      if (!window.tseMostrarPinsTre) {
+        alternarVisibilidadePinsTreTse();
+      } else {
+        renderizarPinsTresForunsTse(window.tseTresForunsCache);
+      }
+
+      const btnLimpar = document.getElementById("btnLimparProximidadeTreMapa");
+      if (btnLimpar) btnLimpar.classList.remove("hidden");
+
+      const raioKm = Number(window.tseRaioProximidadeKm || 0);
+      if (window.tseLeafletMapInstance) {
+        if (window.tseLeafletTreCircleLayer) {
+          window.tseLeafletTreCircleLayer.clearLayers();
+          if (raioKm > 0) {
+            L.circle([tre.latitude, tre.longitude], {
+              radius: raioKm * 1000,
+              color: "#c084fc",
+              weight: 2,
+              dashArray: "6, 6",
+              fillColor: "#9333ea",
+              fillOpacity: 0.12
+            }).addTo(window.tseLeafletTreCircleLayer);
+          }
+        }
+        const zoomTarget = raioKm === 1 ? 15 : (raioKm === 2 ? 14 : (raioKm === 5 ? 13 : (raioKm === 10 ? 12 : 13)));
+        window.tseLeafletMapInstance.flyTo([tre.latitude, tre.longitude], zoomTarget, { duration: 0.6 });
+        setTimeout(() => {
+          const mkTre = window.tseTreMarkersByKey.get(tre.key);
+          if (mkTre) mkTre.openPopup();
+        }, 620);
+      }
+
+      atualizarLocaisVisiveisViewportTse(true);
+    }
+
+    function limparFiltroProximidadeTreTse() {
+      window.tseTreAtivoKey = null;
+      if (window.tseLeafletTreCircleLayer) {
+        window.tseLeafletTreCircleLayer.clearLayers();
+      }
+      const sel = document.getElementById("selectTreProximidadeTse");
+      if (sel) sel.value = "";
+      const btnLimpar = document.getElementById("btnLimparProximidadeTreMapa");
+      if (btnLimpar) btnLimpar.classList.add("hidden");
+      const banner = document.getElementById("bannerProximidadeTreTse");
+      if (banner) banner.classList.add("hidden");
+
+      if (window.tseOrdemLocaisMapa === "PROXIMIDADE_TRE") {
+        window.tseOrdemLocaisMapa = "DIVERGENCIA_NOVOS";
+        const selOrd = document.getElementById("selectOrdemLocaisMapa");
+        if (selOrd) selOrd.value = "DIVERGENCIA_NOVOS";
+      }
+
+      renderizarPinsTresForunsTse(window.tseTresForunsCache);
+      atualizarLocaisVisiveisViewportTse(true);
+    }
 
     function debounceTse(func, wait) {
       let timeout;
@@ -13095,11 +13391,13 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       if (!payload) return;
       const locais = payload.consolidado?.locais_votacao || payload.hierarquia?.locais_votacao || [];
       const resumo = payload.consolidado?.resumo_locais || payload.hierarquia?.resumo_locais || null;
+      const tres = resumo?.tres_foruns || payload.tres_foruns || [];
 
       if (Array.isArray(locais) && locais.length > 0) {
         window.tseLocaisVotacaoCache = locais;
         window.tseTodosLocaisCache = locais;
         window.tseLocaisVotacaoResumo = resumo;
+        popularSeletorTresForunsTse(tres);
 
         const painel = document.getElementById("tsePainelMapaLocais");
         if (painel && !painel.classList.contains("hidden")) {
@@ -13161,6 +13459,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         window.tseLocaisVotacaoCache = data.locais_votacao || [];
         window.tseTodosLocaisCache = data.locais_votacao || [];
         window.tseLocaisVotacaoResumo = data.resumo_locais || null;
+        popularSeletorTresForunsTse(data.tres_foruns || data.resumo_locais?.tres_foruns || []);
         renderizarMapaLocaisTse(window.tseTodosLocaisCache, window.tseLocaisVotacaoResumo);
       } catch (err) {
         console.error("[MAPA-TSE] Erro ao carregar locais:", err);
@@ -13188,6 +13487,9 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         }).addTo(window.tseLeafletMapInstance);
         if (window.tseLeafletMarkersLayer) {
           window.tseLeafletMarkersLayer.bringToFront();
+        }
+        if (window.tseLeafletTreLayer) {
+          window.tseLeafletTreLayer.bringToFront();
         }
       }
       ["dark", "voyager", "osm"].forEach(id => {
@@ -13220,7 +13522,9 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
       }).addTo(window.tseLeafletMapInstance);
 
+      window.tseLeafletTreCircleLayer = L.layerGroup().addTo(window.tseLeafletMapInstance);
       window.tseLeafletMarkersLayer = L.layerGroup().addTo(window.tseLeafletMapInstance);
+      window.tseLeafletTreLayer = L.layerGroup().addTo(window.tseLeafletMapInstance);
 
       // Ouvintes de câmera dinâmica com debounce: ao arrastar, alterar o centro ou dar zoom,
       // recalcula e renderiza apenas os locais do viewport, ocultando os que saíram da tela.
@@ -13236,10 +13540,122 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       return window.tseLeafletMapInstance;
     }
 
+    function renderizarPinsTresForunsTse(tresLista) {
+      if (!window.tseLeafletMapInstance || !window.tseLeafletTreLayer || typeof L === "undefined") return;
+      window.tseLeafletTreLayer.clearLayers();
+      window.tseTreMarkersByKey.clear();
+      if (!window.tseMostrarPinsTre) return;
+
+      const lista = Array.isArray(tresLista) ? tresLista : [];
+      const todosLocais = window.tseTodosLocaisCache || window.tseLocaisVotacaoCache || [];
+
+      lista.forEach(tre => {
+        if (!tre.latitude || !tre.longitude) return;
+        const isAtivo = window.tseTreAtivoKey === tre.key;
+        const iconeEmoji = tre.tipo === "TRE" ? "🏛️" : "⚖️";
+        const textoBadge = tre.tipo === "TRE" ? tre.sigla : "FÓRUM";
+
+        const iconHtml = `
+          <div class="pin-tre-container ${isAtivo ? 'pin-tre-ativo' : ''}" title="${tre.nome} (${tre.municipio_nome}/${tre.uf})">
+            <span>${iconeEmoji}</span>
+            <span>${textoBadge}</span>
+          </div>
+        `;
+        const icon = L.divIcon({
+          className: "leaflet-data-marker",
+          html: iconHtml,
+          iconSize: [72, 30],
+          iconAnchor: [36, 15],
+          popupAnchor: [0, -16]
+        });
+
+        const marker = L.marker([tre.latitude, tre.longitude], { icon: icon, zIndexOffset: 900 });
+
+        // Calcula contagem rápida de locais próximos a este TRE/Fórum (1km, 2km, 5km)
+        let cnt1 = 0, cnt2 = 0, cnt5 = 0;
+        todosLocais.forEach(l => {
+          const d = calcularDistanciaKmTse(tre.latitude, tre.longitude, l.latitude, l.longitude);
+          if (d !== null) {
+            if (d <= 1.0) cnt1++;
+            if (d <= 2.0) cnt2++;
+            if (d <= 5.0) cnt5++;
+          }
+        });
+
+        const tipoBadge = tre.tipo === "TRE"
+          ? `<span class="px-1.5 py-0.5 rounded bg-purple-900/90 text-purple-200 border border-purple-400/60 text-[9px] font-black">🏛️ SEDE ${tre.sigla}</span>`
+          : `<span class="px-1.5 py-0.5 rounded bg-purple-950/90 text-purple-300 border border-purple-500/50 text-[9px] font-black">⚖️ FÓRUM ELEITORAL</span>`;
+
+        const popupHtml = `
+          <div class="p-3 text-xs mono text-slate-100 min-w-[290px] max-w-[330px]">
+            <div class="flex items-start justify-between gap-2 border-b border-purple-500/30 pb-2 mb-2">
+              <div class="overflow-hidden">
+                ${tipoBadge}
+                <h3 class="text-xs font-black text-white leading-snug mt-1">${tre.nome}</h3>
+                <span class="text-[10px] text-purple-300 block mt-0.5 truncate">${tre.municipio_nome} - ${tre.uf}</span>
+                <span class="text-[10px] text-slate-400 block mt-0.5 leading-tight">${tre.endereco || ''}</span>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-3 gap-1.5 text-[10px] my-2 text-center">
+              <div class="bg-purple-950/50 p-1.5 rounded border border-purple-500/30">
+                <span class="text-[9px] text-purple-300 block">Raio 1 km</span>
+                <strong class="text-white text-xs">${cnt1} locais</strong>
+              </div>
+              <div class="bg-purple-950/50 p-1.5 rounded border border-purple-500/30">
+                <span class="text-[9px] text-purple-300 block">Raio 2 km</span>
+                <strong class="text-white text-xs">${cnt2} locais</strong>
+              </div>
+              <div class="bg-purple-950/50 p-1.5 rounded border border-purple-500/30">
+                <span class="text-[9px] text-purple-300 block">Raio 5 km</span>
+                <strong class="text-white text-xs">${cnt5} locais</strong>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-1.5 mt-2">
+              <button
+                type="button"
+                onclick="focarTreProximidadeTse('${tre.key}', 2)"
+                class="py-1.5 px-2.5 rounded-lg bg-purple-600 hover:bg-purple-500 text-white font-black text-[11px] flex items-center justify-center gap-1 shadow transition cursor-pointer"
+              >
+                <span>📍</span><span>Próximos (2 km)</span>
+              </button>
+              <button
+                type="button"
+                onclick="focarTreProximidadeTse('${tre.key}', 5)"
+                class="py-1.5 px-2.5 rounded-lg bg-purple-950 hover:bg-purple-700 text-purple-200 hover:text-white border border-purple-500/60 font-black text-[11px] flex items-center justify-center gap-1 transition cursor-pointer"
+              >
+                <span>🔭</span><span>Raio 5 km</span>
+              </button>
+            </div>
+            ${isAtivo ? `
+            <button
+              type="button"
+              onclick="limparFiltroProximidadeTreTse()"
+              class="w-full mt-1.5 py-1 px-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-[10px] transition cursor-pointer"
+            >
+              ✕ Limpar Filtro deste TRE
+            </button>` : ''}
+          </div>
+        `;
+
+        marker.bindPopup(popupHtml, { maxWidth: 340, minWidth: 290, autoPan: true, autoPanPadding: [20, 20] });
+        marker.addTo(window.tseLeafletTreLayer);
+        window.tseTreMarkersByKey.set(tre.key, marker);
+      });
+    }
+
     function atualizarLocaisVisiveisViewportTse(forcarRecalculo = false) {
       if (!window.tseLeafletMapInstance) return;
       const map = window.tseLeafletMapInstance;
       const todosLocais = window.tseTodosLocaisCache || window.tseLocaisVotacaoCache || [];
+      const treAtivo = obterTreAtivoObjTse();
+      const raioKm = Number(window.tseRaioProximidadeKm || 0);
+
+      // Anota distância ao TRE ativo (se selecionado) em cada local
+      todosLocais.forEach(l => {
+        l._distTreKm = treAtivo ? calcularDistanciaKmTse(treAtivo.latitude, treAtivo.longitude, l.latitude, l.longitude) : null;
+      });
 
       if (todosLocais.length === 0) {
         if (window.tseLeafletMarkersLayer) window.tseLeafletMarkersLayer.clearLayers();
@@ -13249,13 +13665,32 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         return;
       }
 
+      // Quando há TRE focado com raio numérico, filtra estritamente os locais dentro desse raio
+      let locaisElegiveis = todosLocais;
+      const filtroRaioTreAtivo = Boolean(treAtivo && raioKm > 0);
+      if (filtroRaioTreAtivo) {
+        locaisElegiveis = todosLocais.filter(l => l._distTreKm !== null && l._distTreKm <= raioKm);
+      }
+
+      const bannerTre = document.getElementById("bannerProximidadeTreTse");
+      const txtBannerTre = document.getElementById("textoBannerProximidadeTreTse");
+      if (bannerTre && txtBannerTre) {
+        if (treAtivo) {
+          bannerTre.classList.remove("hidden");
+          const raioLabel = raioKm > 0 ? `em até ${raioKm} km` : `em toda a cidade (ordenados por proximidade)`;
+          txtBannerTre.innerHTML = `${treAtivo.nome} — <span class="text-white">${locaisElegiveis.length} locais encontrados</span> ${raioLabel}`;
+        } else {
+          bannerTre.classList.add("hidden");
+        }
+      }
+
       // Obtém o bounding box da área visível atual com padding de 6% para suavidade nas bordas
       const bounds = map.getBounds().pad(0.06);
 
-      // Filtra os locais que estão dentro do enquadramento atual da câmera
-      const locaisNoBounds = todosLocais.filter(l => {
-        return l.latitude && l.longitude && bounds.contains([l.latitude, l.longitude]);
-      });
+      // Filtra os locais elegíveis dentro do enquadramento atual (se raio TRE ativo e <= 75, mantém todo o raio visível)
+      const locaisNoBounds = (filtroRaioTreAtivo && locaisElegiveis.length <= 75)
+        ? locaisElegiveis
+        : locaisElegiveis.filter(l => l.latitude && l.longitude && bounds.contains([l.latitude, l.longitude]));
 
       // Teto seguro de anti-estouro (MAX_PINS_VIEWPORT = 75) para evitar poluição visual e lentidão no DOM
       const MAX_PINS_VIEWPORT = 75;
@@ -13266,15 +13701,12 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         locaisVisiveis = locaisNoBounds;
       } else {
         antiEstouroAtivo = true;
-        // Priorização forense ao atingir o teto de densidade:
-        // 1. Manter visível o local ativo/focado pelo usuário
-        // 2. Prédios com divergência interna nos votos novos (sem unanimidade)
-        // 3. Prédios com inversão de resultado geral vs votos novos
-        // 4. Prédios com anomalia intra-local (desvio padrão sigma elevado)
-        // 5. Volume de seções (maiores escolas com mais urnas)
         const priorizados = [...locaisNoBounds].sort((a, b) => {
           if (a.key === window.tseLocalAtivoKey) return -1;
           if (b.key === window.tseLocalAtivoKey) return 1;
+          if (treAtivo && a._distTreKm !== null && b._distTreKm !== null) {
+            return a._distTreKm - b._distTreKm;
+          }
           if (a.tem_divergencia_interna_novos !== b.tem_divergencia_interna_novos) {
             return a.tem_divergencia_interna_novos ? -1 : 1;
           }
@@ -13291,8 +13723,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       window.tseLocaisVisiveisCache = locaisVisiveis;
 
-      // Reconciliação dos Markers no LayerGroup do Leaflet:
-      // Remove da tela os marcadores que saíram da área visível ou excederam o teto anti-estouro
+      // Reconciliação dos Markers no LayerGroup do Leaflet
       const chavesVisiveis = new Set(locaisVisiveis.map(l => l.key));
       const markersAtivos = window.tseMarkersAtivosNoLayer || new Set();
 
@@ -13306,7 +13737,6 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         }
       }
 
-      // Adiciona na tela apenas os marcadores que entraram na área visível
       for (const loc of locaisVisiveis) {
         if (!markersAtivos.has(loc.key)) {
           const m = window.tseMarkersByLocalKey.get(loc.key);
@@ -13317,6 +13747,13 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         }
       }
       window.tseMarkersAtivosNoLayer = markersAtivos;
+
+      // Mantém a camada roxa de TREs/Fóruns sempre sobreposta aos PINs de locais
+      if (window.tseMostrarPinsTre && window.tseLeafletTreLayer && window.tseLeafletMapInstance.hasLayer(window.tseLeafletTreLayer)) {
+        window.tseLeafletTreLayer.eachLayer(mk => {
+          if (typeof mk.setZIndexOffset === "function") mk.setZIndexOffset(900);
+        });
+      }
 
       // Atualiza os Mini KPIs e Badges para a área atualmente visível
       atualizarMiniKpisViewportTse(locaisVisiveis, todosLocais.length, antiEstouroAtivo, locaisNoBounds.length);
@@ -13379,6 +13816,9 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       window.tseTodosLocaisCache = locais;
       window.tseLocaisVotacaoCache = locais;
       window.tseLocaisVotacaoResumo = resumo;
+      if (typeof popularSeletorTresForunsTse === "function") {
+        popularSeletorTresForunsTse(resumo?.tres_foruns || window.tseTresForunsCache || []);
+      }
 
       const st = window.arvoreTseState || {};
       const alvoFormatado = typeof obterNomeAmigavelAlvo === "function"
@@ -13535,12 +13975,26 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       const escopoChave = `${st.uf || ''}_${st.municipio || ''}_${st.zona || ''}`;
       if (window.tseUltimoEscopoCarregado !== escopoChave) {
         window.tseUltimoEscopoCarregado = escopoChave;
+        window.tseTreAtivoKey = null;
+        if (window.tseLeafletTreCircleLayer) {
+          window.tseLeafletTreCircleLayer.clearLayers();
+        }
+        const selTreEl = document.getElementById("selectTreProximidadeTse");
+        if (selTreEl) selTreEl.value = "";
+        const bannerTreEl = document.getElementById("bannerProximidadeTreTse");
+        if (bannerTreEl) bannerTreEl.classList.add("hidden");
+        const btnLimparTreEl = document.getElementById("btnLimparProximidadeTreMapa");
+        if (btnLimparTreEl) btnLimparTreEl.classList.add("hidden");
         if (resumo?.centro_mapa && resumo?.zoom_sugerido) {
           map.setView(resumo.centro_mapa, resumo.zoom_sugerido);
         } else if (locais.length > 0) {
           const b = L.latLngBounds(locais.filter(l => l.latitude).map(l => [l.latitude, l.longitude]));
           if (b.isValid()) map.fitBounds(b, { padding: [25, 25], maxZoom: 14 });
         }
+      }
+
+      if (typeof renderizarPinsTresForunsTse === "function") {
+        renderizarPinsTresForunsTse(window.tseTresForunsCache || []);
       }
 
       // Renderiza dinamicamente apenas os prédios enquadrados no viewport da câmera
@@ -13571,7 +14025,9 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       // Ordenação Avançada
       const criterio = window.tseOrdemLocaisMapa || "DIVERGENCIA_NOVOS";
-      if (criterio === "DIVERGENCIA_NOVOS") {
+      if (criterio === "PROXIMIDADE_TRE") {
+        filtrados.sort((a, b) => (a._distTreKm ?? 999999) - (b._distTreKm ?? 999999));
+      } else if (criterio === "DIVERGENCIA_NOVOS") {
         filtrados.sort((a, b) => {
           if (a.tem_divergencia_interna_novos !== b.tem_divergencia_interna_novos) {
             return a.tem_divergencia_interna_novos ? -1 : 1;
@@ -13623,6 +14079,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         </div>
       `;
 
+      const treAtivo = typeof obterTreAtivoObjTse === "function" ? obterTreAtivoObjTse() : null;
       const cardsHtml = filtrados.map(loc => {
         let corBorder = "border-slate-800 bg-slate-950";
         if (loc.tem_divergencia_interna_novos) {
@@ -13659,6 +14116,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
                   ${loc.tem_divergencia_interna_novos ? `<span class="px-1.5 py-0.2 rounded bg-amber-600 text-[9px] font-black text-slate-950 animate-pulse">⚠️ SEM UNANIMIDADE</span>` : ''}
                   ${loc.houve_inversao ? `<span class="px-1.5 py-0.2 rounded bg-cyan-700 text-[9px] font-black text-white">🔄 INVERSÃO</span>` : ''}
                   ${loc.tem_anomalia_intra_local ? `<span class="px-1.5 py-0.2 rounded bg-rose-600 text-[9px] font-black text-white">DESVIO σ</span>` : ''}
+                  ${(treAtivo && loc._distTreKm !== null && loc._distTreKm !== undefined) ? `<span class="px-1.5 py-0.2 rounded bg-purple-900/90 border border-purple-400/60 text-[9px] font-black text-purple-100">🟣 ${typeof formatarDistanciaTse === "function" ? formatarDistanciaTse(loc._distTreKm) : `${loc._distTreKm.toFixed(2)} km`}</span>` : ''}
                 </div>
                 <div class="text-[10px] text-slate-400 mono mt-0.5">
                   ${loc.municipio_nome} • Zona ${String(loc.zona).padStart(4, '0')} • ${loc.tem_divergencia_interna_novos ? `<strong class="text-amber-300">${loc.placar_urnas_novos}</strong>` : (loc.qtd_secoes > 1 ? '<strong class="text-emerald-400">100% Unânime</strong>' : '1 urna')}
