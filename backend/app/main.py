@@ -92,8 +92,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-15-rev69"
-SYSTEM_COMMIT = "rev69-auditoria-logs-preparacao-gedai-ue"
+SYSTEM_BUILD = "2026-11-15-rev70"
+SYSTEM_COMMIT = "rev70-fix-varchar-serial-tpm-gedai-e-tratamento-json"
 
 def obter_basemaps_apikey() -> str:
     """Retorna a API key do CartoDB Basemaps a partir de variáveis de ambiente do Portainer/Docker."""
@@ -2063,9 +2063,15 @@ async def api_tse_reverso_gedai_upload(
 @app.post("/api/tse-reverso/gedai/detectar-servidor")
 def api_tse_reverso_gedai_detectar_servidor():
     """Detecta pacotes log_gedai_*.zip ou pastas GEDAI no servidor (/root/tse_import)."""
-    from .tse_gedai_parser import detectar_arquivos_gedai_servidor
-    arquivos = detectar_arquivos_gedai_servidor()
-    return {"total": len(arquivos), "arquivos": arquivos}
+    try:
+        from .tse_gedai_parser import detectar_arquivos_gedai_servidor
+        arquivos = detectar_arquivos_gedai_servidor()
+        return {"total": len(arquivos), "arquivos": arquivos}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao escanear pacotes GEDAI no servidor: {exc}")
 
 
 @app.post("/api/tse-reverso/gedai/ingerir-servidor")
@@ -2074,9 +2080,15 @@ def api_tse_reverso_gedai_ingerir_servidor(
     db: Session = Depends(get_db),
 ):
     """Processa pacotes/pastas GEDAI-UE presentes no disco do servidor."""
-    from .tse_gedai_parser import processar_caminho_gedai_servidor
-    caminho = payload.get("caminho_arquivo") if isinstance(payload, dict) else None
-    return processar_caminho_gedai_servidor(db=db, caminho=caminho)
+    try:
+        from .tse_gedai_parser import processar_caminho_gedai_servidor
+        caminho = payload.get("caminho_arquivo") if isinstance(payload, dict) else None
+        return processar_caminho_gedai_servidor(db=db, caminho=caminho)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao ingerir logs GEDAI-UE do servidor: {exc}")
 
 
 @app.get("/api/tse-reverso/gedai/{lote_id}/detalhe")

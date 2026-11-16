@@ -815,24 +815,30 @@ def processar_pacote_gedai_para_banco(
     db.add(lote_db)
     db.flush()
 
+    def _trunc(val: Any, max_len: int) -> Optional[str]:
+        if val is None:
+            return None
+        s = str(val).strip()
+        return s[:max_len] if len(s) > max_len else s
+
     corresp_mappings: list[dict[str, Any]] = []
     for est in compilado["estacoes"]:
         est_db = TseGedaiEstacao(
             lote_id=lote_db.id,
-            nome_arquivo=est["nome_arquivo"],
-            computador=est["computador"],
+            nome_arquivo=_trunc(est["nome_arquivo"], 255) or "desconhecido.jez",
+            computador=_trunc(est["computador"], 80) or "ESTACAO",
             zona_computador=est["zona_computador"],
-            serial_tpm=est["serial_tpm"],
-            serial_instalacao=est["serial_instalacao"],
-            uf=est["uf"],
-            pleito=est["pleito"],
+            serial_tpm=_trunc(est["serial_tpm"], 128),
+            serial_instalacao=_trunc(est["serial_instalacao"], 128),
+            uf=_trunc(est["uf"], 10),
+            pleito=_trunc(est["pleito"], 10),
             turno=est["turno"],
-            versao_gedai=est["versao_gedai"],
+            versao_gedai=_trunc(est["versao_gedai"], 160),
             possui_vsc=est["possui_vsc"],
             usuarios_windows_json=json.dumps(est["usuarios_windows"], ensure_ascii=False),
             usuarios_odin_json=json.dumps(est["usuarios_odin"], ensure_ascii=False),
-            primeira_data_hora=est["primeira_data_hora"],
-            ultima_data_hora=est["ultima_data_hora"],
+            primeira_data_hora=_trunc(est["primeira_data_hora"], 25),
+            ultima_data_hora=_trunc(est["ultima_data_hora"], 25),
             total_linhas=est["total_linhas"],
             corresp_secao_qtd=est["corresp_secao_qtd"],
             corresp_contingencia_qtd=est["corresp_contingencia_qtd"],
@@ -853,18 +859,18 @@ def processar_pacote_gedai_para_banco(
             corresp_mappings.append({
                 "lote_id": lote_db.id,
                 "estacao_id": est_db.id,
-                "computador": c["computador"],
-                "tipo": c["tipo"],
-                "acao": c["acao"],
-                "municipio_codigo": c["municipio_codigo"],
-                "municipio_nome": c.get("municipio_nome") or "",
+                "computador": _trunc(c["computador"], 80) or "ESTACAO",
+                "tipo": _trunc(c["tipo"], 20) or "SECAO",
+                "acao": _trunc(c["acao"], 20) or "TRANSMITIDA",
+                "municipio_codigo": _trunc(c["municipio_codigo"], 10) or "00000",
+                "municipio_nome": _trunc(c.get("municipio_nome") or "", 120) or "",
                 "zona": c["zona"],
                 "secao": c["secao"],
-                "codigo_carga": c["codigo_carga"],
-                "id_urna": c["id_urna"],
-                "midia_carga": c["midia_carga"],
-                "data_hora": c["data_hora"],
-                "operador": c["operador"],
+                "codigo_carga": _trunc(c["codigo_carga"], 64),
+                "id_urna": _trunc(c["id_urna"], 32),
+                "midia_carga": _trunc(c["midia_carga"], 32),
+                "data_hora": _trunc(c["data_hora"], 25),
+                "operador": _trunc(c["operador"], 80),
             })
 
     if corresp_mappings:
@@ -1080,14 +1086,51 @@ def consultar_correspondencias_gedai(
 
 def detectar_arquivos_gedai_servidor() -> list[dict[str, Any]]:
     """Escaneia pastas do servidor por pacotes `log_gedai*.zip` ou pastas descompactadas `log_gedai_*`."""
-    diretorios = ["/root/tse_import", "/app/tse_import", "/root/Downloads"]
+    candidatos_dir = [
+        os.getenv("TSE_IMPORT_DIR", "/app/tse_import"),
+        "/app/tse_import",
+        "/root/tse_import",
+        "/app/data/tse_import",
+        "/root/Downloads",
+    ]
+    diretorios: list[str] = []
+    for d in candidatos_dir:
+        if d and d not in diretorios:
+            diretorios.append(d)
+
     encontrados: list[dict[str, Any]] = []
     vistos: set[str] = set()
+
+    def _inspecionar_pasta_gedai(nome: str, caminho_dir: str) -> None:
+        if caminho_dir in vistos or not os.path.isdir(caminho_dir):
+            return
+        try:
+            arqs = [f for f in os.listdir(caminho_dir) if f.lower().endswith(".jez")]
+        except Exception:
+            return
+        if not arqs:
+            return
+        vistos.add(caminho_dir)
+        tam = 0
+        for f in arqs:
+            try:
+                tam += os.path.getsize(os.path.join(caminho_dir, f))
+            except Exception:
+                pass
+        encontrados.append({
+            "nome": nome,
+            "caminho": caminho_dir,
+            "tipo": f"PASTA ({len(arqs)} .jez)",
+            "tamanho_mb": round(tam / (1024 * 1024), 2),
+        })
 
     for base_dir in diretorios:
         if not os.path.isdir(base_dir):
             continue
         try:
+            # Caso o próprio diretório configurado já contenha arquivos .jez GEDAI
+            if "gedai" in os.path.basename(base_dir).lower():
+                _inspecionar_pasta_gedai(os.path.basename(base_dir), base_dir)
             for item in sorted(os.listdir(base_dir)):
                 low = item.lower()
                 if "gedai" not in low:
@@ -1104,22 +1147,7 @@ def detectar_arquivos_gedai_servidor() -> list[dict[str, Any]]:
                         "tamanho_mb": round(os.path.getsize(full) / (1024 * 1024), 2),
                     })
                 elif os.path.isdir(full):
-                    qtd_jez = sum(1 for f in os.listdir(full) if f.lower().endswith(".jez"))
-                    if qtd_jez > 0:
-                        vistos.add(full)
-                        encontrados.append({
-                            "nome": item,
-                            "caminho": full,
-                            "tipo": f"PASTA ({qtd_jez} .jez)",
-                            "tamanho_mb": round(
-                                sum(
-                                    os.path.getsize(os.path.join(full, f))
-                                    for f in os.listdir(full)
-                                    if f.lower().endswith(".jez")
-                                ) / (1024 * 1024),
-                                2,
-                            ),
-                        })
+                    _inspecionar_pasta_gedai(item, full)
         except Exception:
             continue
 

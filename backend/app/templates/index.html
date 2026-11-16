@@ -15690,6 +15690,21 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }
     }
 
+    async function lerRespostaJsonOuTextoTse(res) {
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch (_) {
+        const resumo = String(raw || "").replace(/\s+/g, " ").trim().slice(0, 180);
+        throw new Error(resumo ? `HTTP ${res.status}: ${resumo}` : `HTTP ${res.status} (resposta não-JSON)`);
+      }
+      if (!res.ok) {
+        throw new Error(data.detail || data.mensagem || `HTTP ${res.status}`);
+      }
+      return data;
+    }
+
     async function dispararUploadLogsGedai(event) {
       const files = event?.target?.files;
       if (!files || files.length === 0) return;
@@ -15715,8 +15730,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       try {
         const res = await fetch("/api/tse-reverso/gedai/upload", { method: "POST", body: fd });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        const data = await lerRespostaJsonOuTextoTse(res);
         setGedaiStatusBar(
           `✅ Lote <strong>${escHtmlGedai(data.nome_origem)}</strong> processado: <strong>${data.total_estacoes} estações</strong> • ${Number(data.total_linhas || 0).toLocaleString('pt-BR')} linhas • ${Number(data.total_corresp_secao || 0).toLocaleString('pt-BR')} correspondências • ${Number(data.total_contingencias || 0).toLocaleString('pt-BR')} contingências.`,
           "ok"
@@ -15731,12 +15745,12 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
     }
 
     async function detectarLogsGedaiServidor() {
-      setGedaiStatusBar(`<span class="animate-spin">⏳</span> Buscando pacotes <code>log_gedai_*.zip</code> ou pastas em <code>/root/tse_import</code>...`, "info");
+      setGedaiStatusBar(`<span class="animate-spin">⏳</span> Buscando pacotes <code>log_gedai_*.zip</code> ou pastas no servidor...`, "info");
       try {
         const resDet = await fetch("/api/tse-reverso/gedai/detectar-servidor", { method: "POST" });
-        const dDet = await resDet.json();
+        const dDet = await lerRespostaJsonOuTextoTse(resDet);
         if (!dDet.arquivos || dDet.arquivos.length === 0) {
-          setGedaiStatusBar("⚠️ Nenhum arquivo/pasta GEDAI encontrado em <code>/root/tse_import</code>. Use os botões <strong>Enviar Pasta Local</strong> ou <strong>Enviar .ZIP / .JEZ</strong> acima.", "err");
+          setGedaiStatusBar("⚠️ Nenhum arquivo/pasta GEDAI encontrado em <code>/root/tse_import</code> ou <code>/app/tse_import</code>. Use os botões <strong>Enviar Pasta Local</strong> ou <strong>Enviar .ZIP / .JEZ</strong> acima.", "err");
           return;
         }
         setGedaiStatusBar(`<span class="animate-spin">⏳</span> Encontrados ${dDet.arquivos.length} pacote(s) no servidor (${dDet.arquivos.map(a => escHtmlGedai(a.nome)).join(", ")}). Processando...`, "info");
@@ -15745,8 +15759,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({})
         });
-        const dIng = await resIng.json();
-        if (!resIng.ok) throw new Error(dIng.detail || `HTTP ${resIng.status}`);
+        const dIng = await lerRespostaJsonOuTextoTse(resIng);
         setGedaiStatusBar(`✅ Processamento no servidor concluído: <strong>${dIng.total_processados || 0} lote(s)</strong> importado(s).`, "ok");
         await carregarListaLotesGedaiTse(true);
       } catch (err) {

@@ -432,14 +432,14 @@ class TseGedaiEstacao(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     lote_id = Column(Integer, ForeignKey("tse_gedai_lotes.id", ondelete="CASCADE"), index=True, nullable=False)
     nome_arquivo = Column(String(255), nullable=False)
-    computador = Column(String(40), index=True, nullable=False)
+    computador = Column(String(80), index=True, nullable=False)
     zona_computador = Column(Integer, index=True, nullable=True)
-    serial_tpm = Column(String(24), nullable=True)
-    serial_instalacao = Column(String(24), nullable=True)
+    serial_tpm = Column(String(128), nullable=True)
+    serial_instalacao = Column(String(128), nullable=True)
     uf = Column(String(10), nullable=True)
     pleito = Column(String(10), nullable=True)
     turno = Column(SmallInteger, default=1)
-    versao_gedai = Column(String(80), nullable=True)
+    versao_gedai = Column(String(160), nullable=True)
     possui_vsc = Column(Boolean, default=False)
 
     usuarios_windows_json = Column(Text, nullable=True)
@@ -474,18 +474,18 @@ class TseGedaiCorrespondencia(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     lote_id = Column(Integer, ForeignKey("tse_gedai_lotes.id", ondelete="CASCADE"), index=True, nullable=False)
     estacao_id = Column(Integer, ForeignKey("tse_gedai_estacoes.id", ondelete="CASCADE"), index=True, nullable=False)
-    computador = Column(String(40), index=True, nullable=False)
+    computador = Column(String(80), index=True, nullable=False)
     tipo = Column(String(20), index=True, nullable=False)        # SECAO | CONTINGENCIA
     acao = Column(String(20), index=True, nullable=False)        # TRANSMITIDA | RECEBIDA
     municipio_codigo = Column(String(10), index=True, nullable=False)
-    municipio_nome = Column(String(80), nullable=True)
+    municipio_nome = Column(String(120), nullable=True)
     zona = Column(Integer, index=True, default=0)
     secao = Column(Integer, index=True, default=0)
-    codigo_carga = Column(String(32), index=True, nullable=True)
-    id_urna = Column(String(16), index=True, nullable=True)
-    midia_carga = Column(String(16), index=True, nullable=True)
+    codigo_carga = Column(String(64), index=True, nullable=True)
+    id_urna = Column(String(32), index=True, nullable=True)
+    midia_carga = Column(String(32), index=True, nullable=True)
     data_hora = Column(String(25), nullable=True)
-    operador = Column(String(40), nullable=True)
+    operador = Column(String(80), nullable=True)
 
     __table_args__ = (
         Index("idx_tse_gedai_corresp_sec", "lote_id", "municipio_codigo", "zona", "secao"),
@@ -1446,6 +1446,16 @@ def init_db(max_retries=15, delay=2.0):
         );
         """,
         "CREATE INDEX IF NOT EXISTS idx_tse_dossie_pref ON tse_dossie_secao(prefixo);",
+        "ALTER TABLE tse_gedai_estacoes ALTER COLUMN computador TYPE VARCHAR(80);",
+        "ALTER TABLE tse_gedai_estacoes ALTER COLUMN serial_tpm TYPE VARCHAR(128);",
+        "ALTER TABLE tse_gedai_estacoes ALTER COLUMN serial_instalacao TYPE VARCHAR(128);",
+        "ALTER TABLE tse_gedai_estacoes ALTER COLUMN versao_gedai TYPE VARCHAR(160);",
+        "ALTER TABLE tse_gedai_correspondencias ALTER COLUMN computador TYPE VARCHAR(80);",
+        "ALTER TABLE tse_gedai_correspondencias ALTER COLUMN municipio_nome TYPE VARCHAR(120);",
+        "ALTER TABLE tse_gedai_correspondencias ALTER COLUMN codigo_carga TYPE VARCHAR(64);",
+        "ALTER TABLE tse_gedai_correspondencias ALTER COLUMN id_urna TYPE VARCHAR(32);",
+        "ALTER TABLE tse_gedai_correspondencias ALTER COLUMN midia_carga TYPE VARCHAR(32);",
+        "ALTER TABLE tse_gedai_correspondencias ALTER COLUMN operador TYPE VARCHAR(80);",
     ]
 
     try:
