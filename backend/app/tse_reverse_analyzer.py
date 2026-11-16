@@ -3023,7 +3023,7 @@ def gerar_espelho_bobina_completo_tse(
         hab_sem = max(0, comp - hab_bio - hab_graf)
 
     # Identificação da Urna (Hardware UE) — Somente dados reais ou XXX
-    cod_ue = (codigo_ue_override or "").strip() or ref_meta.get("ue")
+    cod_ue = (codigo_ue_override or "").strip() or str(getattr(bu_db, "mac_urna", "") or "").strip() or ref_meta.get("ue")
     if not cod_ue:
         mod = str(getattr(secao_db, "modelo_urna", "") or "").strip()
         if mod.isdigit() and len(mod) in (7, 8):
@@ -4313,7 +4313,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     try:
                         import types as _types
                         from .tse_gedai_parser import analisar_custodia_urna_secao
-                        # Snapshot imutável de secao_db para blindar contra expire_on_commit de db.commit()
+                        # Snapshot imutável de secao_db, bu1 e bu2 para blindar contra expire_on_commit de db.commit()
                         sec_snap = _types.SimpleNamespace(
                             id=secao_db.id,
                             uf=secao_db.uf,
@@ -4324,11 +4324,13 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             local_votacao=secao_db.local_votacao,
                             modelo_urna=secao_db.modelo_urna,
                         )
+                        bu1_snap = _types.SimpleNamespace(mac_urna=getattr(bu1, "mac_urna", None)) if bu1 is not None else None
+                        bu2_snap = _types.SimpleNamespace(mac_urna=getattr(bu2, "mac_urna", None)) if bu2 is not None else None
                         custodia_urna = analisar_custodia_urna_secao(
                             db=db,
                             secao_db=sec_snap,
-                            bu1=bu1,
-                            bu2=bu2,
+                            bu1=bu1_snap,
+                            bu2=bu2_snap,
                             espelho_1t=espelho_1t or "",
                             espelho_2t=espelho_2t or "",
                             met1=met1,
@@ -5938,6 +5940,22 @@ def _executar_ingestao_servidor_worker(arquivos_selecionados: list[str] | None =
                 zip_low = os.path.basename(zip_path).lower()
                 if "votacao_secao" in zip_low or "bweb" in zip_low:
                     continue
+                if zip_low.startswith(("cesp_", "ceft_", "csec_", "ccont_")):
+                    try:
+                        from .tse_corresp_parser import processar_caminho_corresp_servidor
+                        processar_caminho_corresp_servidor(db=db, caminho=zip_path)
+                        _CONSOLIDACAO_SQL_CACHE.clear()
+                    except Exception as exc_cor_srv:
+                        _STATUS_INGESTAO_LOCAL["erros"].append(f"CESP/CEFT ({os.path.basename(zip_path)}): {exc_cor_srv}")
+                    continue
+                if zip_low.startswith("log_gedai") or "gedai" in zip_low:
+                    try:
+                        from .tse_gedai_parser import processar_caminho_gedai_servidor
+                        processar_caminho_gedai_servidor(db=db, caminho=zip_path)
+                        _CONSOLIDACAO_SQL_CACHE.clear()
+                    except Exception as exc_ged_srv:
+                        _STATUS_INGESTAO_LOCAL["erros"].append(f"GEDAI ({os.path.basename(zip_path)}): {exc_ged_srv}")
+                    continue
                 m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(zip_path), re.IGNORECASE)
                 default_zip_uf = m_zip_uf.group(1).upper() if m_zip_uf else uf_inicial
 
@@ -6624,6 +6642,22 @@ def _executar_complementacao_worker():
             try:
                 zip_low = os.path.basename(zip_path).lower()
                 if "votacao_secao" in zip_low or "bweb" in zip_low:
+                    continue
+                if zip_low.startswith(("cesp_", "ceft_", "csec_", "ccont_")):
+                    try:
+                        from .tse_corresp_parser import processar_caminho_corresp_servidor
+                        processar_caminho_corresp_servidor(db=db, caminho=zip_path)
+                        _CONSOLIDACAO_SQL_CACHE.clear()
+                    except Exception as exc_cor_srv:
+                        _STATUS_INGESTAO_LOCAL["erros"].append(f"CESP/CEFT ({os.path.basename(zip_path)}): {exc_cor_srv}")
+                    continue
+                if zip_low.startswith("log_gedai") or "gedai" in zip_low:
+                    try:
+                        from .tse_gedai_parser import processar_caminho_gedai_servidor
+                        processar_caminho_gedai_servidor(db=db, caminho=zip_path)
+                        _CONSOLIDACAO_SQL_CACHE.clear()
+                    except Exception as exc_ged_srv:
+                        _STATUS_INGESTAO_LOCAL["erros"].append(f"GEDAI ({os.path.basename(zip_path)}): {exc_ged_srv}")
                     continue
                 m_zip_uf = re.search(r"[_\-]([A-Za-z]{2})\.", os.path.basename(zip_path), re.IGNORECASE)
                 default_zip_uf = m_zip_uf.group(1).upper() if m_zip_uf else uf_comp

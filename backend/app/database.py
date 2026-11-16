@@ -1536,6 +1536,67 @@ def init_db(max_retries=15, delay=2.0):
         "ALTER TABLE tse_gedai_correspondencias ALTER COLUMN id_urna TYPE VARCHAR(32);",
         "ALTER TABLE tse_gedai_correspondencias ALTER COLUMN midia_carga TYPE VARCHAR(32);",
         "ALTER TABLE tse_gedai_correspondencias ALTER COLUMN operador TYPE VARCHAR(80);",
+        """
+        CREATE TABLE IF NOT EXISTS tse_corresp_arquivos (
+            id SERIAL PRIMARY KEY,
+            tipo_arquivo VARCHAR(20) NOT NULL,
+            nome_origem VARCHAR(255) NOT NULL,
+            uf VARCHAR(10) NOT NULL,
+            turno SMALLINT DEFAULT 1,
+            pleito VARCHAR(10),
+            dt_geracao VARCHAR(25),
+            hh_geracao VARCHAR(20),
+            momento_geracao VARCHAR(30),
+            hash_sha256 VARCHAR(64) UNIQUE NOT NULL,
+            total_registros INTEGER DEFAULT 0,
+            total_alteradas INTEGER DEFAULT 0,
+            total_contingencias_ceft INTEGER DEFAULT 0,
+            total_red INTEGER DEFAULT 0,
+            resumo_json TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        );
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS tse_corresp_registros (
+            id SERIAL PRIMARY KEY,
+            arquivo_id INTEGER NOT NULL REFERENCES tse_corresp_arquivos(id) ON DELETE CASCADE,
+            tipo_registro VARCHAR(16) NOT NULL,
+            uf VARCHAR(10) NOT NULL,
+            turno SMALLINT DEFAULT 1,
+            momento_geracao VARCHAR(30),
+            municipio_codigo VARCHAR(10) NOT NULL,
+            municipio_nome VARCHAR(120),
+            zona INTEGER DEFAULT 0,
+            secao INTEGER DEFAULT 0,
+            local_votacao INTEGER,
+            nr_urna_esperada VARCHAR(16),
+            cd_carga_esperada VARCHAR(40),
+            cd_flashcard_esperada VARCHAR(24),
+            dt_carga_esperada VARCHAR(30),
+            dt_recbto_esperada VARCHAR(30),
+            st_corresp_alterada VARCHAR(10),
+            sq_corresp_esperada VARCHAR(24),
+            sq_corresp_efetivada VARCHAR(24),
+            nr_urna_efetivada VARCHAR(16),
+            cd_carga_efetivada VARCHAR(40),
+            cd_flashcard_efetivada VARCHAR(24),
+            dt_carga_efetivada VARCHAR(30),
+            dt_recbto_efetivada VARCHAR(30),
+            cd_origem_voto VARCHAR(8),
+            ds_origem_voto VARCHAR(120),
+            tp_divergencia VARCHAR(8),
+            nm_maquina_geracao VARCHAR(60),
+            nr_sri_tpm_geracao VARCHAR(128),
+            nr_sri_instal_geracao VARCHAR(64),
+            nm_maquina_transm VARCHAR(60),
+            nr_sri_tpm_transm VARCHAR(128),
+            nr_sri_instal_transm VARCHAR(64)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_tse_corresp_reg_sec ON tse_corresp_registros(uf, turno, municipio_codigo, zona, secao);",
+        "CREATE INDEX IF NOT EXISTS idx_tse_corresp_reg_ue_esp ON tse_corresp_registros(uf, turno, nr_urna_esperada);",
+        "CREATE INDEX IF NOT EXISTS idx_tse_corresp_reg_ue_efet ON tse_corresp_registros(uf, turno, nr_urna_efetivada);",
+        "CREATE INDEX IF NOT EXISTS idx_tse_corresp_reg_arq_tipo ON tse_corresp_registros(arquivo_id, tipo_registro);",
     ]
 
     try:
@@ -1562,4 +1623,30 @@ def init_db(max_retries=15, delay=2.0):
                                 pass
     except Exception as exc_conn:
         print(f"[INIT-DB] Aviso ao conectar para executar DDLs: {exc_conn}")
+
+
+_CUSTODIA_TABELAS_VERIFICADAS = False
+
+
+def garantir_tabelas_custodia_tse():
+    """Garante sob demanda que as tabelas GEDAI e CESP/CEFT existam no PostgreSQL sem exigir restart."""
+    global _CUSTODIA_TABELAS_VERIFICADAS
+    if _CUSTODIA_TABELAS_VERIFICADAS:
+        return
+    try:
+        for tbl in (
+            TseGedaiLote.__table__,
+            TseGedaiEstacao.__table__,
+            TseGedaiCorrespondencia.__table__,
+            TseCorrespArquivo.__table__,
+            TseCorrespRegistro.__table__,
+        ):
+            try:
+                tbl.create(bind=engine, checkfirst=True)
+            except Exception:
+                pass
+        _CUSTODIA_TABELAS_VERIFICADAS = True
+    except Exception:
+        pass
+
 

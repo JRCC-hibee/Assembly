@@ -5293,6 +5293,16 @@ o Boletim de Urna (apos encerramento da votacao).
       const totalUrnasSelecionadas = todosPrefixosSelecionados.length;
 
       if (totalUrnasSelecionadas === 0) {
+        const arqsGedaiOuCorresp = fileList.filter(f => {
+          const n = (f.name || "").toLowerCase();
+          return (n.endsWith(".csv") && (n.startsWith("csec_") || n.startsWith("ccont_") || n.startsWith("ceft_") || n.startsWith("cesp_"))) ||
+                 (n.endsWith("-log.jez") && n.includes("std"));
+        });
+        if (arqsGedaiOuCorresp.length > 0 && typeof enviarArquivosGedaiTse === "function") {
+          fecharProgressoUploadTse();
+          abrirModalLogsGedaiTse();
+          return enviarArquivosGedaiTse(arqsGedaiOuCorresp);
+        }
         fecharProgressoUploadTse();
         showSecurityAlert("Nenhum arquivo oficial do TSE (.jez, .dat, .vsc, .zip) foi identificado na seleção.", true);
         return;
@@ -7746,8 +7756,14 @@ o Boletim de Urna (apos encerramento da votacao).
       if (window.tseConsolidarCache && window.tseConsolidarCache.has(chave)) {
         try {
           const cachedPayload = window.tseConsolidarCache.get(chave);
-          const isSecStale = cachedPayload?.modo_visao === "SECAO_INDIVIDUAL" && !cachedPayload?.secao_individual?.custodia_urna;
-          const isConsStale = cachedPayload?.modo_visao === "CONSOLIDADO_GLOBAL" && cachedPayload?.consolidado?.custodia_consolidada === undefined;
+          const isSecStale = cachedPayload?.modo_visao === "SECAO_INDIVIDUAL" && (
+            !cachedPayload?.secao_individual?.custodia_urna ||
+            !cachedPayload?.secao_individual?.custodia_urna?.turno_1
+          );
+          const isConsStale = cachedPayload?.modo_visao === "CONSOLIDADO_GLOBAL" && (
+            cachedPayload?.consolidado?.custodia_consolidada === undefined ||
+            (cachedPayload?.hierarquia?.uf_selecionada === "PR" && !cachedPayload?.consolidado?.custodia_consolidada?.disponivel)
+          );
           if (!isSecStale && !isConsStale) {
             aplicarPayloadConsolidadoNoDOM(cachedPayload, mostrarAlertaSeVazio);
             atualizarBadgeIndicadorCache();
@@ -8835,8 +8851,8 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       const t1 = custodia?.turno_1 || {};
       const t2 = custodia?.turno_2 || {};
       const temDadosCustodia = Boolean(
-        t1.gedai_disponivel || t1.corresp_disponivel || t1.sistot_disponivel ||
-        t2.gedai_disponivel || t2.corresp_disponivel || t2.sistot_disponivel
+        t1.gedai_disponivel || t1.corresp_disponivel || t1.sistot_disponivel || t1.ue_efetivada || t1.flashcard_bu ||
+        t2.gedai_disponivel || t2.corresp_disponivel || t2.sistot_disponivel || t2.ue_efetivada || t2.flashcard_bu
       );
       if (!custodia || !temDadosCustodia) {
         box.classList.add("hidden");

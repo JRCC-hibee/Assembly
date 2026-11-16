@@ -1273,7 +1273,7 @@ def _buscar_contingencia_sistot_secao(db, uf: str, mun_cod: str, mun_nome: str, 
     try:
         rels = (
             db.query(TseRelatorioOficialTse)
-            .filter(TseRelatorioOficialTse.uf == uf, TseRelatorioOficialTse.turno == turno)
+            .filter(func.upper(TseRelatorioOficialTse.uf) == str(uf or "").upper().strip(), TseRelatorioOficialTse.turno == turno)
             .all()
         )
     except Exception as exc_s:
@@ -1283,40 +1283,45 @@ def _buscar_contingencia_sistot_secao(db, uf: str, mun_cod: str, mun_nome: str, 
             pass
         print(f"[TSE-SISTOT] Aviso SQL em _buscar_contingencia_sistot_secao: {exc_s}")
         return False, None
+
     sistot_disponivel = False
     mun_cod_z = str(mun_cod or "").strip().zfill(5)
     mun_norm = re.sub(r"[^A-Z0-9 ]", "", str(mun_nome or "").upper()).strip()
 
-    for rel in rels:
-        if not rel.contingencias_json:
-            continue
-        cts = _safe_json_load(rel.contingencias_json, [])
-        if not cts:
-            continue
-        sistot_disponivel = True
-        for ct in cts:
-            try:
-                ct_z = int(str(ct.get("zona") or "0").strip())
-                ct_s = int(str(ct.get("secao") or "0").strip())
-            except Exception:
+    try:
+        for rel in rels:
+            raw_cts = getattr(rel, "contingencias_urnas_json", None) or getattr(rel, "contingencias_json", None)
+            if not raw_cts:
                 continue
-            if ct_z != int(zona) or ct_s != int(secao):
+            cts = _safe_json_load(raw_cts, [])
+            if not cts:
                 continue
-            ct_mun_raw = str(ct.get("municipio") or "").upper()
-            ct_mun_norm = re.sub(r"[^A-Z0-9 ]", "", ct_mun_raw).strip()
-            mun_ok = (not mun_norm) or (mun_cod_z in ct_mun_raw) or (mun_norm in ct_mun_norm) or (ct_mun_norm in mun_norm)
-            if mun_ok:
-                return True, {
-                    "relatorio_id": rel.id,
-                    "arquivo_pdf": rel.nome_arquivo,
-                    "municipio": ct.get("municipio"),
-                    "data_hora_ocorrencia": ct.get("data_hora_ocorrencia"),
-                    "id_urna_efetivada": str(ct.get("id_urna_efetivada") or "").strip(),
-                    "id_urna_norm": _norm_ue_serial(ct.get("id_urna_efetivada")),
-                    "id_carga": ct.get("id_carga"),
-                    "id_mc": ct.get("id_mc"),
-                    "data_carga": ct.get("data_carga"),
-                }
+            sistot_disponivel = True
+            for ct in cts:
+                try:
+                    ct_z = int(str(ct.get("zona") or "0").strip())
+                    ct_s = int(str(ct.get("secao") or "0").strip())
+                except Exception:
+                    continue
+                if ct_z != int(zona) or ct_s != int(secao):
+                    continue
+                ct_mun_raw = str(ct.get("municipio") or "").upper()
+                ct_mun_norm = re.sub(r"[^A-Z0-9 ]", "", ct_mun_raw).strip()
+                mun_ok = (not mun_norm) or (mun_cod_z in ct_mun_raw) or (mun_norm in ct_mun_norm) or (ct_mun_norm in mun_norm)
+                if mun_ok:
+                    return True, {
+                        "relatorio_id": rel.id,
+                        "arquivo_pdf": rel.nome_arquivo,
+                        "municipio": ct.get("municipio"),
+                        "data_hora_ocorrencia": ct.get("data_hora_ocorrencia"),
+                        "id_urna_efetivada": str(ct.get("id_urna_efetivada") or "").strip(),
+                        "id_urna_norm": _norm_ue_serial(ct.get("id_urna_efetivada")),
+                        "id_carga": ct.get("id_carga"),
+                        "id_mc": ct.get("id_mc"),
+                        "data_carga": ct.get("data_carga"),
+                    }
+    except Exception as exc_loop:
+        print(f"[TSE-SISTOT] Aviso ao inspecionar contingências SISTOT: {exc_loop}")
     return sistot_disponivel, None
 
 
@@ -1329,6 +1334,12 @@ def _classificar_custodia_turno(
     ciclos: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     """Cruza BU × GEDAI-UE × SISTOT PDF para um turno específico da seção (Titular vs Reserva e momento da troca)."""
+    try:
+        from .database import garantir_tabelas_custodia_tse
+        garantir_tabelas_custodia_tse()
+    except Exception:
+        pass
+
     uf = str(secao_db.uf or "").upper().strip()
     mun_cod = str(secao_db.municipio_codigo or "").strip().zfill(5)
     mun_nome = str(secao_db.municipio_nome or "")
@@ -1367,14 +1378,18 @@ def _classificar_custodia_turno(
 
     if not hw.get("flashcard_bu") and ceft_reg and ceft_reg.get("cd_flashcard_efetivada"):
         hw["flashcard_bu"] = ceft_reg["cd_flashcard_efetivada"]
+    elif not hw.get("flashcard_bu") and csec_snaps and csec_snaps[-1].get("cd_flashcard_esperada"):
+        hw["flashcard_bu"] = csec_snaps[-1]["cd_flashcard_esperada"]
     if not hw.get("carga_bu") and ceft_reg and ceft_reg.get("cd_carga_efetivada"):
         hw["carga_bu"] = ceft_reg["cd_carga_efetivada"]
+    elif not hw.get("carga_bu") and csec_snaps and csec_snaps[-1].get("cd_carga_esperada"):
+        hw["carga_bu"] = csec_snaps[-1]["cd_carga_esperada"]
 
     lote_t = None
     try:
         lote_t = (
             db.query(TseGedaiLote)
-            .filter(TseGedaiLote.uf == uf, TseGedaiLote.turno == turno)
+            .filter(func.upper(TseGedaiLote.uf) == uf, TseGedaiLote.turno == turno)
             .order_by(TseGedaiLote.id.desc())
             .first()
         )
@@ -1395,7 +1410,7 @@ def _classificar_custodia_turno(
                 db.query(TseGedaiCorrespondencia)
                 .join(TseGedaiLote, TseGedaiCorrespondencia.lote_id == TseGedaiLote.id)
                 .filter(
-                    TseGedaiLote.uf == uf,
+                    func.upper(TseGedaiLote.uf) == uf,
                     TseGedaiLote.turno == turno,
                     TseGedaiCorrespondencia.municipio_codigo.in_(mun_cands_g),
                     TseGedaiCorrespondencia.zona == zona,
@@ -1405,13 +1420,22 @@ def _classificar_custodia_turno(
             )
             titulares_gedai = _deduplicar_correspondencias_gedai(rows_sec_gedai)
 
+            if not ue_norm and titulares_gedai and not sistot_occ:
+                ue_norm = titulares_gedai[-1].get("id_urna_norm")
+                ue_pad = titulares_gedai[-1].get("id_urna") or (ue_norm.zfill(8) if (ue_norm and ue_norm.isdigit()) else ue_norm)
+            if titulares_gedai:
+                if not hw.get("flashcard_bu"):
+                    hw["flashcard_bu"] = titulares_gedai[-1].get("midia_carga")
+                if not hw.get("carga_bu"):
+                    hw["carga_bu"] = titulares_gedai[-1].get("codigo_carga")
+
             if ue_norm:
                 cands_id = list({ue_norm, ue_norm.zfill(8), str(hw.get("ue_raw") or "").strip()} - {""})
                 rows_ue_gedai = (
                     db.query(TseGedaiCorrespondencia)
                     .join(TseGedaiLote, TseGedaiCorrespondencia.lote_id == TseGedaiLote.id)
                     .filter(
-                        TseGedaiLote.uf == uf,
+                        func.upper(TseGedaiLote.uf) == uf,
                         TseGedaiLote.turno == turno,
                         TseGedaiCorrespondencia.id_urna.in_(cands_id),
                     )
@@ -1676,8 +1700,44 @@ def analisar_custodia_urna_secao(
     Constrói a cadeia completa de custódia da urna (1º e 2º turnos) cruzando GEDAI-UE, BU e SISTOT PDF
     para identificar se votou com a Urna Titular ou Reserva e se a substituição foi pré-votação ou durante.
     """
-    info_t1 = _classificar_custodia_turno(db, secao_db, 1, bu1, espelho_1t, ciclos_1t)
-    info_t2 = _classificar_custodia_turno(db, secao_db, 2, bu2, espelho_2t, ciclos_2t)
+    def _fallback_turno(t_num: int, bu_obj, esp_txt: str) -> dict[str, Any]:
+        hw_fb = _extrair_metadados_hardware_bu(bu_obj, esp_txt)
+        return {
+            "turno": t_num,
+            "tem_bu": bu_obj is not None,
+            "gedai_disponivel": False,
+            "sistot_disponivel": False,
+            "corresp_disponivel": False,
+            "teve_red": False,
+            "ue_efetivada": hw_fb.get("ue_norm"),
+            "ue_efetivada_pad": (hw_fb.get("ue_norm") or "").zfill(8) if hw_fb.get("ue_norm") else None,
+            "carga_bu": hw_fb.get("carga_bu"),
+            "flashcard_bu": hw_fb.get("flashcard_bu"),
+            "dt_abertura_bu": hw_fb.get("dt_abertura_bu"),
+            "dt_encerramento_bu": hw_fb.get("dt_encerramento_bu"),
+            "origem_urna": "INDETERMINADO",
+            "origem_label": "Sem dados GEDAI/CESP/SISTOT deste turno",
+            "origem_detalhe": "Faça a ingestão do pacote GEDAI-UE, CESP/CEFT ou PDF SISTOT correspondente para auditar a origem da urna.",
+            "momento_substituicao": "INDETERMINADO",
+            "momento_label": "Não determinável sem GEDAI/CESP/SISTOT",
+            "momento_detalhe": "Faça a ingestão do pacote GEDAI-UE, CESP/CEFT ou PDF SISTOT correspondente para auditar a origem da urna.",
+            "titulares_gedai": [],
+            "urna_efetivada_gedai": None,
+            "sistot_ocorrencia": None,
+            "corresp_tse": {"disponivel": False, "base_turno_carregada": False, "csec_snapshots": [], "ceft": None, "alteracao_cesp": None, "ccont_match": None},
+        }
+
+    try:
+        info_t1 = _classificar_custodia_turno(db, secao_db, 1, bu1, espelho_1t, ciclos_1t)
+    except Exception as exc_t1:
+        print(f"[TSE-CUSTODIA] Aviso turno 1: {exc_t1}")
+        info_t1 = _fallback_turno(1, bu1, espelho_1t)
+
+    try:
+        info_t2 = _classificar_custodia_turno(db, secao_db, 2, bu2, espelho_2t, ciclos_2t)
+    except Exception as exc_t2:
+        print(f"[TSE-CUSTODIA] Aviso turno 2: {exc_t2}")
+        info_t2 = _fallback_turno(2, bu2, espelho_2t)
 
     ue1 = info_t1.get("ue_efetivada")
     ue2 = info_t2.get("ue_efetivada")

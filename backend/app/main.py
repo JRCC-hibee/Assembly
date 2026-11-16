@@ -1224,6 +1224,28 @@ def _executar_job_importacao_zip(job_id: str, temp_paths: list[str]):
             nome_zip = os.path.basename(p)
             prefixos = list(grupos.keys())
 
+            # Se o .ZIP for um pacote CESP/CEFT ou GEDAI-UE enviado pelo modal geral de ZIP, roteia automaticamente:
+            if not prefixos:
+                try:
+                    nomes_internos = [os.path.basename(i.filename).lower() for i in zf.infolist() if not i.is_dir()]
+                    tem_csv_corresp = any(n.endswith(".csv") and n.startswith(("csec_", "ccont_", "ceft_", "cesp_")) for n in nomes_internos)
+                    tem_jez_gedai = any(n.endswith("-log.jez") and "std" in n for n in nomes_internos) or "gedai" in nome_zip.lower()
+                    if tem_csv_corresp:
+                        from .tse_corresp_parser import processar_pacote_corresp_para_banco
+                        res_c = processar_pacote_corresp_para_banco(db=db_hist, zip_path=p)
+                        total_secoes_gravadas += int(sum(a.get("total_registros", 0) for a in res_c.get("arquivos", [])))
+                        from .tse_reverse_analyzer import _CONSOLIDACAO_SQL_CACHE
+                        _CONSOLIDACAO_SQL_CACHE.clear()
+                    elif tem_jez_gedai:
+                        from .tse_gedai_parser import processar_pacote_gedai_para_banco
+                        with open(p, "rb") as fp_g:
+                            res_g = processar_pacote_gedai_para_banco(db=db_hist, nome_origem=nome_zip, zip_bytes=fp_g.read())
+                        total_secoes_gravadas += int(res_g.get("total_secoes_unicas", 0) or res_g.get("total_corresp_secao", 0) or 1)
+                        from .tse_reverse_analyzer import _CONSOLIDACAO_SQL_CACHE
+                        _CONSOLIDACAO_SQL_CACHE.clear()
+                except Exception as exc_route:
+                    print(f"[TSE-ZIP-JOB] Aviso roteamento CESP/CEFT/GEDAI ({nome_zip}): {exc_route}")
+
             for i in range(0, len(prefixos), chunk_size):
                 fatia = prefixos[i : i + chunk_size]
                 micro_lote_bytes = {}
