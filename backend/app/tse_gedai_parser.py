@@ -1270,11 +1270,19 @@ def _deduplicar_correspondencias_gedai(rows) -> list[dict[str, Any]]:
 
 def _buscar_contingencia_sistot_secao(db, uf: str, mun_cod: str, mun_nome: str, zona: int, secao: int, turno: int) -> tuple[bool, Optional[dict[str, Any]]]:
     """Consulta relatórios oficiais SISTOT (Anexo V/XIII) para a UF/turno e localiza eventual ocorrência na seção."""
-    rels = (
-        db.query(TseRelatorioOficialTse)
-        .filter(TseRelatorioOficialTse.uf == uf, TseRelatorioOficialTse.turno == turno)
-        .all()
-    )
+    try:
+        rels = (
+            db.query(TseRelatorioOficialTse)
+            .filter(TseRelatorioOficialTse.uf == uf, TseRelatorioOficialTse.turno == turno)
+            .all()
+        )
+    except Exception as exc_s:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print(f"[TSE-SISTOT] Aviso SQL em _buscar_contingencia_sistot_secao: {exc_s}")
+        return False, None
     sistot_disponivel = False
     mun_cod_z = str(mun_cod or "").strip().zfill(5)
     mun_norm = re.sub(r"[^A-Z0-9 ]", "", str(mun_nome or "").upper()).strip()
@@ -1362,45 +1370,60 @@ def _classificar_custodia_turno(
     if not hw.get("carga_bu") and ceft_reg and ceft_reg.get("cd_carga_efetivada"):
         hw["carga_bu"] = ceft_reg["cd_carga_efetivada"]
 
-    lote_t = (
-        db.query(TseGedaiLote)
-        .filter(TseGedaiLote.uf == uf, TseGedaiLote.turno == turno)
-        .order_by(TseGedaiLote.id.desc())
-        .first()
-    )
+    lote_t = None
+    try:
+        lote_t = (
+            db.query(TseGedaiLote)
+            .filter(TseGedaiLote.uf == uf, TseGedaiLote.turno == turno)
+            .order_by(TseGedaiLote.id.desc())
+            .first()
+        )
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
     gedai_disponivel = lote_t is not None
 
     titulares_gedai: list[dict[str, Any]] = []
     efetivada_gedai_matches: list[dict[str, Any]] = []
 
+    mun_cands_g = list({mun_cod, mun_cod.lstrip("0") or mun_cod})
     if gedai_disponivel:
-        rows_sec_gedai = (
-            db.query(TseGedaiCorrespondencia)
-            .join(TseGedaiLote, TseGedaiCorrespondencia.lote_id == TseGedaiLote.id)
-            .filter(
-                TseGedaiLote.uf == uf,
-                TseGedaiLote.turno == turno,
-                TseGedaiCorrespondencia.municipio_codigo == mun_cod,
-                TseGedaiCorrespondencia.zona == zona,
-                TseGedaiCorrespondencia.secao == sec,
-            )
-            .all()
-        )
-        titulares_gedai = _deduplicar_correspondencias_gedai(rows_sec_gedai)
-
-        if ue_norm:
-            cands_id = list({ue_norm, ue_norm.zfill(8), str(hw.get("ue_raw") or "").strip()} - {""})
-            rows_ue_gedai = (
+        try:
+            rows_sec_gedai = (
                 db.query(TseGedaiCorrespondencia)
                 .join(TseGedaiLote, TseGedaiCorrespondencia.lote_id == TseGedaiLote.id)
                 .filter(
                     TseGedaiLote.uf == uf,
                     TseGedaiLote.turno == turno,
-                    TseGedaiCorrespondencia.id_urna.in_(cands_id),
+                    TseGedaiCorrespondencia.municipio_codigo.in_(mun_cands_g),
+                    TseGedaiCorrespondencia.zona == zona,
+                    TseGedaiCorrespondencia.secao == sec,
                 )
                 .all()
             )
-            efetivada_gedai_matches = _deduplicar_correspondencias_gedai(rows_ue_gedai)
+            titulares_gedai = _deduplicar_correspondencias_gedai(rows_sec_gedai)
+
+            if ue_norm:
+                cands_id = list({ue_norm, ue_norm.zfill(8), str(hw.get("ue_raw") or "").strip()} - {""})
+                rows_ue_gedai = (
+                    db.query(TseGedaiCorrespondencia)
+                    .join(TseGedaiLote, TseGedaiCorrespondencia.lote_id == TseGedaiLote.id)
+                    .filter(
+                        TseGedaiLote.uf == uf,
+                        TseGedaiLote.turno == turno,
+                        TseGedaiCorrespondencia.id_urna.in_(cands_id),
+                    )
+                    .all()
+                )
+                efetivada_gedai_matches = _deduplicar_correspondencias_gedai(rows_ue_gedai)
+        except Exception as exc_g:
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            print(f"[TSE-GEDAI] Aviso SQL em _classificar_custodia_turno: {exc_g}")
 
     titular_ids = {t["id_urna_norm"] for t in titulares_gedai if t.get("id_urna_norm")}
     if csec_snaps and csec_snaps[0].get("nr_urna_esperada"):

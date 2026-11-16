@@ -2011,6 +2011,9 @@ o Boletim de Urna (apos encerramento da votacao).
         <!-- Veredito Geral (Consolidado ou Individual) -->
         <div id="tseVereditoBox" class="p-4 rounded-xl border-2 text-xs"></div>
 
+        <!-- CADEIA DE CUSTÓDIA & ORIGEM DA URNA (TITULAR × RESERVA • 1ºT E 2ºT — VISÍVEL NA SEÇÃO INDIVIDUAL) -->
+        <div id="tseCustodiaUrnaBox" class="hidden rounded-xl border-2 border-indigo-500/50 bg-slate-900/95 p-4 space-y-3 shadow-xl"></div>
+
         <!-- PAINEL DE ALERTAS, ANOMALIAS & INDICADORES DE BI FORENSE -->
         <div id="tseAnomaliasAlertasBox" class="hidden mb-3"></div>
 
@@ -2041,9 +2044,6 @@ o Boletim de Urna (apos encerramento da votacao).
             <div id="tseCadenciaMediaVal" class="font-bold text-emerald-300 mt-0.5">-</div>
           </div>
         </div>
-
-        <!-- CADEIA DE CUSTÓDIA & ORIGEM DA URNA (TITULAR × RESERVA • 1ºT E 2ºT — VISÍVEL NA SEÇÃO INDIVIDUAL) -->
-        <div id="tseCustodiaUrnaBox" class="hidden rounded-xl border border-indigo-500/40 bg-slate-900/95 p-4 space-y-3 shadow-lg"></div>
 
         <!-- CARDS ESTATÍSTICOS COMPARATIVO 2º TURNO (LULA × BOLSONARO) -->
         <div id="tseCardsComparativo2T" class="hidden mb-4 space-y-2.5"></div>
@@ -7339,6 +7339,7 @@ o Boletim de Urna (apos encerramento da votacao).
         window.arvoreTseState.municipio = municipio || "TODAS";
         window.arvoreTseState.zona = zona || "TODAS";
         window.arvoreTseState.secao = secao || "CONSOLIDADO";
+        window._tseScrollAutoSecao = Boolean(secao && secao !== "CONSOLIDADO");
         await atualizarConsolidacaoTse(true);
       } catch (err) {
         console.warn("[TSE-TREE] Erro ao carregar dados do nó:", err);
@@ -7699,6 +7700,13 @@ o Boletim de Urna (apos encerramento da votacao).
           }
         }
         renderizarLaudoTseReverso(payload.secao_individual);
+        if (window._tseScrollAutoSecao) {
+          window._tseScrollAutoSecao = false;
+          setTimeout(() => {
+            const vb = document.getElementById("tseVereditoBox");
+            if (vb) vb.scrollIntoView({ behavior: "smooth", block: "start" });
+          }, 120);
+        }
       } else if (payload.consolidado) {
         window.lastSecaoIndividualPayload = null;
         const btnV = document.getElementById("btnVoltarConsolidado");
@@ -7738,10 +7746,14 @@ o Boletim de Urna (apos encerramento da votacao).
       if (window.tseConsolidarCache && window.tseConsolidarCache.has(chave)) {
         try {
           const cachedPayload = window.tseConsolidarCache.get(chave);
-          aplicarPayloadConsolidadoNoDOM(cachedPayload, mostrarAlertaSeVazio);
-          atualizarBadgeIndicadorCache();
-          fecharModalProgressoFiltroComSucesso(`⚡ Dados de ${alvoFormatado} carregados instantaneamente do cache!`);
-          return;
+          const isSecStale = cachedPayload?.modo_visao === "SECAO_INDIVIDUAL" && !cachedPayload?.secao_individual?.custodia_urna;
+          if (!isSecStale) {
+            aplicarPayloadConsolidadoNoDOM(cachedPayload, mostrarAlertaSeVazio);
+            atualizarBadgeIndicadorCache();
+            fecharModalProgressoFiltroComSucesso(`⚡ Dados de ${alvoFormatado} carregados instantaneamente do cache!`);
+            return;
+          }
+          window.tseConsolidarCache.delete(chave);
         } catch (eCache) {
           console.warn("[TSE-CACHE] Falha ao renderizar do cache, buscando do PostgreSQL:", eCache);
         }
@@ -8937,6 +8949,20 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       const anomBox = document.getElementById("tseAnomaliasAlertasBox");
       const anoms = data.anomalias_forenses || [];
 
+      const cust = data.custodia_urna || resCons.custodia_urna || {};
+      const fmtPillCust = (tObj, lblT) => {
+        if (!tObj) return "";
+        const o = tObj.origem_urna || "";
+        const cor = (o === "RESERVA" || o === "SUBSTITUTA_OUTRA_SECAO")
+          ? "bg-orange-950/90 text-orange-200 border-orange-500/60"
+          : (o === "TITULAR" ? "bg-emerald-950/90 text-emerald-200 border-emerald-500/50" : "bg-slate-900/90 text-slate-300 border-slate-700");
+        const ueTxt = tObj.ue_efetivada ? ` • UE #${tObj.ue_efetivada}` : "";
+        return `<span class="px-2 py-0.5 rounded border text-[10px] font-bold mono ${cor}">${lblT}: ${tObj.origem_label || "Sem dados"}${ueTxt}</span>`;
+      };
+      const custSummaryRow = (cust.turno_1 || cust.turno_2)
+        ? `<div class="mt-2 flex flex-wrap items-center gap-1.5">${fmtPillCust(cust.turno_1, "1ºT")}${fmtPillCust(cust.turno_2, "2ºT")}</div>`
+        : "";
+
       if (data.nivel_risco === "CRITICO") {
         verBox.className = "p-4 rounded-xl border-2 bg-rose-950/90 border-rose-500 text-rose-100 text-xs shadow-lg";
         verBox.innerHTML = `
@@ -8948,6 +8974,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             <span class="px-2.5 py-0.5 rounded-full bg-rose-900/80 text-rose-200 border border-rose-600 font-extrabold text-[10px] uppercase">Risco Crítico</span>
           </div>
           <div class="mt-1 mono text-rose-200/90">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos processados: <strong>${(data.arquivos_recebidos || []).join(", ")}</strong></div>
+          ${custSummaryRow}
         `;
       } else if (data.nivel_risco === "ALERTA") {
         verBox.className = "p-4 rounded-xl border-2 bg-amber-950/90 border-amber-500 text-amber-100 text-xs shadow-lg";
@@ -8960,6 +8987,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             <span class="px-2.5 py-0.5 rounded-full bg-amber-900/80 text-amber-200 border border-amber-600 font-extrabold text-[10px] uppercase">Alerta Estatístico (BI)</span>
           </div>
           <div class="mt-1 mono text-amber-200/90">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos oficiais 100% íntegros (${(data.arquivos_recebidos || []).join(", ")}) com anomalia estatística sinalizada pela inteligência forense.</div>
+          ${custSummaryRow}
         `;
       } else {
         verBox.className = "p-4 rounded-xl border-2 bg-emerald-950/90 border-emerald-500 text-emerald-100 text-xs shadow-lg";
@@ -8972,6 +9000,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             <span class="px-2.5 py-0.5 rounded-full bg-emerald-900/80 text-emerald-200 border border-emerald-600 font-extrabold text-[10px] uppercase">100% Validada</span>
           </div>
           <div class="mt-1 mono text-emerald-200/90">Prefixo da Seção: <strong>${data.prefixo_seccao}</strong> | Arquivos processados: <strong>${(data.arquivos_recebidos || []).join(", ")}</strong></div>
+          ${custSummaryRow}
         `;
       }
 
@@ -15934,12 +15963,22 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }
     }
 
+    async function invalidarCacheERecarregarSecaoAtivaTse() {
+      if (typeof limparCacheConsolidacaoTse === "function") {
+        limparCacheConsolidacaoTse(false);
+      }
+      if (window.arvoreTseState?.secao && window.arvoreTseState.secao !== "CONSOLIDADO" && typeof atualizarConsolidacaoTse === "function") {
+        await atualizarConsolidacaoTse(false);
+      }
+    }
+
     async function excluirArquivoCorrespTse(arquivoId) {
       if (!confirm("Remover este arquivo CESP/CEFT do banco de dados?")) return;
       try {
         const res = await fetch(`/api/tse-reverso/corresp/${arquivoId}`, { method: "DELETE" });
         await lerRespostaJsonOuTextoTse(res);
         await carregarPainelCorrespCesCeftTse(true);
+        await invalidarCacheERecarregarSecaoAtivaTse();
       } catch (err) {
         setGedaiStatusBar(`❌ Erro ao remover arquivo CESP/CEFT: ${escHtmlGedai(err.message)}`, "err");
       }
@@ -16018,6 +16057,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             await carregarPainelCorrespCesCeftTse(true);
           }
         }
+        await invalidarCacheERecarregarSecaoAtivaTse();
       } catch (err) {
         setGedaiStatusBar(`❌ Erro ao processar logs GEDAI / CESP / CEFT: ${escHtmlGedai(err.message)}`, "err");
       } finally {
@@ -16047,6 +16087,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         );
         await carregarListaLotesGedaiTse(true);
         await carregarPainelCorrespCesCeftTse(true);
+        await invalidarCacheERecarregarSecaoAtivaTse();
       } catch (err) {
         setGedaiStatusBar(`❌ Erro ao detectar no servidor: ${escHtmlGedai(err.message)}`, "err");
       }
@@ -16062,6 +16103,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             window.gedaiLogsState.detalhe = null;
           }
           await carregarListaLotesGedaiTse(true);
+          await invalidarCacheERecarregarSecaoAtivaTse();
         }
       } catch (e) {}
     }

@@ -94,8 +94,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-15-rev72"
-SYSTEM_COMMIT = "rev72-cruzamento-cesp-ceft-com-logs-gedai-ue"
+SYSTEM_BUILD = "2026-11-15-rev73"
+SYSTEM_COMMIT = "rev73-fix-cache-e-destaque-custodia-urna-individual"
 
 def obter_basemaps_apikey() -> str:
     """Retorna a API key do CartoDB Basemaps a partir de variáveis de ambiente do Portainer/Docker."""
@@ -2082,6 +2082,12 @@ async def api_tse_reverso_gedai_upload(
 
         if not resp_gedai and not resp_corresp:
             raise ValueError("Nenhum arquivo válido (.jez, .csv CESP/CEFT ou .zip) encontrado na seleção.")
+
+        try:
+            from .tse_reverse_analyzer import _CONSOLIDACAO_SQL_CACHE
+            _CONSOLIDACAO_SQL_CACHE.clear()
+        except Exception:
+            pass
 
         if resp_gedai and not resp_corresp:
             return resp_gedai

@@ -821,26 +821,38 @@ def buscar_custodia_corresp_secao(
     Consulta instantânea por seção (índice `idx_tse_corresp_reg_sec`) dos snapshots CESP e CEFT
     + verificação se a urna efetivada pertence ao pool CCONT (Reserva).
     """
-    rows = (
-        db.query(TseCorrespRegistro, TseCorrespArquivo)
-        .join(TseCorrespArquivo, TseCorrespRegistro.arquivo_id == TseCorrespArquivo.id)
-        .filter(
-            TseCorrespRegistro.uf == uf,
-            TseCorrespRegistro.turno == turno,
-            TseCorrespRegistro.municipio_codigo == str(mun_cod).zfill(5),
-            TseCorrespRegistro.zona == int(zona),
-            TseCorrespRegistro.secao == int(secao),
-            TseCorrespRegistro.tipo_registro.in_(("CSEC", "CEFT")),
+    mun_z = str(mun_cod).strip().zfill(5)
+    mun_cands = list({mun_z, mun_z.lstrip("0") or mun_z})
+    rows = []
+    tem_base_turno = False
+    try:
+        rows = (
+            db.query(TseCorrespRegistro, TseCorrespArquivo)
+            .join(TseCorrespArquivo, TseCorrespRegistro.arquivo_id == TseCorrespArquivo.id)
+            .filter(
+                TseCorrespRegistro.uf == uf,
+                TseCorrespRegistro.turno == turno,
+                TseCorrespRegistro.municipio_codigo.in_(mun_cands),
+                TseCorrespRegistro.zona == int(zona),
+                TseCorrespRegistro.secao == int(secao),
+                TseCorrespRegistro.tipo_registro.in_(("CSEC", "CEFT")),
+            )
+            .order_by(TseCorrespArquivo.momento_geracao.asc(), TseCorrespArquivo.id.asc())
+            .all()
         )
-        .order_by(TseCorrespArquivo.momento_geracao.asc(), TseCorrespArquivo.id.asc())
-        .all()
-    )
 
-    tem_base_turno = (
-        db.query(func.count(TseCorrespArquivo.id))
-        .filter(TseCorrespArquivo.uf == uf, TseCorrespArquivo.turno == turno)
-        .scalar() or 0
-    ) > 0
+        tem_base_turno = (
+            db.query(func.count(TseCorrespArquivo.id))
+            .filter(TseCorrespArquivo.uf == uf, TseCorrespArquivo.turno == turno)
+            .scalar() or 0
+        ) > 0
+    except Exception as exc_q:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print(f"[TSE-CORRESP] Aviso SQL em buscar_custodia_corresp_secao: {exc_q}")
+        return {"disponivel": False, "base_turno_carregada": False, "csec_snapshots": [], "ceft": None, "alteracao_cesp": None, "ccont_match": None}
 
     csec_snaps: list[dict[str, Any]] = []
     ceft_reg: Optional[dict[str, Any]] = None
