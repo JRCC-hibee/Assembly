@@ -908,29 +908,35 @@ def buscar_custodia_corresp_secao(
     ue_ref = _norm_ue_num(ue_candidata or (ceft_reg or {}).get("nr_urna_efetivada") or (csec_snaps[-1] if csec_snaps else {}).get("nr_urna_esperada"))
     ccont_match = None
     if ue_ref:
-        cc_row = (
-            db.query(TseCorrespRegistro, TseCorrespArquivo)
-            .join(TseCorrespArquivo, TseCorrespRegistro.arquivo_id == TseCorrespArquivo.id)
-            .filter(
-                TseCorrespRegistro.uf == uf,
-                TseCorrespRegistro.turno == turno,
-                TseCorrespRegistro.tipo_registro == "CCONT",
-                TseCorrespRegistro.nr_urna_esperada == ue_ref,
+        try:
+            cc_row = (
+                db.query(TseCorrespRegistro, TseCorrespArquivo)
+                .join(TseCorrespArquivo, TseCorrespRegistro.arquivo_id == TseCorrespArquivo.id)
+                .filter(
+                    TseCorrespRegistro.uf == uf,
+                    TseCorrespRegistro.turno == turno,
+                    TseCorrespRegistro.tipo_registro == "CCONT",
+                    TseCorrespRegistro.nr_urna_esperada == ue_ref,
+                )
+                .order_by(TseCorrespArquivo.momento_geracao.desc())
+                .first()
             )
-            .order_by(TseCorrespArquivo.momento_geracao.desc())
-            .first()
-        )
-        if cc_row:
-            r_cc, a_cc = cc_row
-            ccont_match = {
-                "arquivo": a_cc.nome_origem,
-                "zona_reserva": r_cc.zona,
-                "nr_urna": r_cc.nr_urna_esperada,
-                "cd_flashcard": r_cc.cd_flashcard_esperada,
-                "dt_carga": r_cc.dt_carga_esperada,
-                "maquina": r_cc.nm_maquina_geracao,
-                "tpm": r_cc.nr_sri_tpm_geracao,
-            }
+            if cc_row:
+                r_cc, a_cc = cc_row
+                ccont_match = {
+                    "arquivo": a_cc.nome_origem,
+                    "zona_reserva": r_cc.zona,
+                    "nr_urna": r_cc.nr_urna_esperada,
+                    "cd_flashcard": r_cc.cd_flashcard_esperada,
+                    "dt_carga": r_cc.dt_carga_esperada,
+                    "maquina": r_cc.nm_maquina_geracao,
+                    "tpm": r_cc.nr_sri_tpm_geracao,
+                }
+        except Exception:
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
     return {
         "disponivel": tem_base_turno and (len(csec_snaps) > 0 or ceft_reg is not None),
@@ -940,3 +946,228 @@ def buscar_custodia_corresp_secao(
         "alteracao_cesp": alteracao_cesp,
         "ccont_match": ccont_match,
     }
+
+
+def obter_resumo_custodia_consolidado(
+    db,
+    uf_filtro: str = "TODAS",
+    municipio_filtro: str = "TODAS",
+    zona_filtro: str = "TODAS",
+) -> dict[str, Any]:
+    """
+    Retorna o quadro consolidado ultrarrápido (<10ms via índices SQL) da Cadeia de Custódia
+    (GEDAI-UE × CESP × CEFT) para o Estado, Município ou Zona selecionado.
+    Se o Estado filtrado (ex: RS) não possuir pacotes GEDAI ou CESP/CEFT carregados, retorna `disponivel=False`.
+    """
+    uf_up = (uf_filtro or "TODAS").strip().upper()
+    mun_raw = (municipio_filtro or "TODAS").strip()
+    zona_raw = (zona_filtro or "TODAS").strip()
+
+    if uf_up == "TODAS" and mun_raw == "TODAS" and zona_raw == "TODAS":
+        return {"disponivel": False, "uf": "TODAS"}
+
+    try:
+        q_lotes = db.query(TseGedaiLote)
+        q_arqs = db.query(TseCorrespArquivo)
+        if uf_up != "TODAS":
+            q_lotes = q_lotes.filter(TseGedaiLote.uf == uf_up)
+            q_arqs = q_arqs.filter(TseCorrespArquivo.uf == uf_up)
+
+        lotes_gedai = q_lotes.order_by(TseGedaiLote.id.desc()).all()
+        arqs_corresp = q_arqs.order_by(TseCorrespArquivo.momento_geracao.asc(), TseCorrespArquivo.id.asc()).all()
+
+        if not lotes_gedai and not arqs_corresp:
+            return {"disponivel": False, "uf": uf_up}
+
+        uf_efetiva = uf_up if uf_up != "TODAS" else (
+            (arqs_corresp[0].uf if arqs_corresp else lotes_gedai[0].uf)
+        )
+
+        mun_cands = []
+        if mun_raw != "TODAS" and mun_raw:
+            mz = mun_raw.zfill(5) if mun_raw.isdigit() else mun_raw
+            mun_cands = list({mz, mz.lstrip("0") or mz})
+
+        zona_int = None
+        if zona_raw != "TODAS" and zona_raw:
+            m_z = re.search(r"\d+", zona_raw)
+            if m_z:
+                zona_int = int(m_z.group(0))
+
+        # 1. Contagens GEDAI-UE no escopo
+        gedai_estacoes = sum(int(l.total_estacoes or 0) for l in lotes_gedai if l.uf == uf_efetiva)
+        gedai_secoes = 0
+        gedai_contingencias = 0
+        if lotes_gedai:
+            lote_ids = [l.id for l in lotes_gedai if l.uf == uf_efetiva]
+            if not mun_cands and zona_int is None:
+                gedai_secoes = sum(int(l.total_secoes_unicas or l.total_corresp_secao or 0) for l in lotes_gedai if l.uf == uf_efetiva)
+                gedai_contingencias = sum(int(l.total_contingencias or 0) for l in lotes_gedai if l.uf == uf_efetiva)
+            elif lote_ids:
+                qg = db.query(
+                    TseGedaiCorrespondencia.tipo,
+                    func.count(func.distinct(TseGedaiCorrespondencia.id_urna)),
+                ).filter(TseGedaiCorrespondencia.lote_id.in_(lote_ids))
+                if mun_cands:
+                    qg = qg.filter(TseGedaiCorrespondencia.municipio_codigo.in_(mun_cands))
+                if zona_int is not None:
+                    qg = qg.filter(TseGedaiCorrespondencia.zona == zona_int)
+                for tp_g, cnt_g in qg.group_by(TseGedaiCorrespondencia.tipo).all():
+                    if tp_g == "SECAO":
+                        gedai_secoes = int(cnt_g or 0)
+                    elif tp_g == "CONTINGENCIA":
+                        gedai_contingencias = int(cnt_g or 0)
+
+        # 2. Contagens e Ocorrências CESP / CEFT no escopo
+        csec_arqs = [a for a in arqs_corresp if a.uf == uf_efetiva and a.tipo_arquivo == "CESP_CSEC"]
+        ccont_arqs = [a for a in arqs_corresp if a.uf == uf_efetiva and a.tipo_arquivo == "CESP_CCONT"]
+        ceft_arq = max((a for a in arqs_corresp if a.uf == uf_efetiva and a.tipo_arquivo == "CEFT"), key=lambda a: (a.momento_geracao or "", a.id), default=None)
+
+        total_secoes_ceft = 0
+        titulares_confirmadas = 0
+        contingencias_ceft = 0
+        divergencias_silenciosas = 0
+        ocorrencias_red = 0
+        trocas_cesp = 0
+        reservas_ccont = 0
+        ocorrencias_amostra: list[dict[str, Any]] = []
+
+        if ccont_arqs:
+            ult_cc = ccont_arqs[-1]
+            q_cc = db.query(func.count(TseCorrespRegistro.id)).filter(
+                TseCorrespRegistro.arquivo_id == ult_cc.id,
+                TseCorrespRegistro.tipo_registro == "CCONT",
+            )
+            if mun_cands:
+                q_cc = q_cc.filter(TseCorrespRegistro.municipio_codigo.in_(mun_cands))
+            if zona_int is not None:
+                q_cc = q_cc.filter(TseCorrespRegistro.zona == zona_int)
+            reservas_ccont = int(q_cc.scalar() or 0)
+
+        if len(csec_arqs) >= 2:
+            ult_csec = csec_arqs[-1]
+            q_alt = db.query(TseCorrespRegistro).filter(
+                TseCorrespRegistro.arquivo_id == ult_csec.id,
+                TseCorrespRegistro.tipo_registro == "CSEC",
+                TseCorrespRegistro.st_corresp_alterada.in_(("S", "*")),
+            )
+            if mun_cands:
+                q_alt = q_alt.filter(TseCorrespRegistro.municipio_codigo.in_(mun_cands))
+            if zona_int is not None:
+                q_alt = q_alt.filter(TseCorrespRegistro.zona == zona_int)
+            rows_alt = q_alt.order_by(TseCorrespRegistro.zona.asc(), TseCorrespRegistro.secao.asc()).all()
+            trocas_cesp = len(rows_alt)
+            for r in rows_alt[:20]:
+                ocorrencias_amostra.append({
+                    "categoria": "ALTERACAO_CESP",
+                    "uf": uf_efetiva,
+                    "municipio_codigo": r.municipio_codigo,
+                    "municipio_nome": r.municipio_nome,
+                    "zona": r.zona,
+                    "secao": r.secao,
+                    "ue_esperada": r.nr_urna_esperada,
+                    "ue_efetivada": r.nr_urna_esperada,
+                    "maquina": r.nm_maquina_geracao,
+                    "flashcard": r.cd_flashcard_esperada,
+                    "dt_evento": r.dt_carga_esperada,
+                    "resumo": f"Troca CESP (ST={r.st_corresp_alterada}) • Carga em {r.dt_carga_esperada or '-'}",
+                })
+
+        if ceft_arq:
+            q_tot = db.query(func.count(TseCorrespRegistro.id)).filter(
+                TseCorrespRegistro.arquivo_id == ceft_arq.id,
+                TseCorrespRegistro.tipo_registro == "CEFT",
+            )
+            if mun_cands:
+                q_tot = q_tot.filter(TseCorrespRegistro.municipio_codigo.in_(mun_cands))
+            if zona_int is not None:
+                q_tot = q_tot.filter(TseCorrespRegistro.zona == zona_int)
+            total_secoes_ceft = int(q_tot.scalar() or 0)
+
+            q_oc = db.query(TseCorrespRegistro).filter(
+                TseCorrespRegistro.arquivo_id == ceft_arq.id,
+                TseCorrespRegistro.tipo_registro == "CEFT",
+                (
+                    (TseCorrespRegistro.tp_divergencia == "C")
+                    | (TseCorrespRegistro.cd_origem_voto == "R")
+                    | (TseCorrespRegistro.nr_urna_esperada != TseCorrespRegistro.nr_urna_efetivada)
+                ),
+            )
+            if mun_cands:
+                q_oc = q_oc.filter(TseCorrespRegistro.municipio_codigo.in_(mun_cands))
+            if zona_int is not None:
+                q_oc = q_oc.filter(TseCorrespRegistro.zona == zona_int)
+            rows_oc_ceft = q_oc.order_by(TseCorrespRegistro.zona.asc(), TseCorrespRegistro.secao.asc()).all()
+
+            for r in rows_oc_ceft:
+                is_c = (r.tp_divergencia == "C")
+                is_r = (r.cd_origem_voto == "R")
+                is_diff = bool(r.nr_urna_esperada and r.nr_urna_efetivada and r.nr_urna_esperada != r.nr_urna_efetivada and not is_c)
+                if is_c:
+                    contingencias_ceft += 1
+                if is_r:
+                    ocorrencias_red += 1
+                if is_diff:
+                    divergencias_silenciosas += 1
+
+                cat = "RED_RECUPERACAO" if is_r else ("DIVERGENCIA_SILENCIOSA" if is_diff else "CONTINGENCIA_CEFT")
+                res_txt = (
+                    f"RED ({r.ds_origem_voto}) • UE #{r.nr_urna_efetivada}"
+                    if is_r else (
+                        f"Div. Silenciosa (TP vazio): Esp #{r.nr_urna_esperada} → Efet #{r.nr_urna_efetivada}"
+                        if is_diff else f"Urna Reserva Efetivada: Titular #{r.nr_urna_esperada} → Reserva #{r.nr_urna_efetivada}"
+                    )
+                )
+                ocorrencias_amostra.append({
+                    "categoria": cat,
+                    "uf": uf_efetiva,
+                    "municipio_codigo": r.municipio_codigo,
+                    "municipio_nome": r.municipio_nome,
+                    "zona": r.zona,
+                    "secao": r.secao,
+                    "ue_esperada": r.nr_urna_esperada,
+                    "ue_efetivada": r.nr_urna_efetivada,
+                    "maquina": r.nm_maquina_geracao,
+                    "flashcard": r.cd_flashcard_efetivada,
+                    "dt_evento": r.dt_carga_efetivada,
+                    "resumo": res_txt,
+                })
+
+            titulares_confirmadas = max(0, total_secoes_ceft - contingencias_ceft - divergencias_silenciosas)
+        elif gedai_secoes > 0:
+            titulares_confirmadas = gedai_secoes
+
+        ocorrencias_amostra.sort(key=lambda x: (
+            0 if x["categoria"] in ("DIVERGENCIA_SILENCIOSA", "RED_RECUPERACAO", "ALTERACAO_CESP") else 1,
+            x["zona"],
+            x["secao"],
+        ))
+
+        return {
+            "disponivel": True,
+            "uf": uf_efetiva,
+            "uf_nome": ESTADOS_E_REGIOES_BR.get(uf_efetiva, {}).get("nome", uf_efetiva),
+            "gedai_estacoes": gedai_estacoes,
+            "gedai_secoes": gedai_secoes,
+            "gedai_contingencias": gedai_contingencias,
+            "total_secoes_ceft": total_secoes_ceft,
+            "titulares_confirmadas": titulares_confirmadas,
+            "contingencias_ceft": contingencias_ceft,
+            "divergencias_silenciosas": divergencias_silenciosas,
+            "trocas_cesp": trocas_cesp,
+            "ocorrencias_red": ocorrencias_red,
+            "reservas_ccont": reservas_ccont or gedai_contingencias,
+            "arquivos_carregados": [
+                {"tipo": a.tipo_arquivo, "nome": a.nome_origem, "data_hora": f"{a.dt_geracao} {(a.hh_geracao or '')[:5]}".strip()}
+                for a in arqs_corresp if a.uf == uf_efetiva
+            ],
+            "total_ocorrencias_escopo": len(ocorrencias_amostra),
+            "amostra_ocorrencias": ocorrencias_amostra[:60],
+        }
+    except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        print(f"[TSE-CUSTODIA-CONS] Aviso ao compilar custódia consolidada: {exc}")
+        return {"disponivel": False, "uf": uf_up}

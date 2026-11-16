@@ -7747,7 +7747,8 @@ o Boletim de Urna (apos encerramento da votacao).
         try {
           const cachedPayload = window.tseConsolidarCache.get(chave);
           const isSecStale = cachedPayload?.modo_visao === "SECAO_INDIVIDUAL" && !cachedPayload?.secao_individual?.custodia_urna;
-          if (!isSecStale) {
+          const isConsStale = cachedPayload?.modo_visao === "CONSOLIDADO_GLOBAL" && cachedPayload?.consolidado?.custodia_consolidada === undefined;
+          if (!isSecStale && !isConsStale) {
             aplicarPayloadConsolidadoNoDOM(cachedPayload, mostrarAlertaSeVazio);
             atualizarBadgeIndicadorCache();
             fecharModalProgressoFiltroComSucesso(`⚡ Dados de ${alvoFormatado} carregados instantaneamente do cache!`);
@@ -8185,10 +8186,10 @@ o Boletim de Urna (apos encerramento da votacao).
         pendBadgeCons.innerHTML = "";
       }
 
-      const custBoxCons = document.getElementById("tseCustodiaUrnaBox");
-      if (custBoxCons) {
-        custBoxCons.classList.add("hidden");
-        custBoxCons.innerHTML = "";
+      try {
+        renderizarCustodiaConsolidadaTse(cons, hier);
+      } catch (errCustCons) {
+        console.error("[TSE] Erro ao renderizar custódia consolidada:", errCustCons);
       }
 
       const verBox = document.getElementById("tseVereditoBox");
@@ -8710,11 +8711,134 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       return ciclos;
     }
 
+    function renderizarCustodiaConsolidadaTse(cons, hier) {
+      const box = document.getElementById("tseCustodiaUrnaBox");
+      if (!box) return;
+      const cc = cons?.custodia_consolidada;
+      if (!cc || !cc.disponivel) {
+        box.classList.add("hidden");
+        box.innerHTML = "";
+        return;
+      }
+
+      const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+      const amostra = Array.isArray(cc.amostra_ocorrencias) ? cc.amostra_ocorrencias : [];
+      const ufSigla = cc.uf || hier?.uf_selecionada || "PR";
+
+      const badgeCat = (cat) => {
+        if (cat === "DIVERGENCIA_SILENCIOSA") return `<span class="px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/60 text-[9px] font-black">DIV. SILENCIOSA</span>`;
+        if (cat === "RED_RECUPERACAO") return `<span class="px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/60 text-[9px] font-black">RED RECUPERAÇÃO</span>`;
+        if (cat === "ALTERACAO_CESP") return `<span class="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-500/50 text-[9px] font-black">TROCA CESP (INÍCIO/VÉSP.)</span>`;
+        return `<span class="px-1.5 py-0.5 rounded bg-orange-950 text-orange-300 border border-orange-500/50 text-[9px] font-black">URNA RESERVA (C)</span>`;
+      };
+
+      const rowsHtml = amostra.map(o => `
+        <tr class="border-b border-slate-900 hover:bg-slate-900/80 transition">
+          <td class="py-1.5 px-2 whitespace-nowrap">${badgeCat(o.categoria)}</td>
+          <td class="py-1.5 px-2 text-white font-semibold">${esc(o.municipio_nome || o.municipio_codigo)}</td>
+          <td class="py-1.5 px-2 text-center text-cyan-300 font-bold whitespace-nowrap">Z${String(o.zona).padStart(4, '0')} / S${String(o.secao).padStart(4, '0')}</td>
+          <td class="py-1.5 px-2 whitespace-nowrap">
+            <span class="text-slate-400">#${esc(o.ue_esperada || '-')}</span>
+            <span class="text-slate-600 mx-1">→</span>
+            <strong class="text-emerald-300">#${esc(o.ue_efetivada || '-')}</strong>
+          </td>
+          <td class="py-1.5 px-2 text-[10px] text-slate-300 whitespace-nowrap">${esc(o.maquina || '-')} • <span class="text-amber-300">${esc(o.flashcard || '-')}</span></td>
+          <td class="py-1.5 px-2 text-[10px] text-slate-300">${esc(o.resumo || '-')}</td>
+          <td class="py-1.5 px-2 text-right whitespace-nowrap">
+            <button type="button" onclick="auditarSecaoDeCorrespTse('${esc(ufSigla)}', '${esc(o.municipio_codigo)}', '${o.zona}', '${o.secao}')" class="px-2.5 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-extrabold cursor-pointer">🔎 Auditar Seção</button>
+          </td>
+        </tr>
+      `).join("");
+
+      box.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🛡️</span>
+            <div>
+              <h4 class="text-xs font-black uppercase tracking-wider text-indigo-300">
+                Cadeia de Custódia &amp; Origem das Urnas no Escopo (${esc(cc.uf_nome || ufSigla)} • Titular × Reserva • GEDAI × CESP × CEFT)
+              </h4>
+              <p class="text-[11px] text-slate-400">
+                Consolidação das urnas titulares, reservas (contingências), trocas pré-votação/início (CESP) e recuperações RED. Clique em "Auditar Seção" para abrir o laudo individual.
+              </p>
+            </div>
+          </div>
+          <button type="button" onclick="abrirModalLogsGedaiTse()" class="px-3 py-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/50 text-[10px] font-black transition cursor-pointer">
+            🛡️ Ver Painel Completo GEDAI / CESP / CEFT
+          </button>
+        </div>
+
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs mono">
+          <div class="p-3 rounded-xl bg-slate-950 border border-emerald-500/40">
+            <span class="text-[9px] text-emerald-300 uppercase font-bold block">🟢 Urnas Titulares</span>
+            <strong class="text-lg font-black text-emerald-300">${Number(cc.titulares_confirmadas || 0).toLocaleString('pt-BR')}</strong>
+            <span class="text-[10px] text-slate-400 block">Sem substituição na seção</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950 border border-orange-500/50">
+            <span class="text-[9px] text-orange-300 uppercase font-bold block">🟠 Urnas Reserva (CEFT 'C')</span>
+            <strong class="text-lg font-black text-orange-300">${Number(cc.contingencias_ceft || 0).toLocaleString('pt-BR')}</strong>
+            <span class="text-[10px] text-slate-400 block">Contingências efetivadas</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950 border border-amber-500/50">
+            <span class="text-[9px] text-amber-300 uppercase font-bold block">🌅 Trocas Início / Véspera</span>
+            <strong class="text-lg font-black text-amber-300">${Number(cc.trocas_cesp || 0).toLocaleString('pt-BR')}</strong>
+            <span class="text-[10px] text-slate-400 block">Alteradas entre CESP (ST=S)</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950 border border-rose-500/50">
+            <span class="text-[9px] text-rose-300 uppercase font-bold block">🚨 Div. Silenciosas</span>
+            <strong class="text-lg font-black text-rose-400">${Number(cc.divergencias_silenciosas || 0).toLocaleString('pt-BR')}</strong>
+            <span class="text-[10px] text-slate-400 block">Esp ≠ Efet s/ flag 'C'</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950 border border-rose-500/50">
+            <span class="text-[9px] text-rose-300 uppercase font-bold block">⚠️ Origem RED (CD='R')</span>
+            <strong class="text-lg font-black text-rose-300">${Number(cc.ocorrencias_red || 0).toLocaleString('pt-BR')}</strong>
+            <span class="text-[10px] text-slate-400 block">Recuperação de Dados</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950 border border-cyan-500/40">
+            <span class="text-[9px] text-cyan-300 uppercase font-bold block">💻 Estações &amp; Pool Reserva</span>
+            <strong class="text-lg font-black text-cyan-300">${Number(cc.gedai_estacoes || 0).toLocaleString('pt-BR')} est</strong>
+            <span class="text-[10px] text-slate-400 block">${Number(cc.reservas_ccont || 0).toLocaleString('pt-BR')} reservas preparadas</span>
+          </div>
+        </div>
+
+        ${amostra.length > 0 ? `
+        <div class="space-y-1.5 pt-1">
+          <div class="flex items-center justify-between text-[11px] mono text-slate-300">
+            <span class="font-bold text-amber-300">🔍 Seções com Substituição (Reserva / Troca CESP / RED) neste Filtro (${Number(cc.total_ocorrencias_escopo || amostra.length).toLocaleString('pt-BR')}):</span>
+            <span class="text-[10px] text-slate-400">Clique em "Auditar Seção" para abrir a urna individual</span>
+          </div>
+          <div class="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950 max-h-64">
+            <table class="w-full text-[11px] mono text-left">
+              <thead class="sticky top-0 bg-slate-900 text-[10px] text-slate-400 uppercase border-b border-slate-800">
+                <tr>
+                  <th class="py-1.5 px-2">Ocorrência</th>
+                  <th class="py-1.5 px-2">Município</th>
+                  <th class="py-1.5 px-2 text-center">Zona / Seção</th>
+                  <th class="py-1.5 px-2">Titular → Efetivada</th>
+                  <th class="py-1.5 px-2">Estação / MC</th>
+                  <th class="py-1.5 px-2">Diagnóstico</th>
+                  <th class="py-1.5 px-2 text-right">Auditoria</th>
+                </tr>
+              </thead>
+              <tbody>${rowsHtml}</tbody>
+            </table>
+          </div>
+        </div>` : ''}
+      `;
+      box.classList.remove("hidden");
+    }
+
     function renderizarCustodiaUrnaIndividualTse(data) {
       const box = document.getElementById("tseCustodiaUrnaBox");
       if (!box) return;
       const custodia = data?.custodia_urna || data?.resumo_consolidacao?.custodia_urna;
-      if (!custodia || (!custodia.turno_1 && !custodia.turno_2)) {
+      const t1 = custodia?.turno_1 || {};
+      const t2 = custodia?.turno_2 || {};
+      const temDadosCustodia = Boolean(
+        t1.gedai_disponivel || t1.corresp_disponivel || t1.sistot_disponivel ||
+        t2.gedai_disponivel || t2.corresp_disponivel || t2.sistot_disponivel
+      );
+      if (!custodia || !temDadosCustodia) {
         box.classList.add("hidden");
         box.innerHTML = "";
         return;
@@ -8951,7 +9075,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       const cust = data.custodia_urna || resCons.custodia_urna || {};
       const fmtPillCust = (tObj, lblT) => {
-        if (!tObj) return "";
+        if (!tObj || (!tObj.gedai_disponivel && !tObj.corresp_disponivel && !tObj.sistot_disponivel)) return "";
         const o = tObj.origem_urna || "";
         const cor = (o === "RESERVA" || o === "SUBSTITUTA_OUTRA_SECAO")
           ? "bg-orange-950/90 text-orange-200 border-orange-500/60"
@@ -8959,8 +9083,10 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         const ueTxt = tObj.ue_efetivada ? ` • UE #${tObj.ue_efetivada}` : "";
         return `<span class="px-2 py-0.5 rounded border text-[10px] font-bold mono ${cor}">${lblT}: ${tObj.origem_label || "Sem dados"}${ueTxt}</span>`;
       };
-      const custSummaryRow = (cust.turno_1 || cust.turno_2)
-        ? `<div class="mt-2 flex flex-wrap items-center gap-1.5">${fmtPillCust(cust.turno_1, "1ºT")}${fmtPillCust(cust.turno_2, "2ºT")}</div>`
+      const pill1 = fmtPillCust(cust.turno_1, "1ºT");
+      const pill2 = fmtPillCust(cust.turno_2, "2ºT");
+      const custSummaryRow = (pill1 || pill2)
+        ? `<div class="mt-2 flex flex-wrap items-center gap-1.5">${pill1}${pill2}</div>`
         : "";
 
       if (data.nivel_risco === "CRITICO") {

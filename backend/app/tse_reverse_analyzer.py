@@ -4311,10 +4311,22 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "comparativo_hardware": {"ue_t1": None, "ue_t2": None, "mesma_urna_1t_2t": None, "resumo": ""},
                     }
                     try:
+                        import types as _types
                         from .tse_gedai_parser import analisar_custodia_urna_secao
+                        # Snapshot imutável de secao_db para blindar contra expire_on_commit de db.commit()
+                        sec_snap = _types.SimpleNamespace(
+                            id=secao_db.id,
+                            uf=secao_db.uf,
+                            municipio_codigo=secao_db.municipio_codigo,
+                            municipio_nome=secao_db.municipio_nome,
+                            zona=secao_db.zona,
+                            secao=secao_db.secao,
+                            local_votacao=secao_db.local_votacao,
+                            modelo_urna=secao_db.modelo_urna,
+                        )
                         custodia_urna = analisar_custodia_urna_secao(
                             db=db,
-                            secao_db=secao_db,
+                            secao_db=sec_snap,
                             bu1=bu1,
                             bu2=bu2,
                             espelho_1t=espelho_1t or "",
@@ -8428,6 +8440,13 @@ def _construir_arvore_minima_sql(
     aviso_curto = (
         f"ÁRVORE CARREGADA EM MODO RÁPIDO ({total_banco:,} urnas). Selecione um Estado, Cidade ou Zona para estatísticas detalhadas."
     ).replace(",", ".")
+    custodia_cons_min = {"disponivel": False}
+    try:
+        from .tse_corresp_parser import obter_resumo_custodia_consolidado
+        custodia_cons_min = obter_resumo_custodia_consolidado(db, uf_filtro=uf_filtro, municipio_filtro=municipio_filtro, zona_filtro=zona_filtro)
+    except Exception:
+        pass
+
     return {
         "modo_visao": "CONSOLIDADO_GLOBAL",
         "aviso_parcial": True,
@@ -8468,6 +8487,7 @@ def _construir_arvore_minima_sql(
             "candidatos_t2": [],
             "lista_urnas": [],
             "filtros_contagens": {"total_urnas": total_no_filtro},
+            "custodia_consolidada": custodia_cons_min,
         },
     }
 
@@ -10006,6 +10026,18 @@ def _consolidar_secoes_tse_sql(
         else f"ALERTA FORENSE: {urnas_com_alerta} DE {total_secoes_no_filtro} URNA(S) APRESENTARAM DIVERGÊNCIA OU ANOMALIA"
     )
 
+    custodia_consolidada = {"disponivel": False}
+    try:
+        from .tse_corresp_parser import obter_resumo_custodia_consolidado
+        custodia_consolidada = obter_resumo_custodia_consolidado(
+            db,
+            uf_filtro=uf_filtro,
+            municipio_filtro=municipio_filtro,
+            zona_filtro=zona_filtro,
+        )
+    except Exception as exc_ccons:
+        print(f"[TSE-CUSTODIA-CONS] Aviso: {exc_ccons}")
+
     return {
         "modo_visao": "CONSOLIDADO_GLOBAL",
         "hierarquia": hierarquia,
@@ -10054,6 +10086,7 @@ def _consolidar_secoes_tse_sql(
             "locais_votacao": lista_locais_votacao,
             "resumo_locais": resumo_locais_votacao,
             "lista_urnas": lista_urnas,
+            "custodia_consolidada": custodia_consolidada,
         },
     }
 
