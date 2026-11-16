@@ -412,15 +412,15 @@ def _executar_complementacao_worker(
                     if modo == "COMPLETO":
                         regiao = obter_regiao_uf(uf)
                         secao_obj = TseSecao(
-                            chave_secao=chave_secao,
-                            regiao=regiao,
-                            uf=uf,
-                            municipio_codigo=mun_cod_norm,
-                            municipio_nome=sec_data["municipio_nome"],
+                            chave_secao=chave_secao[:30],
+                            regiao=regiao[:15],
+                            uf=uf[:2],
+                            municipio_codigo=mun_cod_norm[:5],
+                            municipio_nome=(sec_data["municipio_nome"] or "")[:60],
                             zona=zona,
                             secao=secao,
-                            local_votacao=sec_data["local_votacao"],
-                            modelo_urna="TSE_DADOS_ABERTOS",
+                            local_votacao=sec_data["local_votacao"][:100] if sec_data.get("local_votacao") else None,
+                            modelo_urna="ABRT2026",
                         )
                         db.add(secao_obj)
                         db.flush()
@@ -449,7 +449,7 @@ def _executar_complementacao_worker(
                 bu_obj = TseApuracaoBU(
                     secao_id=sec_id,
                     turno=turno,
-                    pleito="DADOS_ABERTOS",
+                    pleito="03220" if turno == 1 else "03221",
                     eleitores_aptos=comp,  # Aptos aproximados do comparecimento oficial
                     comparecimento=comp,
                     faltosos=0,
@@ -478,7 +478,7 @@ def _executar_complementacao_worker(
                         turno=turno,
                         cargo="PRESIDENTE",
                         numero_candidato=num_cand,
-                        nome_candidato=nm,
+                        nome_candidato=str(nm)[:60] if nm else None,
                         quantidade_votos=vt,
                         votos_bu=vt,
                         votos_rdv=vt,
@@ -509,7 +509,7 @@ def _executar_complementacao_worker(
                     dossie_obj = TseDossieSecao(
                         secao_id=sec_id,
                         turno=turno,
-                        prefixo=f"{chave_secao}_{turno}T",
+                        prefixo=f"{chave_secao}_{turno}T"[:60],
                         espelho_bobina=bobina_texto,
                     )
                     db.add(dossie_obj)
@@ -639,8 +639,8 @@ def _executar_complementacao_worker(
             hist = TseHistoricoUpload(
                 job_id=f"COMPLEMENTO_SECAO_{int(t0)}",
                 tipo_envio="DADOS_ABERTOS_CSV",
-                nome_origem=os.path.basename(caminho_arquivo),
-                uf="BR" if not ufs_filtro else ", ".join(ufs_filtro),
+                nome_origem=os.path.basename(caminho_arquivo)[:255],
+                uf=("BR" if not ufs_filtro else ", ".join(ufs_filtro))[:20],
                 total_arquivos_recebidos=1,
                 total_urnas_detectadas=_STATUS_COMPLEMENTO["lacunas_preenchidas"] + _STATUS_COMPLEMENTO["secoes_ja_completas"],
                 total_urnas_novas_gravadas=_STATUS_COMPLEMENTO["lacunas_preenchidas"] + _STATUS_COMPLEMENTO["secoes_novas_criadas"],
@@ -653,9 +653,16 @@ def _executar_complementacao_worker(
             db.add(hist)
             db.commit()
         except Exception:
-            pass
+            try:
+                db.rollback()
+            except Exception:
+                pass
 
     except Exception as exc:
+        try:
+            db.rollback()
+        except Exception:
+            pass
         _STATUS_COMPLEMENTO["status"] = "ERRO"
         _STATUS_COMPLEMENTO["erro"] = str(exc)
         _STATUS_COMPLEMENTO["mensagem"] = f"Erro durante a complementação: {exc}"
