@@ -3331,28 +3331,28 @@ o Boletim de Urna (apos encerramento da votacao).
             </div>
             <div>
               <h3 class="text-base font-extrabold text-white flex flex-wrap items-center gap-2">
-                <span>Auditoria Forense de Preparação das Urnas (Logs GEDAI-UE)</span>
+                <span>Auditoria Forense de Preparação das Urnas (Logs GEDAI-UE &amp; CESP/CEFT)</span>
                 <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-teal-950 text-teal-300 border border-teal-700 mono">
-                  Pré-Eleição • Cerimônia de Carga
+                  Pré-Eleição • Esperada × Efetivada
                 </span>
               </h3>
               <p class="text-xs text-slate-400 mt-0.5">
-                Decodifica pacotes <code class="text-teal-300">-log.jez</code> do GEDAI-UE: estações <code class="text-slate-300">STD</code>, mídias de carga/votação, códigos de carga × ID da urna e cruzamento com a votação.
+                Decodifica logs <code class="text-teal-300">-log.jez</code> do GEDAI-UE e cruza com pacotes oficiais <code class="text-indigo-300">CESP_*</code> (esperadas) e <code class="text-emerald-300">CEFT_*</code> (efetivadas / RED).
               </p>
             </div>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <!-- Upload Pasta Local (Mac/Windows) -->
-            <label class="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-slate-950 font-black text-xs transition cursor-pointer flex items-center gap-1.5 shadow" title="Selecionar diretamente a pasta log_gedai_* do computador">
+            <label class="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-slate-950 font-black text-xs transition cursor-pointer flex items-center gap-1.5 shadow" title="Selecionar diretamente a pasta log_gedai_*, CESP_* ou CEFT_* do computador">
               <span>📁</span>
               <span>Enviar Pasta Local</span>
               <input type="file" webkitdirectory directory multiple onchange="dispararUploadLogsGedai(event)" class="hidden" />
             </label>
-            <!-- Upload .ZIP / .JEZ -->
-            <label class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs transition cursor-pointer flex items-center gap-1.5 shadow" title="Enviar log_gedai_*.zip ou arquivos -log.jez selecionados">
+            <!-- Upload .ZIP / .JEZ / .CSV -->
+            <label class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs transition cursor-pointer flex items-center gap-1.5 shadow" title="Enviar log_gedai_*.zip, CESP_*.zip, CEFT_*.zip, .csv ou -log.jez selecionados">
               <span>📦</span>
-              <span>Enviar .ZIP / .JEZ</span>
-              <input type="file" accept=".zip,.jez,.log" multiple onchange="dispararUploadLogsGedai(event)" class="hidden" />
+              <span>Enviar .ZIP / .JEZ / .CSV</span>
+              <input type="file" accept=".zip,.jez,.log,.csv" multiple onchange="dispararUploadLogsGedai(event)" class="hidden" />
             </label>
             <!-- Detectar no Servidor -->
             <button
@@ -8759,6 +8759,56 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             }).join("")
           : `<div class="text-[11px] text-slate-500 mono">${c.gedai_disponivel ? "Nenhuma correspondência SEÇÃO encontrada no GEDAI carregado." : "Pacote GEDAI-UE deste turno ainda não importado."}</div>`;
 
+        const corTse = c.corresp_tse || {};
+        const csecList = Array.isArray(corTse.csec_snapshots) ? corTse.csec_snapshots : [];
+        const ceftObj = corTse.ceft || null;
+        const altCesp = corTse.alteracao_cesp || null;
+        const ccMatch = corTse.ccont_match || null;
+
+        let correspHtml = "";
+        if (csecList.length > 0 || ceftObj) {
+          const snapsHtml = csecList.map(s => {
+            const stBadge = s.st_corresp_alterada === "S"
+              ? `<span class="px-1 rounded bg-amber-950 text-amber-300 border border-amber-500/50 text-[9px] font-black">ST=S ALTERADA</span>`
+              : `<span class="text-[9px] text-slate-500">[ST=${esc(s.st_corresp_alterada || '-')}]</span>`;
+            return `<div class="text-[10px] mono text-slate-300 flex flex-wrap items-center gap-1.5">
+              <span class="text-indigo-300 font-bold">CESP ${esc(s.dt_geracao)} ${esc((s.hh_geracao || '').slice(0, 5))}:</span>
+              <span>UE Esp <strong class="text-white">#${esc(s.nr_urna_esperada || '-')}</strong></span>
+              <span class="text-slate-500">|</span>
+              <span>Carga: ${esc(s.dt_carga_esperada || '-')}</span>
+              <span class="text-slate-500">|</span>
+              <span>Máq: <strong class="text-cyan-300">${esc(s.maquina_geracao || '-')}</strong></span>
+              ${stBadge}
+            </div>`;
+          }).join("");
+
+          const ceftHtml = ceftObj
+            ? `<div class="text-[10px] mono flex flex-wrap items-center gap-1.5 ${ceftObj.tp_divergencia === 'C' || ceftObj.cd_origem_voto === 'R' ? 'text-amber-200' : 'text-emerald-200'}">
+                <span class="font-bold">CEFT ${esc(ceftObj.dt_geracao)} ${esc((ceftObj.hh_geracao || '').slice(0, 5))}:</span>
+                <span>Esp <strong>#${esc(ceftObj.nr_urna_esperada || '-')}</strong> → Efet <strong class="text-white">#${esc(ceftObj.nr_urna_efetivada || '-')}</strong></span>
+                <span class="text-slate-500">|</span>
+                <span>Origem: <strong>${esc(ceftObj.ds_origem_voto || ceftObj.cd_origem_voto || '-')}</strong></span>
+                ${ceftObj.tp_divergencia ? `<span class="px-1 rounded bg-orange-950 text-orange-300 border border-orange-500/50 text-[9px] font-black">TP=${esc(ceftObj.tp_divergencia)}</span>` : `<span class="text-[9px] text-emerald-400">[TP=OK]</span>`}
+               </div>`
+            : "";
+
+          const altExtra = altCesp
+            ? `<div class="text-[10px] mono text-amber-300">• Alteração entre CESP: #${esc(altCesp.ue_anterior)} → #${esc(altCesp.ue_nova)} (${esc(altCesp.dt_carga_nova || '-')})</div>`
+            : "";
+          const ccExtra = ccMatch
+            ? `<div class="text-[10px] mono text-orange-300">• CCONT Reserva (Z:${String(ccMatch.zona_reserva).padStart(4, '0')}): UE #${esc(ccMatch.nr_urna)} • Máq ${esc(ccMatch.maquina || '-')} • Carga ${esc(ccMatch.dt_carga || '-')}</div>`
+            : "";
+
+          correspHtml = `
+            <div class="mt-2 p-2.5 rounded-lg bg-indigo-950/30 border border-indigo-500/40 space-y-1">
+              <div class="text-[10px] font-black text-indigo-300 uppercase mono">📋 Histórico CESP (Esperada) × CEFT (Efetivada)</div>
+              ${snapsHtml}
+              ${ceftHtml}
+              ${altExtra}
+              ${ccExtra}
+            </div>`;
+        }
+
         const origExtraHtml = (efetG && efetG.tipo === "CONTINGENCIA") || sist
           ? `<div class="mt-2 p-2.5 rounded-lg bg-orange-950/30 border border-orange-500/40 space-y-1 text-[11px] mono">
                <div class="font-black text-orange-300 uppercase text-[10px]">🚨 Rastreamento da Urna Reserva / Contingência</div>
@@ -8806,6 +8856,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
               <div class="text-[10px] font-black text-indigo-300 uppercase mono">Carga Titular Prevista no GEDAI-UE (<code>SECAO</code>):</div>
               ${titsHtml}
             </div>
+            ${correspHtml}
             ${origExtraHtml}
           </div>
         `;
@@ -15708,6 +15759,10 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       correspOffset: 0,
       correspTotal: 0,
       correspItens: [],
+      cespCategoria: "TODAS",
+      cespBusca: "",
+      cespOffset: 0,
+      cespPainel: null,
     };
 
     function escHtmlGedai(s) {
@@ -15740,6 +15795,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       const modal = document.getElementById("modalLogsGedaiTse");
       if (modal) modal.classList.remove("hidden");
       carregarListaLotesGedaiTse(true);
+      carregarPainelCorrespCesCeftTse(true);
     }
 
     function fecharModalLogsGedaiTse() {
@@ -15842,7 +15898,60 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       renderizarDetalheLoteGedaiTse();
       if (novaAba === "correspondencias") {
         buscarCorrespondenciasGedaiTse(true);
+      } else if (novaAba === "cruzamento") {
+        carregarPainelCorrespCesCeftTse(true);
       }
+    }
+
+    async function carregarPainelCorrespCesCeftTse(resetOffset = false) {
+      const st = window.gedaiLogsState;
+      if (resetOffset) st.cespOffset = 0;
+      const l = st.detalhe?.lote;
+      const params = new URLSearchParams({
+        categoria: st.cespCategoria || "TODAS",
+        busca: st.cespBusca || "",
+        limit: "120",
+        offset: String(st.cespOffset || 0),
+      });
+      if (l?.uf) params.set("uf", l.uf);
+      if (l?.turno) params.set("turno", String(l.turno));
+
+      try {
+        const res = await fetch(`/api/tse-reverso/corresp/listar?${params.toString()}`);
+        const data = await lerRespostaJsonOuTextoTse(res);
+        st.cespPainel = data;
+        if (st.abaAtiva === "cruzamento") {
+          if (st.detalhe && !document.getElementById("tseGedaiCruzamentoContainer")) {
+            renderizarDetalheLoteGedaiTse();
+          } else {
+            renderizarPainelCruzamentoCespCeftGedaiTse();
+          }
+        } else if (!st.detalhe) {
+          renderizarPainelCruzamentoCespCeftGedaiTse();
+        }
+      } catch (err) {
+        console.error("[CORRESP] Erro ao consultar CESP/CEFT:", err);
+      }
+    }
+
+    async function excluirArquivoCorrespTse(arquivoId) {
+      if (!confirm("Remover este arquivo CESP/CEFT do banco de dados?")) return;
+      try {
+        const res = await fetch(`/api/tse-reverso/corresp/${arquivoId}`, { method: "DELETE" });
+        await lerRespostaJsonOuTextoTse(res);
+        await carregarPainelCorrespCesCeftTse(true);
+      } catch (err) {
+        setGedaiStatusBar(`❌ Erro ao remover arquivo CESP/CEFT: ${escHtmlGedai(err.message)}`, "err");
+      }
+    }
+
+    function auditarSecaoDeCorrespTse(uf, munCod, zona, secao) {
+      fecharModalLogsGedaiTse();
+      const zPad = String(zona).padStart(4, "0");
+      const sPad = String(secao).padStart(4, "0");
+      const mPad = String(munCod).padStart(5, "0");
+      const pref = `o03220${String(uf || "pr").toLowerCase()}${mPad}${zPad}${sPad}`;
+      selecionarNoArvoreTse(String(uf || "PR").toUpperCase(), String(uf || "PR").toUpperCase(), mPad, zPad, pref);
     }
 
     async function lerRespostaJsonOuTextoTse(res) {
@@ -15867,16 +15976,16 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       const validos = [];
       for (let i = 0; i < files.length; i++) {
         const nm = (files[i].name || "").toLowerCase();
-        if (nm.endsWith(".zip") || nm.endsWith(".jez") || nm.endsWith(".log")) {
+        if (nm.endsWith(".zip") || nm.endsWith(".jez") || nm.endsWith(".log") || nm.endsWith(".csv")) {
           validos.push(files[i]);
         }
       }
       if (validos.length === 0) {
-        setGedaiStatusBar("⚠️ Nenhum arquivo <strong>.zip</strong> ou <strong>.jez</strong> encontrado na seleção.", "err");
+        setGedaiStatusBar("⚠️ Nenhum arquivo <strong>.zip</strong>, <strong>.jez</strong> ou <strong>.csv</strong> encontrado na seleção.", "err");
         return;
       }
 
-      setGedaiStatusBar(`<span class="animate-spin">⏳</span> Enviando e decodificando <strong>${validos.length} arquivo(s)</strong> GEDAI-UE no servidor...`, "info");
+      setGedaiStatusBar(`<span class="animate-spin">⏳</span> Enviando e processando <strong>${validos.length} arquivo(s)</strong> (GEDAI-UE / CESP / CEFT) no servidor...`, "info");
 
       const fd = new FormData();
       for (const f of validos) {
@@ -15886,26 +15995,43 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       try {
         const res = await fetch("/api/tse-reverso/gedai/upload", { method: "POST", body: fd });
         const data = await lerRespostaJsonOuTextoTse(res);
-        setGedaiStatusBar(
-          `✅ Lote <strong>${escHtmlGedai(data.nome_origem)}</strong> processado: <strong>${data.total_estacoes} estações</strong> • ${Number(data.total_linhas || 0).toLocaleString('pt-BR')} linhas • ${Number(data.total_corresp_secao || 0).toLocaleString('pt-BR')} correspondências • ${Number(data.total_contingencias || 0).toLocaleString('pt-BR')} contingências.`,
-          "ok"
-        );
-        window.gedaiLogsState.selecionadoId = data.lote_id;
-        await carregarListaLotesGedaiTse(true);
+        if (data.tipo_lote === "CORRESP_CESP_CEFT") {
+          const cr = data.corresp_resultado || {};
+          const totReg = (cr.resultados || []).reduce((acc, r) => acc + (r.total_registros || 0), 0);
+          setGedaiStatusBar(
+            `✅ Pacote(s) CESP/CEFT (<strong>${escHtmlGedai(data.nome_origem)}</strong>) importado(s): <strong>${cr.total_arquivos || 0} CSV(s)</strong> • ${Number(totReg).toLocaleString('pt-BR')} registros cruzados.`,
+            "ok"
+          );
+          window.gedaiLogsState.abaAtiva = "cruzamento";
+          await carregarPainelCorrespCesCeftTse(true);
+        } else {
+          const extraCor = data.corresp_resultado
+            ? ` + <strong>${data.corresp_resultado.total_arquivos || 0} CSV(s) CESP/CEFT</strong>`
+            : "";
+          setGedaiStatusBar(
+            `✅ Lote <strong>${escHtmlGedai(data.nome_origem)}</strong> processado: <strong>${data.total_estacoes} estações</strong> • ${Number(data.total_linhas || 0).toLocaleString('pt-BR')} linhas • ${Number(data.total_corresp_secao || 0).toLocaleString('pt-BR')} correspondências • ${Number(data.total_contingencias || 0).toLocaleString('pt-BR')} contingências${extraCor}.`,
+            "ok"
+          );
+          window.gedaiLogsState.selecionadoId = data.lote_id;
+          await carregarListaLotesGedaiTse(true);
+          if (data.corresp_resultado) {
+            await carregarPainelCorrespCesCeftTse(true);
+          }
+        }
       } catch (err) {
-        setGedaiStatusBar(`❌ Erro ao processar logs GEDAI: ${escHtmlGedai(err.message)}`, "err");
+        setGedaiStatusBar(`❌ Erro ao processar logs GEDAI / CESP / CEFT: ${escHtmlGedai(err.message)}`, "err");
       } finally {
         if (event.target) event.target.value = "";
       }
     }
 
     async function detectarLogsGedaiServidor() {
-      setGedaiStatusBar(`<span class="animate-spin">⏳</span> Buscando pacotes <code>log_gedai_*.zip</code> ou pastas no servidor...`, "info");
+      setGedaiStatusBar(`<span class="animate-spin">⏳</span> Buscando pacotes <code>log_gedai_*.zip</code>, <code>CESP_*</code> e <code>CEFT_*</code> no servidor...`, "info");
       try {
         const resDet = await fetch("/api/tse-reverso/gedai/detectar-servidor", { method: "POST" });
         const dDet = await lerRespostaJsonOuTextoTse(resDet);
         if (!dDet.arquivos || dDet.arquivos.length === 0) {
-          setGedaiStatusBar("⚠️ Nenhum arquivo/pasta GEDAI encontrado em <code>/root/tse_import</code> ou <code>/app/tse_import</code>. Use os botões <strong>Enviar Pasta Local</strong> ou <strong>Enviar .ZIP / .JEZ</strong> acima.", "err");
+          setGedaiStatusBar("⚠️ Nenhum arquivo/pasta GEDAI ou CESP/CEFT encontrado no servidor. Use <strong>Enviar Pasta Local</strong> ou <strong>Enviar .ZIP / .JEZ / .CSV</strong> acima.", "err");
           return;
         }
         setGedaiStatusBar(`<span class="animate-spin">⏳</span> Encontrados ${dDet.arquivos.length} pacote(s) no servidor (${dDet.arquivos.map(a => escHtmlGedai(a.nome)).join(", ")}). Processando...`, "info");
@@ -15915,8 +16041,12 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           body: JSON.stringify({})
         });
         const dIng = await lerRespostaJsonOuTextoTse(resIng);
-        setGedaiStatusBar(`✅ Processamento no servidor concluído: <strong>${dIng.total_processados || 0} lote(s)</strong> importado(s).`, "ok");
+        setGedaiStatusBar(
+          `✅ Processamento no servidor concluído: <strong>${dIng.gedai_processados || 0} lote(s) GEDAI</strong> + <strong>${dIng.corresp_processados || 0} arquivo(s) CESP/CEFT</strong>.`,
+          "ok"
+        );
         await carregarListaLotesGedaiTse(true);
+        await carregarPainelCorrespCesCeftTse(true);
       } catch (err) {
         setGedaiStatusBar(`❌ Erro ao detectar no servidor: ${escHtmlGedai(err.message)}`, "err");
       }
@@ -16048,11 +16178,19 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         <!-- Barra de Sub-Abas -->
         <div class="flex flex-wrap items-center gap-2 pt-1 border-b border-slate-800 pb-3">
           ${tabBtn("resumo", "📊 Resumo & Batimento Banco")}
+          ${tabBtn("cruzamento", "🔀 CESP × CEFT × GEDAI")}
           ${tabBtn("estacoes", `💻 Estações GEDAI (${det.estacoes.length})`)}
           ${tabBtn("correspondencias", "🔗 Rastreio Carga × Urna × Seção")}
           ${tabBtn("erros", `⚠️ Erros, Alertas & Repreparos (${(anom.secoes_multiplas_cargas_qtd || 0)})`)}
         </div>
       `;
+
+      if (aba === "cruzamento") {
+        html += `<div id="tseGedaiCruzamentoContainer"><div class="py-10 text-center text-indigo-300 mono text-xs animate-pulse">Cruzando snapshots CESP × CEFT × GEDAI...</div></div>`;
+        cont.innerHTML = html;
+        renderizarPainelCruzamentoCespCeftGedaiTse();
+        return;
+      }
 
       if (aba === "resumo") {
         const pctCob = bat.cobertura_sobre_banco_pct !== undefined ? `${bat.cobertura_sobre_banco_pct}%` : "-";
@@ -16356,6 +16494,155 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }
 
       cont.innerHTML = html;
+    }
+
+    function renderizarPainelCruzamentoCespCeftGedaiTse() {
+      const st = window.gedaiLogsState;
+      const target = document.getElementById("tseGedaiCruzamentoContainer") || ( !st.detalhe ? document.getElementById("tseGedaiDetalheContainer") : null );
+      if (!target) return;
+
+      const p = st.cespPainel;
+      if (!p || !p.disponivel) {
+        target.innerHTML = `
+          <div class="p-6 rounded-xl bg-slate-950 border border-indigo-500/40 text-center space-y-2 text-xs">
+            <div class="text-3xl">🔀</div>
+            <div class="font-black text-indigo-300 text-sm">Nenhum arquivo CESP / CEFT importado ainda</div>
+            <p class="text-slate-400 max-w-xl mx-auto leading-relaxed">
+              Envie os arquivos <code class="text-indigo-300">CESP_*.zip</code> (Correspondência Esperada) e <code class="text-emerald-300">CEFT_*.zip</code> (Correspondência Efetivada) pelo botão <strong>Enviar .ZIP / .JEZ / .CSV</strong> ou coloque-os em <code>/root/tse_import</code> e clique em <strong>Detectar no Servidor</strong> para cruzar com os logs GEDAI-UE.
+            </p>
+          </div>`;
+        return;
+      }
+
+      const res = p.resumo || {};
+      const arqs = p.arquivos || [];
+      const ocs = p.ocorrencias || [];
+      const ufAtiva = p.uf || "PR";
+
+      const badgeCat = (cat) => {
+        if (cat === "DIVERGENCIA_SILENCIOSA") return `<span class="px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/60 text-[9px] font-black">DIV. SILENCIOSA</span>`;
+        if (cat === "RED_RECUPERACAO") return `<span class="px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/60 text-[9px] font-black">RED RECUPERAÇÃO</span>`;
+        if (cat === "ALTERACAO_CESP") return `<span class="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-500/50 text-[9px] font-black">TROCA CESP</span>`;
+        if (cat === "CONTINGENCIA_CEFT") return `<span class="px-1.5 py-0.5 rounded bg-orange-950 text-orange-300 border border-orange-500/50 text-[9px] font-black">CONTINGÊNCIA (C)</span>`;
+        return `<span class="px-1.5 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/50 text-[9px] font-black">AUSENTE NO .JEZ</span>`;
+      };
+
+      const pillsArqs = arqs.map(a => `
+        <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-[10px] mono">
+          <span class="text-indigo-300 font-black">${escHtmlGedai(a.tipo_arquivo)}</span>
+          <span class="text-white font-bold">${escHtmlGedai(a.nome_origem)}</span>
+          <span class="text-slate-400">(${escHtmlGedai(a.dt_geracao)} ${escHtmlGedai((a.hh_geracao || '').slice(0, 5))} • ${Number(a.total_registros || 0).toLocaleString('pt-BR')} reg)</span>
+          <button type="button" onclick="excluirArquivoCorrespTse(${a.id})" title="Remover arquivo" class="text-slate-400 hover:text-rose-400 font-bold ml-1 cursor-pointer">✕</button>
+        </div>
+      `).join("");
+
+      const ini = p.total_filtrado > 0 ? st.cespOffset + 1 : 0;
+      const fim = Math.min(st.cespOffset + ocs.length, p.total_filtrado || 0);
+
+      target.innerHTML = `
+        <div class="space-y-3">
+          <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+            <div class="text-[10px] font-black uppercase text-indigo-300 mono">📦 Snapshots CESP (Esperada) &amp; CEFT (Efetivada) Importados (${escHtmlGedai(ufAtiva)} • ${p.turno}ºT)</div>
+            <div class="flex flex-wrap gap-1.5">${pillsArqs}</div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs mono">
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800">
+              <span class="text-[9px] text-slate-400 uppercase block">Seções CEFT / CESP</span>
+              <strong class="text-base font-black text-white">${Number(res.total_secoes_ceft || res.total_secoes_ultimo_cesp || 0).toLocaleString('pt-BR')}</strong>
+              <span class="text-[10px] text-slate-400 block">${Number(res.total_reservas_ccont || 0).toLocaleString('pt-BR')} reservas CCONT</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-orange-700/40">
+              <span class="text-[9px] text-orange-300 uppercase block">Contingências CEFT</span>
+              <strong class="text-base font-black text-orange-300">${Number(res.qtd_contingencias_ceft || 0).toLocaleString('pt-BR')}</strong>
+              <span class="text-[10px] text-slate-400 block">${Number(res.qtd_cont_fora_gedai || 0).toLocaleString('pt-BR')} fora do .jez</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-amber-700/40">
+              <span class="text-[9px] text-amber-300 uppercase block">Trocas Ocultas CESP</span>
+              <strong class="text-base font-black text-amber-300">${Number(res.qtd_alteracoes_cesp || 0).toLocaleString('pt-BR')}</strong>
+              <span class="text-[10px] text-slate-400 block">ST='S'/* entre CESP</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-rose-700/40">
+              <span class="text-[9px] text-rose-300 uppercase block">Div. Silenciosas CEFT</span>
+              <strong class="text-base font-black text-rose-400">${Number(res.qtd_divergencias_silenciosas || 0).toLocaleString('pt-BR')}</strong>
+              <span class="text-[10px] text-slate-400 block">Esp ≠ Efet s/ flag 'C'</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-rose-700/40">
+              <span class="text-[9px] text-rose-300 uppercase block">Origens RED (CD='R')</span>
+              <strong class="text-base font-black text-rose-300">${Number(res.qtd_red || 0).toLocaleString('pt-BR')}</strong>
+              <span class="text-[10px] text-slate-400 block">Recuperação de Dados</span>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-cyan-700/40">
+              <span class="text-[9px] text-cyan-300 uppercase block">Lacunas no GEDAI .jez</span>
+              <strong class="text-base font-black text-cyan-300">${Number(res.qtd_ausentes_gedai || 0).toLocaleString('pt-BR')}</strong>
+              <span class="text-[10px] text-slate-400 block">Seções sem .jez local</span>
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2">
+            <select onchange="window.gedaiLogsState.cespCategoria = this.value; carregarPainelCorrespCesCeftTse(true);" class="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white mono">
+              <option value="TODAS" ${st.cespCategoria === 'TODAS' ? 'selected' : ''}>Todas as Ocorrências Cruzadas</option>
+              <option value="DIVERGENCIA_SILENCIOSA" ${st.cespCategoria === 'DIVERGENCIA_SILENCIOSA' ? 'selected' : ''}>🚨 Divergências Silenciosas (Esp ≠ Efet sem 'C')</option>
+              <option value="ALTERACAO_CESP" ${st.cespCategoria === 'ALTERACAO_CESP' ? 'selected' : ''}>🔄 Trocas Detectadas entre CESP (ST=S/*)</option>
+              <option value="RED_RECUPERACAO" ${st.cespCategoria === 'RED_RECUPERACAO' ? 'selected' : ''}>⚠️ BUs Gerados por RED</option>
+              <option value="CONTINGENCIA_CEFT" ${st.cespCategoria === 'CONTINGENCIA_CEFT' ? 'selected' : ''}>🟠 Contingências CEFT (TP='C')</option>
+              <option value="AUSENTE_GEDAI" ${st.cespCategoria === 'AUSENTE_GEDAI' ? 'selected' : ''}>📭 Seções Ausentes nos Logs GEDAI (.jez)</option>
+            </select>
+            <input
+              type="text"
+              value="${escHtmlGedai(st.cespBusca)}"
+              oninput="window.gedaiLogsState.cespBusca = this.value;"
+              onkeydown="if (event.key === 'Enter') carregarPainelCorrespCesCeftTse(true);"
+              placeholder="🔍 Filtrar município, zona, seção, UE, estação STD ou flashcard..."
+              class="flex-1 min-w-[220px] px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white mono outline-none focus:border-indigo-500"
+            />
+            <button type="button" onclick="carregarPainelCorrespCesCeftTse(true)" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs cursor-pointer">Filtrar</button>
+          </div>
+
+          <div class="flex items-center justify-between text-[11px] text-slate-400 mono">
+            <span>Exibindo ${ini}–${fim} de ${Number(p.total_filtrado || 0).toLocaleString('pt-BR')} ocorrência(s)</span>
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="if (window.gedaiLogsState.cespOffset >= 120) { window.gedaiLogsState.cespOffset -= 120; carregarPainelCorrespCesCeftTse(false); }" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer">◀ Anterior</button>
+              <button type="button" onclick="if (window.gedaiLogsState.cespOffset + 120 < (window.gedaiLogsState.cespPainel?.total_filtrado || 0)) { window.gedaiLogsState.cespOffset += 120; carregarPainelCorrespCesCeftTse(false); }" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 cursor-pointer">Próxima ▶</button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950 max-h-[380px]">
+            <table class="w-full text-[11px] mono text-left">
+              <thead class="sticky top-0 bg-slate-900 text-[10px] text-slate-400 uppercase border-b border-slate-800">
+                <tr>
+                  <th class="py-2 px-2">Tipo</th>
+                  <th class="py-2 px-2">Município</th>
+                  <th class="py-2 px-2 text-center">Z / S</th>
+                  <th class="py-2 px-2">Esperada → Efetivada</th>
+                  <th class="py-2 px-2">Máquina / TPM / MC</th>
+                  <th class="py-2 px-2">Diagnóstico Pericial</th>
+                  <th class="py-2 px-2 text-right">Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${ocs.map(o => `
+                  <tr class="border-b border-slate-900 hover:bg-slate-900/70">
+                    <td class="py-1.5 px-2 whitespace-nowrap">${badgeCat(o.categoria)}</td>
+                    <td class="py-1.5 px-2 text-white">${escHtmlGedai(o.municipio_nome || o.municipio_codigo)}</td>
+                    <td class="py-1.5 px-2 text-center text-cyan-300 font-bold whitespace-nowrap">Z${String(o.zona).padStart(4, '0')} S${String(o.secao).padStart(4, '0')}</td>
+                    <td class="py-1.5 px-2 whitespace-nowrap">
+                      <span class="text-slate-300">#${escHtmlGedai(o.ue_esperada || '-')}</span>
+                      <span class="text-slate-500 mx-1">→</span>
+                      <strong class="text-emerald-300">#${escHtmlGedai(o.ue_efetivada || '-')}</strong>
+                    </td>
+                    <td class="py-1.5 px-2 text-[10px] text-slate-300">${escHtmlGedai(o.maquina || '-')} • ${escHtmlGedai(o.tpm || '-')} • <span class="text-amber-300">${escHtmlGedai(o.flashcard || '-')}</span></td>
+                    <td class="py-1.5 px-2 text-[10px] text-slate-300 max-w-xs">${escHtmlGedai(o.detalhe || '-')}</td>
+                    <td class="py-1.5 px-2 text-right whitespace-nowrap">
+                      <button type="button" onclick="auditarSecaoDeCorrespTse('${escHtmlGedai(ufAtiva)}', '${escHtmlGedai(o.municipio_codigo)}', '${o.zona}', '${o.secao}')" class="px-2 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-bold cursor-pointer">🔎 Auditar</button>
+                    </td>
+                  </tr>
+                `).join("") || `<tr><td colspan="7" class="py-8 text-center text-slate-500">Nenhuma ocorrência neste filtro.</td></tr>`}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
     }
 
     async function checarVersaoProducao() {

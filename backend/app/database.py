@@ -493,6 +493,86 @@ class TseGedaiCorrespondencia(Base):
     )
 
 
+class TseCorrespArquivo(Base):
+    """
+    Metadados dos pacotes oficiais do TSE de Correspondência Esperada (CESP: csec/ccont)
+    e Correspondência Efetivada (CEFT: ceft), permitindo comparar snapshots (ex: 03/10 × 04/10 × 05/10).
+    """
+    __tablename__ = "tse_corresp_arquivos"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    tipo_arquivo = Column(String(20), index=True, nullable=False)       # CESP_CSEC | CESP_CCONT | CEFT
+    nome_origem = Column(String(255), nullable=False)
+    uf = Column(String(10), index=True, nullable=False)
+    turno = Column(SmallInteger, index=True, default=1)
+    pleito = Column(String(10), nullable=True)
+    dt_geracao = Column(String(25), nullable=True)
+    hh_geracao = Column(String(20), nullable=True)
+    momento_geracao = Column(String(30), index=True, nullable=True)    # YYYY-MM-DD HH:MM:SS para ordenação temporal
+    hash_sha256 = Column(String(64), unique=True, index=True, nullable=False)
+
+    total_registros = Column(Integer, default=0)
+    total_alteradas = Column(Integer, default=0)
+    total_contingencias_ceft = Column(Integer, default=0)
+    total_red = Column(Integer, default=0)
+    resumo_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
+class TseCorrespRegistro(Base):
+    """
+    Registros normalizados dos CSVs CESP (csec/ccont) e CEFT (ceft) para cruzamento imediato por seção/urna
+    contra os logs GEDAI-UE, Boletins de Urna (BWEB/BU) e Relatórios SISTOT.
+    """
+    __tablename__ = "tse_corresp_registros"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    arquivo_id = Column(Integer, ForeignKey("tse_corresp_arquivos.id", ondelete="CASCADE"), index=True, nullable=False)
+    tipo_registro = Column(String(16), index=True, nullable=False)     # CSEC | CCONT | CEFT
+    uf = Column(String(10), index=True, nullable=False)
+    turno = Column(SmallInteger, index=True, default=1)
+    momento_geracao = Column(String(30), index=True, nullable=True)
+
+    municipio_codigo = Column(String(10), index=True, nullable=False)
+    municipio_nome = Column(String(120), nullable=True)
+    zona = Column(Integer, index=True, default=0)
+    secao = Column(Integer, index=True, default=0)
+    local_votacao = Column(Integer, nullable=True)
+
+    nr_urna_esperada = Column(String(16), index=True, nullable=True)
+    cd_carga_esperada = Column(String(40), nullable=True)
+    cd_flashcard_esperada = Column(String(24), nullable=True)
+    dt_carga_esperada = Column(String(30), nullable=True)
+    dt_recbto_esperada = Column(String(30), nullable=True)
+    st_corresp_alterada = Column(String(10), nullable=True)            # * | N | S
+
+    sq_corresp_esperada = Column(String(24), nullable=True)
+    sq_corresp_efetivada = Column(String(24), nullable=True)
+    nr_urna_efetivada = Column(String(16), index=True, nullable=True)
+    cd_carga_efetivada = Column(String(40), nullable=True)
+    cd_flashcard_efetivada = Column(String(24), nullable=True)
+    dt_carga_efetivada = Column(String(30), nullable=True)
+    dt_recbto_efetivada = Column(String(30), nullable=True)
+
+    cd_origem_voto = Column(String(8), nullable=True)                  # U | R | C
+    ds_origem_voto = Column(String(120), nullable=True)
+    tp_divergencia = Column(String(8), index=True, nullable=True)      # "" | C | D | O
+
+    nm_maquina_geracao = Column(String(60), nullable=True)
+    nr_sri_tpm_geracao = Column(String(128), nullable=True)
+    nr_sri_instal_geracao = Column(String(64), nullable=True)
+    nm_maquina_transm = Column(String(60), nullable=True)
+    nr_sri_tpm_transm = Column(String(128), nullable=True)
+    nr_sri_instal_transm = Column(String(64), nullable=True)
+
+    __table_args__ = (
+        Index("idx_tse_corresp_reg_sec", "uf", "turno", "municipio_codigo", "zona", "secao"),
+        Index("idx_tse_corresp_reg_ue_esp", "uf", "turno", "nr_urna_esperada"),
+        Index("idx_tse_corresp_reg_ue_efet", "uf", "turno", "nr_urna_efetivada"),
+        Index("idx_tse_corresp_reg_arq_tipo", "arquivo_id", "tipo_registro"),
+    )
+
+
 # Mapeamento Oficial de Regiões do Brasil
 ESTADOS_E_REGIOES_BR = {
     "AC": {"nome": "Acre", "regiao": "NORTE"},

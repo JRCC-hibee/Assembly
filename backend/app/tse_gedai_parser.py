@@ -1331,7 +1331,36 @@ def _classificar_custodia_turno(
     sistot_disponivel, sistot_occ = _buscar_contingencia_sistot_secao(db, uf, mun_cod, mun_nome, zona, sec, turno)
 
     ue_norm = hw["ue_norm"] or (sistot_occ["id_urna_norm"] if sistot_occ else None)
+
+    corresp_tse = {
+        "disponivel": False,
+        "base_turno_carregada": False,
+        "csec_snapshots": [],
+        "ceft": None,
+        "alteracao_cesp": None,
+        "ccont_match": None,
+    }
+    try:
+        from .tse_corresp_parser import buscar_custodia_corresp_secao
+        corresp_tse = buscar_custodia_corresp_secao(db, uf, mun_cod, zona, sec, turno, ue_candidata=ue_norm)
+    except Exception as exc_cor:
+        print(f"[TSE-CORRESP] Aviso ao consultar CESP/CEFT da seção: {exc_cor}")
+
+    ceft_reg = corresp_tse.get("ceft")
+    alt_cesp = corresp_tse.get("alteracao_cesp")
+    ccont_match = corresp_tse.get("ccont_match")
+    csec_snaps = corresp_tse.get("csec_snapshots") or []
+
+    if not ue_norm and ceft_reg and ceft_reg.get("nr_urna_efetivada"):
+        ue_norm = ceft_reg["nr_urna_efetivada"]
+    elif not ue_norm and csec_snaps and csec_snaps[-1].get("nr_urna_esperada"):
+        ue_norm = csec_snaps[-1]["nr_urna_esperada"]
     ue_pad = ue_norm.zfill(8) if (ue_norm and ue_norm.isdigit()) else ue_norm
+
+    if not hw.get("flashcard_bu") and ceft_reg and ceft_reg.get("cd_flashcard_efetivada"):
+        hw["flashcard_bu"] = ceft_reg["cd_flashcard_efetivada"]
+    if not hw.get("carga_bu") and ceft_reg and ceft_reg.get("cd_carga_efetivada"):
+        hw["carga_bu"] = ceft_reg["cd_carga_efetivada"]
 
     lote_t = (
         db.query(TseGedaiLote)
@@ -1374,6 +1403,11 @@ def _classificar_custodia_turno(
             efetivada_gedai_matches = _deduplicar_correspondencias_gedai(rows_ue_gedai)
 
     titular_ids = {t["id_urna_norm"] for t in titulares_gedai if t.get("id_urna_norm")}
+    if csec_snaps and csec_snaps[0].get("nr_urna_esperada"):
+        titular_ids.add(csec_snaps[0]["nr_urna_esperada"])
+    if ceft_reg and ceft_reg.get("nr_urna_esperada"):
+        titular_ids.add(ceft_reg["nr_urna_esperada"])
+
     match_efet_mesma_sec = next(
         (m for m in efetivada_gedai_matches if m["tipo"] == "SECAO" and int(m["zona"] or 0) == zona and int(m["secao"] or 0) == sec and m["municipio_codigo"] == mun_cod),
         None,
@@ -1385,49 +1419,86 @@ def _classificar_custodia_turno(
     )
     urna_efetivada_gedai = match_efet_cont or match_efet_mesma_sec or match_efet_outra_sec
 
-    # 1. Classificação Titular vs Reserva
-    origem_urna = "INDETERMINADO"
-    origem_label = "Sem dados GEDAI/SISTOT deste turno"
-    origem_detalhe = "Faça a ingestão do pacote GEDAI-UE ou PDF SISTOT correspondente para auditar a origem da urna."
+    # Indicadores combinados do pacote CESP/CEFT
+    ceft_is_cont = bool(ceft_reg and ceft_reg.get("tp_divergencia") == "C")
+    ceft_div_silenciosa = bool(
+        ceft_reg
+        and ceft_reg.get("nr_urna_esperada")
+        and ceft_reg.get("nr_urna_efetivada")
+        and ceft_reg.get("nr_urna_esperada") != ceft_reg.get("nr_urna_efetivada")
+        and not ceft_is_cont
+    )
+    teve_red = bool(ceft_reg and ceft_reg.get("cd_origem_voto") == "R")
+    cesp_trocou_ue = bool(alt_cesp and alt_cesp.get("ue_anterior") and alt_cesp.get("ue_nova") and alt_cesp["ue_anterior"] != alt_cesp["ue_nova"] and not str(alt_cesp["ue_anterior"]).startswith("("))
 
-    if sistot_occ or match_efet_cont:
+    # 1. Classificação Titular vs Reserva (GEDAI × CESP × CEFT × BU × SISTOT)
+    origem_urna = "INDETERMINADO"
+    origem_label = "Sem dados GEDAI/CESP/SISTOT deste turno"
+    origem_detalhe = "Faça a ingestão do pacote GEDAI-UE, CESP/CEFT ou PDF SISTOT correspondente para auditar a origem da urna."
+
+    if sistot_occ or match_efet_cont or ceft_is_cont or ceft_div_silenciosa or ccont_match or cesp_trocou_ue:
         origem_urna = "RESERVA"
-        origem_label = "URNA RESERVA (CONTINGÊNCIA)"
-        tit_str = ", ".join(sorted(titular_ids)) if titular_ids else "não listada"
-        orig_est = match_efet_cont["computador"] if match_efet_cont else "SISTOT/Cartório"
+        if ceft_div_silenciosa or (cesp_trocou_ue and not ceft_is_cont and not sistot_occ):
+            origem_label = "URNA RESERVA / SUBSTITUÍDA (CESP/CEFT)"
+        else:
+            origem_label = "URNA RESERVA (CONTINGÊNCIA)"
+        fontes_reserva = []
+        if match_efet_cont:
+            fontes_reserva.append(f"GEDAI Contingência ({match_efet_cont['computador']})")
+        if ccont_match:
+            fontes_reserva.append(f"Pool CCONT (Z:{int(ccont_match['zona_reserva']):04d} / {ccont_match['maquina']})")
+        if ceft_is_cont:
+            fontes_reserva.append("CEFT TP_DIVERGENCIA='C'")
+        elif ceft_div_silenciosa:
+            fontes_reserva.append(f"CEFT Divergência Silenciosa (TP='{ceft_reg.get('tp_divergencia') or 'VAZIO'}')")
+        if cesp_trocou_ue:
+            fontes_reserva.append(f"Alteração CESP ({alt_cesp['snapshot_momento']})")
+        if sistot_occ:
+            fontes_reserva.append("SISTOT PDF")
+        tit_str = ", ".join(sorted(titular_ids - {ue_norm})) if (titular_ids - {ue_norm}) else (", ".join(sorted(titular_ids)) if titular_ids else "não listada")
         origem_detalhe = (
-            f"A seção foi apurada com a UE {ue_norm or '-'} preparada como CONTINGÊNCIA ({orig_est}). "
-            f"Urna titular prevista no GEDAI: {tit_str}."
+            f"A seção foi apurada com a UE #{ue_norm or '-'} em substituição à Titular prevista (#{tit_str}). "
+            f"Fontes confirmatórias: {' + '.join(fontes_reserva)}."
         )
     elif gedai_disponivel and titulares_gedai and ue_norm:
-        if ue_norm in titular_ids:
-            if len(titular_ids) > 1:
+        ids_gedai_only = {t["id_urna_norm"] for t in titulares_gedai if t.get("id_urna_norm")}
+        if ue_norm in ids_gedai_only:
+            if len(ids_gedai_only) > 1:
                 origem_urna = "TITULAR_REPREPARADA"
                 origem_label = "URNA TITULAR (COM RE-PREPARAÇÃO NO GEDAI)"
                 origem_detalhe = (
-                    f"O GEDAI registrou {len(titular_ids)} UEs distintas como SEÇÃO antes da eleição "
-                    f"({', '.join(sorted(titular_ids))}). A UE {ue_norm} foi a efetivada no BU."
+                    f"O GEDAI registrou {len(ids_gedai_only)} UEs distintas como SEÇÃO antes da eleição "
+                    f"({', '.join(sorted(ids_gedai_only))}). A UE {ue_norm} foi a efetivada no BU/CEFT."
                 )
             else:
                 origem_urna = "TITULAR"
                 origem_label = "URNA TITULAR DA SEÇÃO"
                 t0 = titulares_gedai[0]
+                sufixo_ceft = " e coincide 100% com o par CESP/CEFT (Esperada = Efetivada)" if (ceft_reg and ceft_reg.get("nr_urna_efetivada") == ue_norm) else ""
                 origem_detalhe = (
-                    f"A UE {ue_norm} apurada no BU coincide 100% com a única carga de SEÇÃO preparada "
-                    f"no GEDAI ({t0['computador']} em {t0['data_hora'] or '-'})."
+                    f"A UE #{ue_norm} apurada no BU coincide 100% com a carga Titular preparada no GEDAI "
+                    f"({t0['computador']} em {t0['data_hora'] or '-'}){sufixo_ceft}."
                 )
         elif match_efet_outra_sec:
             origem_urna = "SUBSTITUTA_OUTRA_SECAO"
             origem_label = f"URNA REMANEJADA (Original Z:{int(match_efet_outra_sec['zona']):04d}/S:{int(match_efet_outra_sec['secao']):04d})"
             origem_detalhe = (
                 f"A UE efetivada ({ue_norm}) constava no GEDAI como SEÇÃO da Zona {int(match_efet_outra_sec['zona']):04d} / "
-                f"Seção {int(match_efet_outra_sec['secao']):04d}, enquanto a titular prevista era {', '.join(sorted(titular_ids)) or '-'}."
+                f"Seção {int(match_efet_outra_sec['secao']):04d}, enquanto a titular prevista era {', '.join(sorted(ids_gedai_only)) or '-'}."
             )
         else:
             origem_urna = "RESERVA"
             origem_label = "URNA RESERVA / DIVERGENTE DA TITULAR GEDAI"
             origem_detalhe = (
-                f"A UE efetivada no BU ({ue_norm}) diverge da(s) UE(s) preparada(s) como SEÇÃO no GEDAI ({', '.join(sorted(titular_ids))})."
+                f"A UE efetivada no BU ({ue_norm}) diverge da(s) UE(s) preparada(s) como SEÇÃO no GEDAI ({', '.join(sorted(ids_gedai_only))})."
+            )
+    elif ceft_reg and ceft_reg.get("nr_urna_esperada") and ceft_reg.get("nr_urna_efetivada"):
+        if ceft_reg["nr_urna_esperada"] == ceft_reg["nr_urna_efetivada"] and not (ceft_reg.get("tp_divergencia") or ""):
+            origem_urna = "TITULAR"
+            origem_label = "URNA TITULAR (CESP × CEFT • SEM LOG GEDAI)"
+            origem_detalhe = (
+                f"Embora esta seção não conste no pacote .jez do GEDAI carregado, o arquivo oficial CEFT ({ceft_reg['maquina_geracao'] or '-'}) "
+                f"confirma UE Esperada #{ceft_reg['nr_urna_esperada']} = UE Efetivada #{ceft_reg['nr_urna_efetivada']}."
             )
     elif gedai_disponivel and titulares_gedai and not ue_norm:
         origem_urna = "TITULAR_PRESUMIDA" if sistot_disponivel else "GEDAI_PREPARADA"
@@ -1439,17 +1510,20 @@ def _classificar_custodia_turno(
         )
     elif sistot_disponivel:
         origem_urna = "SEM_OCORRENCIA_SISTOT"
-        origem_label = "SEM CONTINGÊNCIA NO SISTOT (Sem GEDAI do turno)"
+        origem_label = "SEM CONTINGÊNCIA NO SISTOT (Sem GEDAI/CEFT do turno)"
         origem_detalhe = (
             f"O Anexo de Contingências do SISTOT para {uf} ({turno}ºT) foi auditado e não registra substituição para esta seção. "
-            f"Envie o GEDAI-UE do {turno}ºT para confirmar o serial da titular."
+            f"Envie o GEDAI-UE ou CESP/CEFT do {turno}ºT para confirmar o serial da titular."
         )
+
+    if teve_red and ceft_reg:
+        origem_detalhe = f"[⚠️ RED: {ceft_reg.get('ds_origem_voto') or 'BU gerado por RED em urna de seção'}] " + origem_detalhe
 
     # 2. Classificação do Momento da Substituição (Início / Pré-votação vs Durante a Votação)
     pleito_abertura_dt = datetime(2026, 10, 4 if turno == 1 else 25, 8, 0, 0)
     dt_ab_bu = _parse_dt_br(hw.get("dt_abertura_bu"))
     momento_substituicao = "INDETERMINADO"
-    momento_label = "Não determinável sem GEDAI/SISTOT"
+    momento_label = "Não determinável sem GEDAI/CESP/SISTOT"
     momento_detalhe = origem_detalhe
 
     if sistot_occ and sistot_occ.get("data_hora_ocorrencia"):
@@ -1480,12 +1554,38 @@ def _classificar_custodia_turno(
             momento_detalhe = (
                 f"Contingência efetivada no SISTOT em {sistot_occ['data_hora_ocorrencia']}, já no decorrer do pleito{ref_ab}."
             )
+    elif cesp_trocou_ue and alt_cesp:
+        dt_nova = _parse_dt_br(alt_cesp.get("dt_carga_nova"))
+        dt_str = alt_cesp.get("dt_carga_nova") or alt_cesp.get("snapshot_momento") or "-"
+        if dt_nova and dt_nova.date() < pleito_abertura_dt.date():
+            momento_substituicao = "INICIO_PRE_VOTACAO"
+            momento_label = f"TROCA NA VÉSPERA (CESP {dt_nova.strftime('%d/%m %H:%M')})"
+            momento_detalhe = (
+                f"Troca registrada entre snapshots do CESP com nova preparação em {dt_str}, antes do dia da votação."
+            )
+        elif dt_nova and dt_nova <= datetime(2026, 10, 4 if turno == 1 else 25, 8, 30, 0):
+            momento_substituicao = "INICIO_PRE_VOTACAO"
+            momento_label = f"SUBSTITUIÇÃO NO INÍCIO DO PLEITO (CESP {dt_nova.strftime('%H:%M:%S')})"
+            momento_detalhe = (
+                f"O snapshot CESP de {alt_cesp['snapshot_momento']} acusou ST={alt_cesp['st']} com carga substituta às {dt_nova.strftime('%H:%M:%S')} (abertura da seção)."
+            )
+        else:
+            momento_substituicao = "DURANTE_VOTACAO"
+            momento_label = f"SUBSTITUIÇÃO DURANTE A VOTAÇÃO (CESP {dt_str})"
+            momento_detalhe = (
+                f"Alteração registrada no snapshot CESP de {alt_cesp['snapshot_momento']} (carga em {dt_str})."
+            )
     elif origem_urna in ("RESERVA", "SUBSTITUTA_OUTRA_SECAO"):
         momento_substituicao = "HORARIO_INDISPONIVEL"
         momento_label = "TROCA CONFIRMADA (Horário requer PDF SISTOT)"
+        extra_cesp = ""
+        if csec_snaps and ceft_reg:
+            ult_cesp = csec_snaps[-1]
+            if ult_cesp.get("nr_urna_esperada") != ceft_reg.get("nr_urna_efetivada"):
+                extra_cesp = f" (Não constava alterada no CESP de {ult_cesp.get('dt_geracao')} {ult_cesp.get('hh_geracao')}; apareceu efetivada no CEFT)."
         momento_detalhe = (
-            "A substituição de equipamento foi confirmada no cruzamento BU × GEDAI, "
-            "mas o momento exato (início vs durante a votação) exige o PDF de Contingências (SISTOT) deste turno."
+            "A substituição de equipamento foi confirmada via CESP/CEFT/GEDAI, "
+            f"mas a hora exata da troca (início vs durante a votação) exige o PDF de Contingências (SISTOT) deste turno.{extra_cesp}"
         )
     elif origem_urna == "TITULAR_REPREPARADA":
         momento_substituicao = "PREPARACAO_CARTORIO"
@@ -1501,12 +1601,23 @@ def _classificar_custodia_turno(
         momento_detalhe = (
             "Nenhum evento de contingência ou troca de equipamento detectado para esta seção neste turno."
         )
+        if alt_cesp and alt_cesp.get("st") == "S":
+            momento_substituicao = "PREPARACAO_CARTORIO"
+            momento_label = f"RE-GERAÇÃO CESP ST=S (Mesma UE em {alt_cesp.get('dt_carga_nova') or '-'})"
+            momento_detalhe = (
+                f"O CESP marcou ST=S no snapshot {alt_cesp.get('snapshot_momento')} mantendo a mesma UE #{ue_norm}."
+            )
+
+    if teve_red:
+        momento_detalhe = f"[⚠️ Origem CEFT: {ceft_reg.get('ds_origem_voto')}] " + momento_detalhe
 
     return {
         "turno": turno,
         "tem_bu": bu_db is not None,
         "gedai_disponivel": gedai_disponivel,
         "sistot_disponivel": sistot_disponivel,
+        "corresp_disponivel": bool(corresp_tse.get("disponivel")),
+        "teve_red": teve_red,
         "ue_efetivada": ue_norm,
         "ue_efetivada_pad": ue_pad,
         "carga_bu": hw.get("carga_bu"),
@@ -1522,6 +1633,7 @@ def _classificar_custodia_turno(
         "titulares_gedai": titulares_gedai,
         "urna_efetivada_gedai": urna_efetivada_gedai,
         "sistot_ocorrencia": sistot_occ,
+        "corresp_tse": corresp_tse,
     }
 
 

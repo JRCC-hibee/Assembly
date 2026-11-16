@@ -1,9 +1,11 @@
 import os
+import io
 import glob
 import time
 import json
 import zipfile
 import hashlib
+import traceback
 import uuid
 import tempfile
 from datetime import datetime, timezone
@@ -92,8 +94,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-15-rev71"
-SYSTEM_COMMIT = "rev71-custodia-urna-titular-reserva-na-secao"
+SYSTEM_BUILD = "2026-11-15-rev72"
+SYSTEM_COMMIT = "rev72-cruzamento-cesp-ceft-com-logs-gedai-ue"
 
 def obter_basemaps_apikey() -> str:
     """Retorna a API key do CartoDB Basemaps a partir de variáveis de ambiente do Portainer/Docker."""
@@ -2010,68 +2012,109 @@ def api_tse_reverso_gedai_listar(db: Session = Depends(get_db)):
     return listar_lotes_gedai(db)
 
 
+def _classificar_arquivos_preparacao_upload(files_tuples: list[tuple[str, bytes]]) -> tuple[list[tuple[str, bytes]], list[tuple[str, bytes]]]:
+    """Separa arquivos enviados entre GEDAI-UE (`.jez`/`.log`/`log_gedai*.zip`) e CESP/CEFT (`.csv`/`cesp*.zip`/`ceft*.zip`)."""
+    gedai_pares: list[tuple[str, bytes]] = []
+    corresp_pares: list[tuple[str, bytes]] = []
+
+    for fn, raw in files_tuples:
+        base = os.path.basename(fn or "")
+        low = base.lower()
+        if low.endswith(".csv") or low.startswith(("cesp", "ceft", "csec", "ccont")):
+            corresp_pares.append((base, raw))
+        elif low.endswith(".zip"):
+            try:
+                import zipfile as _zf_check
+                with _zf_check.ZipFile(io.BytesIO(raw), "r") as zf:
+                    nms = [n.lower() for n in zf.namelist()]
+                if any(n.endswith(".csv") and any(k in os.path.basename(n) for k in ("csec", "ccont", "ceft")) for n in nms):
+                    corresp_pares.append((base, raw))
+                else:
+                    gedai_pares.append((base, raw))
+            except Exception:
+                gedai_pares.append((base, raw))
+        elif low.endswith((".jez", ".log")):
+            gedai_pares.append((base, raw))
+    return gedai_pares, corresp_pares
+
+
 @app.post("/api/tse-reverso/gedai/upload")
 async def api_tse_reverso_gedai_upload(
     files: list[UploadFile] = File(...),
     db: Session = Depends(get_db),
 ):
     """
-    Recebe pacote .ZIP (ex: log_gedai_1t_PR_*.zip) ou pasta aberta com múltiplos `.jez`
-    diretamente do navegador e processa todas as estações GEDAI-UE para o PostgreSQL.
+    Recebe pacote .ZIP / .JEZ do GEDAI-UE ou pacotes CESP/CEFT (.zip / .csv) e processa para o PostgreSQL.
     """
     from .tse_gedai_parser import processar_pacote_gedai_para_banco
+    from .tse_corresp_parser import processar_pacote_corresp_para_banco
 
     if not files:
         raise HTTPException(status_code=400, detail="Nenhum arquivo enviado.")
 
     try:
-        if len(files) == 1 and (files[0].filename or "").lower().endswith(".zip"):
-            raw = await files[0].read()
-            return processar_pacote_gedai_para_banco(
-                db=db,
-                nome_origem=files[0].filename or "log_gedai.zip",
-                zip_bytes=raw,
-            )
-
-        pares: list[tuple[str, bytes]] = []
+        lidos: list[tuple[str, bytes]] = []
         pasta_nome = "Pasta GEDAI-UE"
         for uf_file in files:
             fn = uf_file.filename or ""
             low = fn.lower()
-            if not (low.endswith(".jez") or low.endswith(".zip") or low.endswith(".log")):
+            if not low.endswith((".jez", ".zip", ".log", ".csv")):
                 continue
             if "/" in fn and pasta_nome == "Pasta GEDAI-UE":
                 pasta_nome = fn.split("/", 1)[0] or pasta_nome
             raw = await uf_file.read()
             if raw:
-                pares.append((os.path.basename(fn), raw))
+                lidos.append((fn, raw))
 
-        if len(files) == 1 and pares and pasta_nome == "Pasta GEDAI-UE":
-            pasta_nome = pares[0][0]
+        gedai_pares, corresp_pares = _classificar_arquivos_preparacao_upload(lidos)
+        resp_gedai = None
+        resp_corresp = None
 
-        return processar_pacote_gedai_para_banco(
-            db=db,
-            nome_origem=pasta_nome,
-            arquivos_individuais=pares,
-        )
+        if gedai_pares:
+            if len(gedai_pares) == 1 and gedai_pares[0][0].lower().endswith(".zip"):
+                resp_gedai = processar_pacote_gedai_para_banco(db=db, nome_origem=gedai_pares[0][0], zip_bytes=gedai_pares[0][1])
+            else:
+                nome_g = gedai_pares[0][0] if len(gedai_pares) == 1 and pasta_nome == "Pasta GEDAI-UE" else pasta_nome
+                resp_gedai = processar_pacote_gedai_para_banco(db=db, nome_origem=nome_g, arquivos_individuais=gedai_pares)
+
+        if corresp_pares:
+            resp_corresp = processar_pacote_corresp_para_banco(db=db, arquivos_individuais=corresp_pares)
+
+        if not resp_gedai and not resp_corresp:
+            raise ValueError("Nenhum arquivo válido (.jez, .csv CESP/CEFT ou .zip) encontrado na seleção.")
+
+        if resp_gedai and not resp_corresp:
+            return resp_gedai
+        if resp_corresp and not resp_gedai:
+            return {
+                "tipo_lote": "CORRESP_CESP_CEFT",
+                "nome_origem": ", ".join(p[0] for p in corresp_pares[:3]),
+                "corresp_resultado": resp_corresp,
+            }
+        resp_gedai["corresp_resultado"] = resp_corresp
+        return resp_gedai
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Erro ao processar logs GEDAI-UE: {exc}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao processar logs GEDAI-UE / CESP / CEFT: {exc}")
 
 
 @app.post("/api/tse-reverso/gedai/detectar-servidor")
 def api_tse_reverso_gedai_detectar_servidor():
-    """Detecta pacotes log_gedai_*.zip ou pastas GEDAI no servidor (/root/tse_import)."""
+    """Detecta pacotes GEDAI-UE (`log_gedai*`) e Correspondências (`CESP_*`/`CEFT_*`) no servidor."""
     try:
         from .tse_gedai_parser import detectar_arquivos_gedai_servidor
-        arquivos = detectar_arquivos_gedai_servidor()
-        return {"total": len(arquivos), "arquivos": arquivos}
+        from .tse_corresp_parser import detectar_arquivos_corresp_servidor
+        arqs_gedai = detectar_arquivos_gedai_servidor()
+        arqs_corresp = detectar_arquivos_corresp_servidor()
+        todos = arqs_gedai + arqs_corresp
+        return {"total": len(todos), "arquivos": todos, "gedai": arqs_gedai, "corresp": arqs_corresp}
     except HTTPException:
         raise
     except Exception as exc:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Erro ao escanear pacotes GEDAI no servidor: {exc}")
+        raise HTTPException(status_code=500, detail=f"Erro ao escanear pacotes GEDAI/CESP/CEFT no servidor: {exc}")
 
 
 @app.post("/api/tse-reverso/gedai/ingerir-servidor")
@@ -2079,16 +2122,92 @@ def api_tse_reverso_gedai_ingerir_servidor(
     payload: dict = Body(default={}),
     db: Session = Depends(get_db),
 ):
-    """Processa pacotes/pastas GEDAI-UE presentes no disco do servidor."""
+    """Processa pacotes/pastas GEDAI-UE e CESP/CEFT presentes no disco do servidor."""
     try:
         from .tse_gedai_parser import processar_caminho_gedai_servidor
+        from .tse_corresp_parser import processar_caminho_corresp_servidor
         caminho = payload.get("caminho_arquivo") if isinstance(payload, dict) else None
-        return processar_caminho_gedai_servidor(db=db, caminho=caminho)
+        if caminho:
+            low = os.path.basename(caminho).lower()
+            if low.startswith(("cesp_", "ceft_", "csec_", "ccont_")):
+                res_c = processar_caminho_corresp_servidor(db=db, caminho=caminho)
+                return {"status": "CONCLUIDO", "total_processados": res_c.get("total_processados", 0), "corresp": res_c}
+            return processar_caminho_gedai_servidor(db=db, caminho=caminho)
+
+        res_g = processar_caminho_gedai_servidor(db=db)
+        res_c = processar_caminho_corresp_servidor(db=db)
+        tot = (res_g.get("total_processados", 0) or 0) + (res_c.get("total_processados", 0) or 0)
+        return {
+            "status": "CONCLUIDO",
+            "total_processados": tot,
+            "gedai_processados": res_g.get("total_processados", 0),
+            "corresp_processados": res_c.get("total_processados", 0),
+            "processados": res_g.get("processados", []),
+            "corresp": res_c,
+        }
     except HTTPException:
         raise
     except Exception as exc:
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Erro ao ingerir logs GEDAI-UE do servidor: {exc}")
+        raise HTTPException(status_code=500, detail=f"Erro ao ingerir logs GEDAI/CESP/CEFT do servidor: {exc}")
+
+
+@app.get("/api/tse-reverso/corresp/listar")
+def api_tse_reverso_corresp_listar(
+    uf: Optional[str] = None,
+    turno: Optional[int] = None,
+    categoria: str = "TODAS",
+    busca: str = "",
+    limit: int = 200,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """Retorna arquivos CESP/CEFT carregados e o cruzamento pericial completo com os logs GEDAI-UE."""
+    from .tse_corresp_parser import listar_arquivos_e_painel_corresp
+    return listar_arquivos_e_painel_corresp(
+        db=db,
+        uf=uf,
+        turno=turno,
+        categoria=categoria,
+        busca=busca,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.post("/api/tse-reverso/corresp/upload")
+async def api_tse_reverso_corresp_upload(
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    """Ingere pacotes `.zip` ou CSVs CESP (`csec_*`/`ccont_*`) e CEFT (`ceft_*`)."""
+    from .tse_corresp_parser import processar_pacote_corresp_para_banco
+    if not files:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo enviado.")
+    try:
+        pares: list[tuple[str, bytes]] = []
+        for uf_file in files:
+            raw = await uf_file.read()
+            if raw:
+                pares.append((uf_file.filename or "corresp.zip", raw))
+        return processar_pacote_corresp_para_banco(db=db, arquivos_individuais=pares)
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as exc:
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Erro ao processar CESP/CEFT: {exc}")
+
+
+@app.delete("/api/tse-reverso/corresp/{arquivo_id}")
+def api_tse_reverso_corresp_delete(arquivo_id: int, db: Session = Depends(get_db)):
+    """Remove um arquivo CESP/CEFT importado do PostgreSQL."""
+    from .database import TseCorrespArquivo
+    arq = db.query(TseCorrespArquivo).filter(TseCorrespArquivo.id == arquivo_id).first()
+    if not arq:
+        raise HTTPException(status_code=404, detail="Arquivo CESP/CEFT não encontrado.")
+    db.delete(arq)
+    db.commit()
+    return {"status": "REMOVIDO", "id": arquivo_id}
 
 
 @app.get("/api/tse-reverso/gedai/{lote_id}/detalhe")

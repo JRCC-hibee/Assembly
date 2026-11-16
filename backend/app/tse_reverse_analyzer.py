@@ -4345,6 +4345,14 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                                     "titulo": f"{t_num}º Turno: {c_info.get('origem_label')}",
                                     "descricao": f"{c_info.get('origem_detalhe')} {c_info.get('momento_detalhe')}",
                                 })
+                            if c_info.get("teve_red"):
+                                anomalias_forenses.append({
+                                    "severidade": "ALERTA",
+                                    "tipo": "CUSTODIA_CEFT",
+                                    "codigo": f"BU_RED_RECUPERACAO_{t_num}T",
+                                    "titulo": f"{t_num}º Turno: BU Gerado por RED (Recuperação de Dados)",
+                                    "descricao": f"O arquivo CEFT registrou CD_ORIGEM_VOTO='R' (BU gerado por RED em urna de seção) para esta urna (#{c_info.get('ue_efetivada') or '-'}).",
+                                })
                         cmp_hw = custodia_urna.get("comparativo_hardware") or {}
                         if cmp_hw.get("mesma_urna_1t_2t") is False:
                             anomalias_forenses.append({
