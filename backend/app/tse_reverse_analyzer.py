@@ -4304,6 +4304,63 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             ),
                         })
 
+                    # 5.6 Cadeia de Custódia da Urna (GEDAI-UE × BU × SISTOT PDF) — 1ºT e 2ºT
+                    custodia_urna = {
+                        "turno_1": None,
+                        "turno_2": None,
+                        "comparativo_hardware": {"ue_t1": None, "ue_t2": None, "mesma_urna_1t_2t": None, "resumo": ""},
+                    }
+                    try:
+                        from .tse_gedai_parser import analisar_custodia_urna_secao
+                        custodia_urna = analisar_custodia_urna_secao(
+                            db=db,
+                            secao_db=secao_db,
+                            bu1=bu1,
+                            bu2=bu2,
+                            espelho_1t=espelho_1t or "",
+                            espelho_2t=espelho_2t or "",
+                            met1=met1,
+                            met2=met2,
+                            ciclos_1t=ciclos_1t,
+                            ciclos_2t=ciclos_2t,
+                        )
+                        for t_key, t_num in (("turno_1", 1), ("turno_2", 2)):
+                            c_info = custodia_urna.get(t_key) or {}
+                            orig_c = c_info.get("origem_urna")
+                            mom_c = c_info.get("momento_substituicao")
+                            if orig_c in ("RESERVA", "SUBSTITUTA_OUTRA_SECAO"):
+                                sev_c = "ALERTA" if mom_c == "DURANTE_VOTACAO" else "INFO"
+                                anomalias_forenses.append({
+                                    "severidade": sev_c,
+                                    "tipo": "CUSTODIA_GEDAI",
+                                    "codigo": f"URNA_RESERVA_{t_num}T",
+                                    "titulo": f"{t_num}º Turno: {c_info.get('origem_label')} — {c_info.get('momento_label')}",
+                                    "descricao": f"{c_info.get('origem_detalhe')} {c_info.get('momento_detalhe')}",
+                                })
+                            elif orig_c == "TITULAR_REPREPARADA":
+                                anomalias_forenses.append({
+                                    "severidade": "INFO",
+                                    "tipo": "CUSTODIA_GEDAI",
+                                    "codigo": f"URNA_REPREPARADA_{t_num}T",
+                                    "titulo": f"{t_num}º Turno: {c_info.get('origem_label')}",
+                                    "descricao": f"{c_info.get('origem_detalhe')} {c_info.get('momento_detalhe')}",
+                                })
+                        cmp_hw = custodia_urna.get("comparativo_hardware") or {}
+                        if cmp_hw.get("mesma_urna_1t_2t") is False:
+                            anomalias_forenses.append({
+                                "severidade": "INFO",
+                                "tipo": "CUSTODIA_GEDAI",
+                                "codigo": "TROCA_HARDWARE_ENTRE_TURNOS",
+                                "titulo": f"Hardware Diferente Entre Turnos (1ºT #{cmp_hw.get('ue_t1')} → 2ºT #{cmp_hw.get('ue_t2')})",
+                                "descricao": cmp_hw.get("resumo") or "A seção utilizou UEs com números de série diferentes no 1º e no 2º Turno.",
+                            })
+                    except Exception as exc_cust:
+                        print(f"[TSE-CUSTODIA] Aviso ao auditar custódia da seção: {exc_cust}")
+
+                    c_t2_ue = (custodia_urna.get("turno_2") or {}).get("ue_efetivada")
+                    c_t1_ue = (custodia_urna.get("turno_1") or {}).get("ue_efetivada")
+                    serial_ue_real = c_t2_ue or c_t1_ue or getattr(bu2, "mac_urna", None) or getattr(bu1, "mac_urna", None) or secao_db.modelo_urna or "UE2020"
+
                     # Determina Nível de Risco e Veredito Geral da Seção
                     tem_critico = any(a.get("severidade") == "CRITICA" for a in anomalias_forenses)
                     tem_alerta = any(a.get("severidade") == "ALERTA" for a in anomalias_forenses)
@@ -4391,6 +4448,8 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "cargos_bu_1t": cargos_bu_1t,
                         "cargos_bu_2t": cargos_bu_2t,
                         "cargos_disponiveis": CARGOS_PADRAO_ELEICAO,
+                        "serial_ue": serial_ue_real,
+                        "custodia_urna": custodia_urna,
                     }
 
                     resp_secao_ind = {
@@ -4399,6 +4458,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "nivel_risco": resumo["nivel_risco"],
                         "arquivos_recebidos": ["-bu.dat", "-log.jez", "-imgbu.dat", "-rdv.dat"],
                         "resumo_consolidacao": resumo,
+                        "custodia_urna": custodia_urna,
                         "comparativo_turnos": comp_turnos_sec,
                         "batimentos_cruzados": batimentos,
                         "anomalias_forenses": anomalias_forenses,
@@ -4412,7 +4472,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                                 "municipio": secao_db.municipio_codigo,
                                 "zona": f"{secao_db.zona:04d}",
                                 "secao": f"{secao_db.secao:04d}",
-                                "serial_ue": secao_db.modelo_urna or "UE2020",
+                                "serial_ue": serial_ue_real,
                                 "versao_aplicacao": "Oficial TSE (Lacrada)",
                             },
                             "resumo_votacao_log": {
@@ -4443,7 +4503,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             "zona": f"{secao_db.zona:04d}",
                             "secao": f"{secao_db.secao:04d}",
                             "local_votacao": secao_db.local_votacao or "-",
-                            "codigo_ue": secao_db.modelo_urna or "UE2020",
+                            "codigo_ue": serial_ue_real,
                             "eleitores_aptos": aptos_val,
                             "comparecimento": comp_efetivo,
                             "faltosos": faltosos_val,
@@ -10030,7 +10090,8 @@ def consolidar_secoes_tse(
                     (turno_filtro or "TODOS").strip().upper(),
                 )
                 agora_ts = time.time()
-                cached_entry = _CONSOLIDACAO_SQL_CACHE.get(cache_key)
+                usar_cache_cons = (secao_filtro or "CONSOLIDADO").strip().upper() == "CONSOLIDADO"
+                cached_entry = _CONSOLIDACAO_SQL_CACHE.get(cache_key) if usar_cache_cons else None
                 if cached_entry and (agora_ts - cached_entry[0]) <= _CONSOLIDACAO_SQL_CACHE_TTL_S:
                     return cached_entry[1]
 
@@ -10046,7 +10107,7 @@ def consolidar_secoes_tse(
                     turno_filtro=turno_filtro,
                     total_banco_conhecido=total_banco,
                 )
-                if res_sql and not res_sql.get("aviso_parcial"):
+                if usar_cache_cons and res_sql and not res_sql.get("aviso_parcial"):
                     if len(_CONSOLIDACAO_SQL_CACHE) >= 64:
                         oldest_k = next(iter(_CONSOLIDACAO_SQL_CACHE))
                         _CONSOLIDACAO_SQL_CACHE.pop(oldest_k, None)

@@ -2042,6 +2042,9 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
         </div>
 
+        <!-- CADEIA DE CUSTÓDIA & ORIGEM DA URNA (TITULAR × RESERVA • 1ºT E 2ºT — VISÍVEL NA SEÇÃO INDIVIDUAL) -->
+        <div id="tseCustodiaUrnaBox" class="hidden rounded-xl border border-indigo-500/40 bg-slate-900/95 p-4 space-y-3 shadow-lg"></div>
+
         <!-- CARDS ESTATÍSTICOS COMPARATIVO 2º TURNO (LULA × BOLSONARO) -->
         <div id="tseCardsComparativo2T" class="hidden mb-4 space-y-2.5"></div>
 
@@ -8170,6 +8173,12 @@ o Boletim de Urna (apos encerramento da votacao).
         pendBadgeCons.innerHTML = "";
       }
 
+      const custBoxCons = document.getElementById("tseCustodiaUrnaBox");
+      if (custBoxCons) {
+        custBoxCons.classList.add("hidden");
+        custBoxCons.innerHTML = "";
+      }
+
       const verBox = document.getElementById("tseVereditoBox");
       const subAviso2T = (modo === "2T" && diffFaltam > 0)
         ? ` <span class="text-amber-300 font-bold">• ⚠️ Carga 2ºT Parcial: faltam ${diffFaltam.toLocaleString('pt-BR')} urnas (${u2t.toLocaleString('pt-BR')} de ${u1t.toLocaleString('pt-BR')})</span>`
@@ -8689,6 +8698,144 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       return ciclos;
     }
 
+    function renderizarCustodiaUrnaIndividualTse(data) {
+      const box = document.getElementById("tseCustodiaUrnaBox");
+      if (!box) return;
+      const custodia = data?.custodia_urna || data?.resumo_consolidacao?.custodia_urna;
+      if (!custodia || (!custodia.turno_1 && !custodia.turno_2)) {
+        box.classList.add("hidden");
+        box.innerHTML = "";
+        return;
+      }
+
+      const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+      const badgeOrigem = (orig) => {
+        if (orig === "TITULAR") return `<span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-500/50 text-[10px] font-black">🟢 URNA TITULAR</span>`;
+        if (orig === "TITULAR_REPREPARADA") return `<span class="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-500/50 text-[10px] font-black">🟡 TITULAR RE-PREPARADA</span>`;
+        if (orig === "RESERVA") return `<span class="px-2 py-0.5 rounded bg-orange-950 text-orange-300 border border-orange-500/60 text-[10px] font-black">🟠 URNA RESERVA (CONTINGÊNCIA)</span>`;
+        if (orig === "SUBSTITUTA_OUTRA_SECAO") return `<span class="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/60 text-[10px] font-black">🔴 REMANEJADA OUTRA SEÇÃO</span>`;
+        if (orig === "TITULAR_PRESUMIDA" || orig === "GEDAI_PREPARADA") return `<span class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/50 text-[10px] font-black">🔵 PREPARADA GEDAI</span>`;
+        if (orig === "SEM_OCORRENCIA_SISTOT") return `<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-600 text-[10px] font-black">⚪ SEM CONTINGÊNCIA SISTOT</span>`;
+        return `<span class="px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-700 text-[10px] font-black">⚪ SEM GEDAI DO TURNO</span>`;
+      };
+      const badgeMomento = (mom, lbl) => {
+        if (mom === "SEM_SUBSTITUICAO") return `<span class="px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-300 border border-emerald-700/40 text-[10px] font-bold">✅ Sem substituição</span>`;
+        if (mom === "INICIO_PRE_VOTACAO") return `<span class="px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-500/50 text-[10px] font-bold">🌅 ${esc(lbl || "Troca no Início / Pré-Votação")}</span>`;
+        if (mom === "DURANTE_VOTACAO") return `<span class="px-2 py-0.5 rounded bg-rose-950 text-rose-300 border border-rose-500/60 text-[10px] font-black">⚡ ${esc(lbl || "Troca DURANTE a Votação")}</span>`;
+        if (mom === "PREPARACAO_CARTORIO") return `<span class="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-500/50 text-[10px] font-bold">🏢 ${esc(lbl || "Re-preparada em Cartório")}</span>`;
+        if (mom === "HORARIO_INDISPONIVEL") return `<span class="px-2 py-0.5 rounded bg-orange-950/70 text-orange-300 border border-orange-500/50 text-[10px] font-bold">⏱️ ${esc(lbl || "Horário requer SISTOT")}</span>`;
+        return `<span class="px-2 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-700 text-[10px] font-bold">${esc(lbl || "Indeterminado")}</span>`;
+      };
+
+      const cmp = custodia.comparativo_hardware || {};
+      const cmpBadge = cmp.mesma_urna_1t_2t === true
+        ? `<span class="px-2.5 py-1 rounded-lg bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 text-[10px] font-black mono">🔁 Mesma UE nos 2 Turnos (#${esc(cmp.ue_t1)})</span>`
+        : (cmp.mesma_urna_1t_2t === false
+          ? `<span class="px-2.5 py-1 rounded-lg bg-amber-950/90 text-amber-300 border border-amber-500/50 text-[10px] font-black mono">🔄 Hardware Trocado: 1ºT #${esc(cmp.ue_t1)} → 2ºT #${esc(cmp.ue_t2)}</span>`
+          : `<span class="px-2.5 py-1 rounded-lg bg-slate-950 text-slate-300 border border-slate-700 text-[10px] font-bold mono">${esc(cmp.resumo || "")}</span>`);
+
+      const cardsHtml = [
+        { key: "turno_1", titulo: "1º Turno (04/10/2026)" },
+        { key: "turno_2", titulo: "2º Turno (25/10/2026)" },
+      ].map(({ key, titulo }) => {
+        const c = custodia[key] || {};
+        const tits = Array.isArray(c.titulares_gedai) ? c.titulares_gedai : [];
+        const efetG = c.urna_efetivada_gedai || null;
+        const sist = c.sistot_ocorrencia || null;
+
+        const titsHtml = tits.length > 0
+          ? tits.map((t) => {
+              const ativo = c.ue_efetivada && t.id_urna_norm === c.ue_efetivada;
+              return `<div class="text-[11px] mono flex flex-wrap items-center gap-1.5 ${ativo ? 'text-emerald-300' : 'text-slate-300'}">
+                <span>• UE <strong>${esc(t.id_urna)}</strong></span>
+                <span class="text-slate-500">|</span>
+                <span>Estação: <strong class="text-cyan-300">${esc(t.computador)}</strong></span>
+                <span class="text-slate-500">|</span>
+                <span>MC: <strong class="text-amber-300">${esc(t.midia_carga || '-')}</strong></span>
+                <span class="text-slate-500">|</span>
+                <span>${esc(t.data_hora || '-')}</span>
+                ${ativo ? '<span class="px-1.5 py-0.2 rounded bg-emerald-900/70 text-emerald-200 text-[9px] font-black">EFETIVADA</span>' : ''}
+              </div>`;
+            }).join("")
+          : `<div class="text-[11px] text-slate-500 mono">${c.gedai_disponivel ? "Nenhuma correspondência SEÇÃO encontrada no GEDAI carregado." : "Pacote GEDAI-UE deste turno ainda não importado."}</div>`;
+
+        const origExtraHtml = (efetG && efetG.tipo === "CONTINGENCIA") || sist
+          ? `<div class="mt-2 p-2.5 rounded-lg bg-orange-950/30 border border-orange-500/40 space-y-1 text-[11px] mono">
+               <div class="font-black text-orange-300 uppercase text-[10px]">🚨 Rastreamento da Urna Reserva / Contingência</div>
+               ${efetG ? `<div class="text-slate-200">• GEDAI Contingência: UE <strong>${esc(efetG.id_urna)}</strong> • Estação <strong class="text-cyan-300">${esc(efetG.computador)}</strong> • Op: <strong>${esc(efetG.operador || '-')}</strong> • ${esc(efetG.data_hora || '-')}</div>` : ""}
+               ${sist ? `<div class="text-amber-200">• SISTOT PDF: Ocorrência em <strong>${esc(sist.data_hora_ocorrencia || '-')}</strong> • UE <strong>${esc(sist.id_urna_efetivada || '-')}</strong> • MC <strong>${esc(sist.id_mc || '-')}</strong> • Carga <strong>${esc(sist.id_carga || '-')}</strong></div>` : `<div class="text-slate-400">• SISTOT PDF: Sem registro de ocorrência importado para este turno/UF.</div>`}
+             </div>`
+          : "";
+
+        const borderCls = (c.origem_urna === "RESERVA" || c.origem_urna === "SUBSTITUTA_OUTRA_SECAO")
+          ? "border-orange-500/50 bg-slate-950/85"
+          : (c.origem_urna === "TITULAR" ? "border-emerald-500/40 bg-slate-950/85" : "border-slate-800 bg-slate-950/75");
+
+        return `
+          <div class="rounded-xl border ${borderCls} p-3.5 space-y-2.5">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+              <div class="text-xs font-black text-white uppercase tracking-wide">${esc(titulo)}</div>
+              <div class="flex flex-wrap items-center gap-1.5">
+                ${badgeOrigem(c.origem_urna)}
+                ${badgeMomento(c.momento_substituicao, c.momento_label)}
+              </div>
+            </div>
+            <div class="text-[11px] text-slate-300 leading-relaxed">
+              <div><strong class="text-slate-100">Origem:</strong> ${esc(c.origem_detalhe || "-")}</div>
+              <div class="mt-0.5"><strong class="text-slate-100">Substituição:</strong> ${esc(c.momento_detalhe || "-")}</div>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[10px] mono pt-1">
+              <div class="bg-slate-900/90 border border-slate-800 rounded p-2">
+                <div class="text-slate-400">UE EFETIVADA (BU)</div>
+                <div class="text-emerald-300 font-black mt-0.5">${c.ue_efetivada ? '#' + esc(c.ue_efetivada) : 'Não inf.'}</div>
+              </div>
+              <div class="bg-slate-900/90 border border-slate-800 rounded p-2">
+                <div class="text-slate-400">FLASHCARD (MC)</div>
+                <div class="text-amber-300 font-bold mt-0.5 truncate">${esc(c.flashcard_bu || (efetG?.midia_carga) || '-')}</div>
+              </div>
+              <div class="bg-slate-900/90 border border-slate-800 rounded p-2">
+                <div class="text-slate-400">ABERTURA BU</div>
+                <div class="text-slate-200 font-bold mt-0.5 truncate">${esc(c.dt_abertura_bu || '-')}</div>
+              </div>
+              <div class="bg-slate-900/90 border border-slate-800 rounded p-2">
+                <div class="text-slate-400">ENCERRAMENTO BU</div>
+                <div class="text-slate-200 font-bold mt-0.5 truncate">${esc(c.dt_encerramento_bu || '-')}</div>
+              </div>
+            </div>
+            <div class="pt-1 space-y-1">
+              <div class="text-[10px] font-black text-indigo-300 uppercase mono">Carga Titular Prevista no GEDAI-UE (<code>SECAO</code>):</div>
+              ${titsHtml}
+            </div>
+            ${origExtraHtml}
+          </div>
+        `;
+      }).join("");
+
+      box.innerHTML = `
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+          <div class="flex items-center gap-2">
+            <span class="text-xl">🛡️</span>
+            <div>
+              <h4 class="text-xs font-black uppercase tracking-wider text-indigo-300">
+                Cadeia de Custódia & Origem da Urna (Titular × Reserva • Substituições 1ºT e 2ºT)
+              </h4>
+              <p class="text-[11px] text-slate-400">
+                Batimento forense entre Cerimônia de Carga (GEDAI-UE), Boletim de Urna (NR_URNA_EFETIVADA) e Relatórios de Contingência (SISTOT PDF).
+              </p>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            ${cmpBadge}
+            <button type="button" onclick="abrirModalLogsGedaiTse()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-indigo-300 border border-indigo-500/40 text-[10px] font-extrabold transition cursor-pointer">
+              🛡️ Abrir Logs GEDAI-UE
+            </button>
+          </div>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${cardsHtml}</div>
+      `;
+      box.classList.remove("hidden");
+    }
+
     function renderizarLaudoTseReverso(data) {
       document.getElementById("tseReversoResultContainer").classList.remove("hidden");
 
@@ -8857,12 +9004,20 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
 
       document.getElementById("tseMunVal").textContent = munNome;
       document.getElementById("tseZonaSecaoVal").textContent = `Z: ${zonaNum} / S: ${secaoNum}`;
-      document.getElementById("tseModeloSerialVal").textContent = `${meta.modelo_ue || "UE2020"} (#${meta.serial_ue || bu.codigo_ue || resCons.serial_ue || "-"})`;
+      const ueSerialReal = resCons.serial_ue || meta.serial_ue || bu.codigo_ue || "-";
+      const modeloUeNome = (meta.modelo_ue && !String(meta.modelo_ue).includes(ueSerialReal)) ? meta.modelo_ue : "UE";
+      document.getElementById("tseModeloSerialVal").textContent = `${modeloUeNome} (#${ueSerialReal})`;
       document.getElementById("tseVersaoSwVal").textContent = meta.versao_aplicacao || (log.ciclos_eleitores ? "-" : "Modo Turbo (BU+RDV)");
       document.getElementById("tseCompAptosVal").textContent = `${bu.comparecimento ?? resCons.comparecimento_efetivo ?? resLog.total_votos_computados ?? "-"} / ${bu.eleitores_aptos ?? resCons.eleitores_aptos ?? "-"}`;
       document.getElementById("tseCadenciaMediaVal").textContent = resLog.tempo_medio_ciclo_s
         ? `${resLog.tempo_medio_ciclo_s}s (Cabine: ${resLog.tempo_medio_cabine_s}s)`
         : "Clique p/ carregar .jez";
+
+      try {
+        renderizarCustodiaUrnaIndividualTse(data);
+      } catch (errCust) {
+        console.error("[TSE] Erro ao renderizar custódia da urna:", errCust);
+      }
 
       // =========================================================================
       // CARDS TOTALIZADORES POR CANDIDATO + BRANCOS / NULOS / FALTOSOS DA URNA

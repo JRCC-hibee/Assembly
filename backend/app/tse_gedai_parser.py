@@ -1179,3 +1179,392 @@ def processar_caminho_gedai_servidor(db, caminho: Optional[str] = None) -> dict[
                 resultados.append(res)
 
     return {"status": "CONCLUIDO", "total_processados": len(resultados), "processados": resultados}
+
+
+def _norm_ue_serial(val: Any) -> str:
+    """Normaliza número de série / ID da Urna Eletrônica removendo zeros à esquerda."""
+    s = re.sub(r"[^0-9A-Za-z]", "", str(val or "").strip())
+    if not s or s.upper() in ("XXX", "NONE", "NULL", "NULO"):
+        return ""
+    if s.isdigit():
+        return str(int(s))
+    return s.lstrip("0") or s
+
+
+def _parse_dt_br(val: Any) -> Optional[datetime]:
+    """Faz parse seguro de datas/horas brasileiras (`DD/MM/YYYY HH:MM:SS` ou `DD/MM/YYYY`)."""
+    txt = str(val or "").strip()
+    if not txt or txt in ("-", "XXX"):
+        return None
+    for fmt in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M", "%d/%m/%Y", "%Y-%m-%d %H:%M:%S"):
+        try:
+            return datetime.strptime(txt[:19], fmt)
+        except Exception:
+            continue
+    return None
+
+
+def _extrair_metadados_hardware_bu(bu_db, espelho: str) -> dict[str, Optional[str]]:
+    """Extrai UE efetivada, código de carga, flashcard e horários de abertura/fechamento do BU/Espelho."""
+    esp = str(espelho or "")
+    ue_raw = str(getattr(bu_db, "mac_urna", "") or "").strip() if bu_db else ""
+    if not _norm_ue_serial(ue_raw):
+        m_ue = re.search(
+            r"(?:URNA\s+ELETR[ÔO]NICA\s+EFETIVADA\s*(?:\(S[ÉE]RIE\))?:?|C[óo]digo\s+identifica[çc][ãa]o\s+UE)\s+([0-9]{5,12})",
+            esp,
+            re.I,
+        )
+        ue_raw = m_ue.group(1).strip() if m_ue else ""
+
+    m_carga = re.search(r"(?:C[ÓO]DIGO\s+DE\s+CARGA|C[óo]digo\s+da\s+carga):?\s*([^\r\n]+)", esp, re.I)
+    m_mc = re.search(r"FLASHCARD:?\s*([A-Fa-f0-9]{4,16})", esp, re.I)
+    m_ab = re.search(r"(?:DATA/HORA\s+ABERTURA|Hor[áa]rio\s+de\s+abertura):?\s*([^\r\n]+)", esp, re.I)
+    m_enc = re.search(r"(?:DATA/HORA\s+ENCERRAMENTO|Hor[áa]rio\s+de\s+fechamento):?\s*([^\r\n]+)", esp, re.I)
+
+    def _limpo(m) -> Optional[str]:
+        if not m:
+            return None
+        v = m.group(1).strip()
+        return None if (not v or v in ("-", "XXX", "#NULO#")) else v
+
+    return {
+        "ue_raw": ue_raw or None,
+        "ue_norm": _norm_ue_serial(ue_raw) or None,
+        "carga_bu": _limpo(m_carga),
+        "flashcard_bu": (_limpo(m_mc) or "").upper() or None,
+        "dt_abertura_bu": _limpo(m_ab),
+        "dt_encerramento_bu": _limpo(m_enc),
+    }
+
+
+def _deduplicar_correspondencias_gedai(rows) -> list[dict[str, Any]]:
+    """Agrupa registros `TRANSMITIDA`/`RECEBIDA` de uma mesma UE no GEDAI mantendo o evento mais completo."""
+    por_chave: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in rows:
+        ue_pad = str(r.id_urna or "").strip()
+        ue_norm = _norm_ue_serial(ue_pad)
+        carga = str(r.codigo_carga or "").strip()
+        key = (ue_norm or ue_pad, carga)
+        atual = por_chave.get(key)
+        item = {
+            "computador": r.computador,
+            "tipo": r.tipo,
+            "acao": r.acao,
+            "municipio_codigo": r.municipio_codigo,
+            "municipio_nome": r.municipio_nome,
+            "zona": r.zona,
+            "secao": r.secao,
+            "id_urna": ue_pad,
+            "id_urna_norm": ue_norm,
+            "codigo_carga": carga,
+            "midia_carga": r.midia_carga,
+            "data_hora": r.data_hora,
+            "operador": r.operador,
+        }
+        if not atual:
+            por_chave[key] = item
+        elif r.acao == "TRANSMITIDA" or (atual.get("acao") != "TRANSMITIDA" and str(r.data_hora or "") > str(atual.get("data_hora") or "")):
+            por_chave[key] = item
+    return sorted(por_chave.values(), key=lambda x: str(x.get("data_hora") or ""))
+
+
+def _buscar_contingencia_sistot_secao(db, uf: str, mun_cod: str, mun_nome: str, zona: int, secao: int, turno: int) -> tuple[bool, Optional[dict[str, Any]]]:
+    """Consulta relatórios oficiais SISTOT (Anexo V/XIII) para a UF/turno e localiza eventual ocorrência na seção."""
+    rels = (
+        db.query(TseRelatorioOficialTse)
+        .filter(TseRelatorioOficialTse.uf == uf, TseRelatorioOficialTse.turno == turno)
+        .all()
+    )
+    sistot_disponivel = False
+    mun_cod_z = str(mun_cod or "").strip().zfill(5)
+    mun_norm = re.sub(r"[^A-Z0-9 ]", "", str(mun_nome or "").upper()).strip()
+
+    for rel in rels:
+        if not rel.contingencias_json:
+            continue
+        cts = _safe_json_load(rel.contingencias_json, [])
+        if not cts:
+            continue
+        sistot_disponivel = True
+        for ct in cts:
+            try:
+                ct_z = int(str(ct.get("zona") or "0").strip())
+                ct_s = int(str(ct.get("secao") or "0").strip())
+            except Exception:
+                continue
+            if ct_z != int(zona) or ct_s != int(secao):
+                continue
+            ct_mun_raw = str(ct.get("municipio") or "").upper()
+            ct_mun_norm = re.sub(r"[^A-Z0-9 ]", "", ct_mun_raw).strip()
+            mun_ok = (not mun_norm) or (mun_cod_z in ct_mun_raw) or (mun_norm in ct_mun_norm) or (ct_mun_norm in mun_norm)
+            if mun_ok:
+                return True, {
+                    "relatorio_id": rel.id,
+                    "arquivo_pdf": rel.nome_arquivo,
+                    "municipio": ct.get("municipio"),
+                    "data_hora_ocorrencia": ct.get("data_hora_ocorrencia"),
+                    "id_urna_efetivada": str(ct.get("id_urna_efetivada") or "").strip(),
+                    "id_urna_norm": _norm_ue_serial(ct.get("id_urna_efetivada")),
+                    "id_carga": ct.get("id_carga"),
+                    "id_mc": ct.get("id_mc"),
+                    "data_carga": ct.get("data_carga"),
+                }
+    return sistot_disponivel, None
+
+
+def _classificar_custodia_turno(
+    db,
+    secao_db,
+    turno: int,
+    bu_db,
+    espelho: str,
+    ciclos: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    """Cruza BU × GEDAI-UE × SISTOT PDF para um turno específico da seção (Titular vs Reserva e momento da troca)."""
+    uf = str(secao_db.uf or "").upper().strip()
+    mun_cod = str(secao_db.municipio_codigo or "").strip().zfill(5)
+    mun_nome = str(secao_db.municipio_nome or "")
+    zona = int(secao_db.zona or 0)
+    sec = int(secao_db.secao or 0)
+
+    hw = _extrair_metadados_hardware_bu(bu_db, espelho)
+    sistot_disponivel, sistot_occ = _buscar_contingencia_sistot_secao(db, uf, mun_cod, mun_nome, zona, sec, turno)
+
+    ue_norm = hw["ue_norm"] or (sistot_occ["id_urna_norm"] if sistot_occ else None)
+    ue_pad = ue_norm.zfill(8) if (ue_norm and ue_norm.isdigit()) else ue_norm
+
+    lote_t = (
+        db.query(TseGedaiLote)
+        .filter(TseGedaiLote.uf == uf, TseGedaiLote.turno == turno)
+        .order_by(TseGedaiLote.id.desc())
+        .first()
+    )
+    gedai_disponivel = lote_t is not None
+
+    titulares_gedai: list[dict[str, Any]] = []
+    efetivada_gedai_matches: list[dict[str, Any]] = []
+
+    if gedai_disponivel:
+        rows_sec_gedai = (
+            db.query(TseGedaiCorrespondencia)
+            .join(TseGedaiLote, TseGedaiCorrespondencia.lote_id == TseGedaiLote.id)
+            .filter(
+                TseGedaiLote.uf == uf,
+                TseGedaiLote.turno == turno,
+                TseGedaiCorrespondencia.municipio_codigo == mun_cod,
+                TseGedaiCorrespondencia.zona == zona,
+                TseGedaiCorrespondencia.secao == sec,
+            )
+            .all()
+        )
+        titulares_gedai = _deduplicar_correspondencias_gedai(rows_sec_gedai)
+
+        if ue_norm:
+            cands_id = list({ue_norm, ue_norm.zfill(8), str(hw.get("ue_raw") or "").strip()} - {""})
+            rows_ue_gedai = (
+                db.query(TseGedaiCorrespondencia)
+                .join(TseGedaiLote, TseGedaiCorrespondencia.lote_id == TseGedaiLote.id)
+                .filter(
+                    TseGedaiLote.uf == uf,
+                    TseGedaiLote.turno == turno,
+                    TseGedaiCorrespondencia.id_urna.in_(cands_id),
+                )
+                .all()
+            )
+            efetivada_gedai_matches = _deduplicar_correspondencias_gedai(rows_ue_gedai)
+
+    titular_ids = {t["id_urna_norm"] for t in titulares_gedai if t.get("id_urna_norm")}
+    match_efet_mesma_sec = next(
+        (m for m in efetivada_gedai_matches if m["tipo"] == "SECAO" and int(m["zona"] or 0) == zona and int(m["secao"] or 0) == sec and m["municipio_codigo"] == mun_cod),
+        None,
+    )
+    match_efet_cont = next((m for m in efetivada_gedai_matches if m["tipo"] == "CONTINGENCIA"), None)
+    match_efet_outra_sec = next(
+        (m for m in efetivada_gedai_matches if m["tipo"] == "SECAO" and (int(m["zona"] or 0) != zona or int(m["secao"] or 0) != sec or m["municipio_codigo"] != mun_cod)),
+        None,
+    )
+    urna_efetivada_gedai = match_efet_cont or match_efet_mesma_sec or match_efet_outra_sec
+
+    # 1. Classificação Titular vs Reserva
+    origem_urna = "INDETERMINADO"
+    origem_label = "Sem dados GEDAI/SISTOT deste turno"
+    origem_detalhe = "Faça a ingestão do pacote GEDAI-UE ou PDF SISTOT correspondente para auditar a origem da urna."
+
+    if sistot_occ or match_efet_cont:
+        origem_urna = "RESERVA"
+        origem_label = "URNA RESERVA (CONTINGÊNCIA)"
+        tit_str = ", ".join(sorted(titular_ids)) if titular_ids else "não listada"
+        orig_est = match_efet_cont["computador"] if match_efet_cont else "SISTOT/Cartório"
+        origem_detalhe = (
+            f"A seção foi apurada com a UE {ue_norm or '-'} preparada como CONTINGÊNCIA ({orig_est}). "
+            f"Urna titular prevista no GEDAI: {tit_str}."
+        )
+    elif gedai_disponivel and titulares_gedai and ue_norm:
+        if ue_norm in titular_ids:
+            if len(titular_ids) > 1:
+                origem_urna = "TITULAR_REPREPARADA"
+                origem_label = "URNA TITULAR (COM RE-PREPARAÇÃO NO GEDAI)"
+                origem_detalhe = (
+                    f"O GEDAI registrou {len(titular_ids)} UEs distintas como SEÇÃO antes da eleição "
+                    f"({', '.join(sorted(titular_ids))}). A UE {ue_norm} foi a efetivada no BU."
+                )
+            else:
+                origem_urna = "TITULAR"
+                origem_label = "URNA TITULAR DA SEÇÃO"
+                t0 = titulares_gedai[0]
+                origem_detalhe = (
+                    f"A UE {ue_norm} apurada no BU coincide 100% com a única carga de SEÇÃO preparada "
+                    f"no GEDAI ({t0['computador']} em {t0['data_hora'] or '-'})."
+                )
+        elif match_efet_outra_sec:
+            origem_urna = "SUBSTITUTA_OUTRA_SECAO"
+            origem_label = f"URNA REMANEJADA (Original Z:{int(match_efet_outra_sec['zona']):04d}/S:{int(match_efet_outra_sec['secao']):04d})"
+            origem_detalhe = (
+                f"A UE efetivada ({ue_norm}) constava no GEDAI como SEÇÃO da Zona {int(match_efet_outra_sec['zona']):04d} / "
+                f"Seção {int(match_efet_outra_sec['secao']):04d}, enquanto a titular prevista era {', '.join(sorted(titular_ids)) or '-'}."
+            )
+        else:
+            origem_urna = "RESERVA"
+            origem_label = "URNA RESERVA / DIVERGENTE DA TITULAR GEDAI"
+            origem_detalhe = (
+                f"A UE efetivada no BU ({ue_norm}) diverge da(s) UE(s) preparada(s) como SEÇÃO no GEDAI ({', '.join(sorted(titular_ids))})."
+            )
+    elif gedai_disponivel and titulares_gedai and not ue_norm:
+        origem_urna = "TITULAR_PRESUMIDA" if sistot_disponivel else "GEDAI_PREPARADA"
+        origem_label = "TITULAR PREPARADA NO GEDAI (BU sem nº série UE)"
+        t0 = titulares_gedai[0]
+        origem_detalhe = (
+            f"O GEDAI registrou carga titular na estação {t0['computador']} (UE {t0['id_urna']}), "
+            f"mas o BU carregado não informou NR_URNA_EFETIVADA para confronto direto."
+        )
+    elif sistot_disponivel:
+        origem_urna = "SEM_OCORRENCIA_SISTOT"
+        origem_label = "SEM CONTINGÊNCIA NO SISTOT (Sem GEDAI do turno)"
+        origem_detalhe = (
+            f"O Anexo de Contingências do SISTOT para {uf} ({turno}ºT) foi auditado e não registra substituição para esta seção. "
+            f"Envie o GEDAI-UE do {turno}ºT para confirmar o serial da titular."
+        )
+
+    # 2. Classificação do Momento da Substituição (Início / Pré-votação vs Durante a Votação)
+    pleito_abertura_dt = datetime(2026, 10, 4 if turno == 1 else 25, 8, 0, 0)
+    dt_ab_bu = _parse_dt_br(hw.get("dt_abertura_bu"))
+    momento_substituicao = "INDETERMINADO"
+    momento_label = "Não determinável sem GEDAI/SISTOT"
+    momento_detalhe = origem_detalhe
+
+    if sistot_occ and sistot_occ.get("data_hora_ocorrencia"):
+        dt_occ = _parse_dt_br(sistot_occ.get("data_hora_ocorrencia"))
+        hora_occ_str = dt_occ.strftime("%H:%M:%S") if dt_occ else str(sistot_occ.get("data_hora_ocorrencia"))
+        if dt_occ and dt_occ.date() < pleito_abertura_dt.date():
+            momento_substituicao = "INICIO_PRE_VOTACAO"
+            momento_label = f"SUBSTITUIÇÃO PRÉ-VOTAÇÃO ({sistot_occ['data_hora_ocorrencia']})"
+            momento_detalhe = (
+                f"Ocorrência SISTOT registrada em {sistot_occ['data_hora_ocorrencia']}, anterior ao dia da eleição ({pleito_abertura_dt.strftime('%d/%m/%Y')})."
+            )
+        elif dt_occ and dt_occ < pleito_abertura_dt:
+            momento_substituicao = "INICIO_PRE_VOTACAO"
+            momento_label = f"SUBSTITUIÇÃO NO INÍCIO / PRÉ-ABERTURA ({hora_occ_str})"
+            momento_detalhe = (
+                f"Contingência efetivada às {hora_occ_str} (antes das 08:00:00), durante os preparativos iniciais/zerésima antes da votação."
+            )
+        elif dt_occ and dt_ab_bu and dt_occ <= dt_ab_bu:
+            momento_substituicao = "INICIO_PRE_VOTACAO"
+            momento_label = f"SUBSTITUIÇÃO NO INÍCIO ({hora_occ_str})"
+            momento_detalhe = (
+                f"Efetivada às {hora_occ_str}, antes/no momento da abertura da votação registrada no BU ({hw.get('dt_abertura_bu')})."
+            )
+        else:
+            momento_substituicao = "DURANTE_VOTACAO"
+            momento_label = f"SUBSTITUIÇÃO DURANTE A VOTAÇÃO ({hora_occ_str})"
+            ref_ab = f" (abertura do BU às {hw.get('dt_abertura_bu')})" if hw.get("dt_abertura_bu") else " (horário oficial 08h–17h)"
+            momento_detalhe = (
+                f"Contingência efetivada no SISTOT em {sistot_occ['data_hora_ocorrencia']}, já no decorrer do pleito{ref_ab}."
+            )
+    elif origem_urna in ("RESERVA", "SUBSTITUTA_OUTRA_SECAO"):
+        momento_substituicao = "HORARIO_INDISPONIVEL"
+        momento_label = "TROCA CONFIRMADA (Horário requer PDF SISTOT)"
+        momento_detalhe = (
+            "A substituição de equipamento foi confirmada no cruzamento BU × GEDAI, "
+            "mas o momento exato (início vs durante a votação) exige o PDF de Contingências (SISTOT) deste turno."
+        )
+    elif origem_urna == "TITULAR_REPREPARADA":
+        momento_substituicao = "PREPARACAO_CARTORIO"
+        momento_label = "TROCA NA PREPARAÇÃO (PRÉ-ELEIÇÃO)"
+        datas_gedai = sorted({str(t.get("data_hora") or "") for t in titulares_gedai if t.get("data_hora")})
+        momento_detalhe = (
+            f"Ocorreram múltiplas preparações em cartório no GEDAI ({datas_gedai[0]} → {datas_gedai[-1]}), antes do envio à seção."
+            if len(datas_gedai) >= 2 else "Múltiplas preparações registradas no GEDAI em cartório antes do pleito."
+        )
+    elif origem_urna in ("TITULAR", "SEM_OCORRENCIA_SISTOT"):
+        momento_substituicao = "SEM_SUBSTITUICAO"
+        momento_label = "SEM SUBSTITUIÇÃO NA SEÇÃO"
+        momento_detalhe = (
+            "Nenhum evento de contingência ou troca de equipamento detectado para esta seção neste turno."
+        )
+
+    return {
+        "turno": turno,
+        "tem_bu": bu_db is not None,
+        "gedai_disponivel": gedai_disponivel,
+        "sistot_disponivel": sistot_disponivel,
+        "ue_efetivada": ue_norm,
+        "ue_efetivada_pad": ue_pad,
+        "carga_bu": hw.get("carga_bu"),
+        "flashcard_bu": hw.get("flashcard_bu"),
+        "dt_abertura_bu": hw.get("dt_abertura_bu"),
+        "dt_encerramento_bu": hw.get("dt_encerramento_bu"),
+        "origem_urna": origem_urna,
+        "origem_label": origem_label,
+        "origem_detalhe": origem_detalhe,
+        "momento_substituicao": momento_substituicao,
+        "momento_label": momento_label,
+        "momento_detalhe": momento_detalhe,
+        "titulares_gedai": titulares_gedai,
+        "urna_efetivada_gedai": urna_efetivada_gedai,
+        "sistot_ocorrencia": sistot_occ,
+    }
+
+
+def analisar_custodia_urna_secao(
+    db,
+    secao_db,
+    bu1=None,
+    bu2=None,
+    espelho_1t: str = "",
+    espelho_2t: str = "",
+    met1=None,
+    met2=None,
+    ciclos_1t: Optional[list[dict[str, Any]]] = None,
+    ciclos_2t: Optional[list[dict[str, Any]]] = None,
+) -> dict[str, Any]:
+    """
+    Constrói a cadeia completa de custódia da urna (1º e 2º turnos) cruzando GEDAI-UE, BU e SISTOT PDF
+    para identificar se votou com a Urna Titular ou Reserva e se a substituição foi pré-votação ou durante.
+    """
+    info_t1 = _classificar_custodia_turno(db, secao_db, 1, bu1, espelho_1t, ciclos_1t)
+    info_t2 = _classificar_custodia_turno(db, secao_db, 2, bu2, espelho_2t, ciclos_2t)
+
+    ue1 = info_t1.get("ue_efetivada")
+    ue2 = info_t2.get("ue_efetivada")
+    mesma_ue = None
+    if ue1 and ue2:
+        mesma_ue = (ue1 == ue2)
+        if mesma_ue:
+            resumo_hw = f"Mesma UE física ({ue1}) utilizada no 1º e no 2º Turno."
+        else:
+            resumo_hw = f"Equipamento físico ALTERADO entre turnos: 1ºT UE {ue1} → 2ºT UE {ue2}."
+    elif ue1 or ue2:
+        resumo_hw = f"Hardware identificado apenas em um turno ({'1ºT: ' + ue1 if ue1 else '2ºT: ' + ue2})."
+    else:
+        resumo_hw = "Número de série da UE efetivada não disponível nos BUs carregados."
+
+    return {
+        "turno_1": info_t1,
+        "turno_2": info_t2,
+        "comparativo_hardware": {
+            "ue_t1": ue1,
+            "ue_t2": ue2,
+            "mesma_urna_1t_2t": mesma_ue,
+            "resumo": resumo_hw,
+        },
+    }
