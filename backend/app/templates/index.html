@@ -1253,6 +1253,18 @@ o Boletim de Urna (apos encerramento da votacao).
               <span id="badgeRelatoriosOficiaisCount" class="px-1.5 py-0.5 rounded-full bg-indigo-400 text-slate-950 text-[10px] font-black hidden">0</span>
             </button>
 
+            <!-- Botão 6.1: Logs de Preparação das Urnas (GEDAI-UE) -->
+            <button
+              id="btnLogsGedaiTse"
+              onclick="abrirModalLogsGedaiTse()"
+              title="Processar e auditar Logs de Preparação das Urnas (GEDAI-UE: carga, mídias MC/MV/MR, correspondências e erros)"
+              class="px-3.5 py-2.5 bg-teal-950/90 hover:bg-teal-900 border border-teal-500/60 text-teal-300 font-bold text-xs rounded-xl transition inline-flex items-center gap-1.5 shadow shadow-teal-950/50"
+            >
+              <span>🛡️</span>
+              <span>Logs GEDAI (Preparação)</span>
+              <span id="badgeGedaiLogsCount" class="px-1.5 py-0.5 rounded-full bg-teal-400 text-slate-950 text-[10px] font-black hidden">0</span>
+            </button>
+
             <!-- Botão 7: Reset Total do Banco -->
             <button
               onclick="confirmarResetTotalBanco()"
@@ -3295,6 +3307,96 @@ o Boletim de Urna (apos encerramento da votacao).
           </div>
           <button
             onclick="fecharModalRelatoriosOficiaisTse()"
+            class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition"
+          >
+            Fechar
+          </button>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- MODAL DE AUDITORIA FORENSE DOS LOGS DE PREPARAÇÃO DAS URNAS (GEDAI-UE) -->
+    <div id="modalLogsGedaiTse" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4">
+      <div class="bg-slate-900 border-2 border-teal-500/80 rounded-2xl max-w-6xl w-full max-h-[92vh] flex flex-col shadow-2xl overflow-hidden">
+
+        <!-- Header -->
+        <div class="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5 border-b border-slate-800 bg-slate-950/90">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-teal-500/20 text-teal-400 flex items-center justify-center text-xl font-bold shadow-inner">
+              🛡️
+            </div>
+            <div>
+              <h3 class="text-base font-extrabold text-white flex flex-wrap items-center gap-2">
+                <span>Auditoria Forense de Preparação das Urnas (Logs GEDAI-UE)</span>
+                <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-teal-950 text-teal-300 border border-teal-700 mono">
+                  Pré-Eleição • Cerimônia de Carga
+                </span>
+              </h3>
+              <p class="text-xs text-slate-400 mt-0.5">
+                Decodifica pacotes <code class="text-teal-300">-log.jez</code> do GEDAI-UE: estações <code class="text-slate-300">STD</code>, mídias de carga/votação, códigos de carga × ID da urna e cruzamento com a votação.
+              </p>
+            </div>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Upload Pasta Local (Mac/Windows) -->
+            <label class="px-3 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-slate-950 font-black text-xs transition cursor-pointer flex items-center gap-1.5 shadow" title="Selecionar diretamente a pasta log_gedai_* do computador">
+              <span>📁</span>
+              <span>Enviar Pasta Local</span>
+              <input type="file" webkitdirectory directory multiple onchange="dispararUploadLogsGedai(event)" class="hidden" />
+            </label>
+            <!-- Upload .ZIP / .JEZ -->
+            <label class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold text-xs transition cursor-pointer flex items-center gap-1.5 shadow" title="Enviar log_gedai_*.zip ou arquivos -log.jez selecionados">
+              <span>📦</span>
+              <span>Enviar .ZIP / .JEZ</span>
+              <input type="file" accept=".zip,.jez,.log" multiple onchange="dispararUploadLogsGedai(event)" class="hidden" />
+            </label>
+            <!-- Detectar no Servidor -->
+            <button
+              type="button"
+              onclick="detectarLogsGedaiServidor()"
+              title="Buscar pacotes log_gedai_*.zip ou pastas em /root/tse_import no servidor"
+              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-cyan-300 border border-cyan-700/60 font-bold text-xs transition flex items-center gap-1.5"
+            >
+              <span>🔍</span>
+              <span>Detectar no Servidor</span>
+            </button>
+            <!-- Fechar -->
+            <button
+              type="button"
+              onclick="fecharModalLogsGedaiTse()"
+              class="w-8 h-8 rounded-lg bg-slate-800 hover:bg-rose-950 text-slate-400 hover:text-rose-400 flex items-center justify-center font-bold text-base transition"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <!-- Barra de Lotes Processados (Pills) -->
+        <div class="p-3 bg-slate-950 border-b border-slate-800 flex items-center gap-2 overflow-x-auto text-xs" id="tseGedaiLotesPillsContainer">
+          <div class="text-slate-500 italic py-1">Nenhum lote GEDAI-UE processado ainda. Envie a pasta, o .ZIP ou detecte no servidor.</div>
+        </div>
+
+        <!-- Barra de Status / Upload -->
+        <div id="tseGedaiStatusBar" class="hidden px-4 py-2.5 bg-teal-950/60 border-b border-teal-700/50 text-xs text-teal-200 flex items-center gap-2 mono"></div>
+
+        <!-- Conteúdo Detalhado do Lote -->
+        <div class="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4" id="tseGedaiDetalheContainer">
+          <div class="text-center py-14 text-slate-400 text-xs space-y-2">
+            <div class="text-4xl">🛡️</div>
+            <div class="font-bold text-slate-200 text-sm">Auditor de Preparação das Urnas (GEDAI-UE)</div>
+            <p class="max-w-lg mx-auto text-slate-400 leading-relaxed">
+              Clique em <strong>"Enviar Pasta Local"</strong> (para enviar direto a pasta <code class="text-teal-300">log_gedai_1t_PR_...</code>) ou <strong>"Enviar .ZIP / .JEZ"</strong> para enviar o arquivo <code class="text-cyan-300">.zip</code> do seu Mac e auditar todas as estações, correspondências e alertas.
+            </p>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="p-3.5 border-t border-slate-800 bg-slate-950 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
+          <div id="tseGedaiFooterStatus">Motor Forense GEDAI-UE • Envelopes duplos .jez + MAC por linha + Batimento PostgreSQL</div>
+          <button
+            type="button"
+            onclick="fecharModalLogsGedaiTse()"
             class="px-4 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold transition"
           >
             Fechar
@@ -15435,6 +15537,659 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
       }
     }
 
+    // =========================================================================
+    // AUDITORIA FORENSE DOS LOGS DE PREPARAÇÃO DAS URNAS (GEDAI-UE / TSE)
+    // =========================================================================
+    window.gedaiLogsState = {
+      lotes: [],
+      selecionadoId: null,
+      detalhe: null,
+      abaAtiva: "resumo",
+      estacaoSelecionadaComp: null,
+      filtroEstacoes: "",
+      correspBusca: "",
+      correspTipo: "TODOS",
+      correspZona: "",
+      correspOffset: 0,
+      correspTotal: 0,
+      correspItens: [],
+    };
+
+    function escHtmlGedai(s) {
+      return String(s ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function setGedaiStatusBar(msg, tipo = "info") {
+      const bar = document.getElementById("tseGedaiStatusBar");
+      if (!bar) return;
+      if (!msg) {
+        bar.classList.add("hidden");
+        bar.innerHTML = "";
+        return;
+      }
+      const clsMap = {
+        info: "px-4 py-2.5 bg-teal-950/60 border-b border-teal-700/50 text-xs text-teal-200 flex items-center gap-2 mono",
+        ok: "px-4 py-2.5 bg-emerald-950/70 border-b border-emerald-700/50 text-xs text-emerald-200 flex items-center gap-2 mono",
+        err: "px-4 py-2.5 bg-rose-950/70 border-b border-rose-700/50 text-xs text-rose-200 flex items-center gap-2 mono",
+      };
+      bar.className = clsMap[tipo] || clsMap.info;
+      bar.innerHTML = msg;
+      bar.classList.remove("hidden");
+    }
+
+    function abrirModalLogsGedaiTse() {
+      const modal = document.getElementById("modalLogsGedaiTse");
+      if (modal) modal.classList.remove("hidden");
+      carregarListaLotesGedaiTse(true);
+    }
+
+    function fecharModalLogsGedaiTse() {
+      const modal = document.getElementById("modalLogsGedaiTse");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    async function atualizarBadgeGedaiLogs() {
+      try {
+        const res = await fetch("/api/tse-reverso/gedai/listar");
+        if (res.ok) {
+          const data = await res.json();
+          const badge = document.getElementById("badgeGedaiLogsCount");
+          if (badge) {
+            const tot = data.total || 0;
+            badge.textContent = tot;
+            if (tot > 0) badge.classList.remove("hidden");
+            else badge.classList.add("hidden");
+          }
+        }
+      } catch (e) {}
+    }
+
+    async function carregarListaLotesGedaiTse(selecionarPrimeiro = false) {
+      const pills = document.getElementById("tseGedaiLotesPillsContainer");
+      if (pills) {
+        pills.innerHTML = `<div class="text-slate-400 italic py-1 animate-pulse">Carregando lotes GEDAI-UE gravados...</div>`;
+      }
+      try {
+        const res = await fetch("/api/tse-reverso/gedai/listar");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        window.gedaiLogsState.lotes = data.lotes || [];
+        atualizarBadgeGedaiLogs();
+        renderizarPillsLotesGedaiTse();
+
+        if (window.gedaiLogsState.lotes.length > 0) {
+          const alvo = window.gedaiLogsState.selecionadoId && window.gedaiLogsState.lotes.some(l => l.id === window.gedaiLogsState.selecionadoId)
+            ? window.gedaiLogsState.selecionadoId
+            : window.gedaiLogsState.lotes[0].id;
+          if (selecionarPrimeiro || !window.gedaiLogsState.detalhe) {
+            selecionarLoteGedaiTse(alvo);
+          }
+        } else {
+          window.gedaiLogsState.selecionadoId = null;
+          window.gedaiLogsState.detalhe = null;
+        }
+      } catch (err) {
+        if (pills) pills.innerHTML = `<div class="text-rose-400 py-1">Erro ao listar lotes: ${escHtmlGedai(err.message)}</div>`;
+      }
+    }
+
+    function renderizarPillsLotesGedaiTse() {
+      const pills = document.getElementById("tseGedaiLotesPillsContainer");
+      if (!pills) return;
+      const lista = window.gedaiLogsState.lotes || [];
+      if (lista.length === 0) {
+        pills.innerHTML = `<div class="text-slate-500 italic py-1">Nenhum lote GEDAI-UE processado ainda. Envie a pasta, o .ZIP ou detecte no servidor.</div>`;
+        return;
+      }
+      pills.innerHTML = lista.map(l => {
+        const ativo = l.id === window.gedaiLogsState.selecionadoId;
+        const cls = ativo
+          ? "bg-teal-600 text-slate-950 border-teal-400 font-black"
+          : "bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-700 font-bold";
+        return `
+          <div class="inline-flex items-center rounded-lg border ${cls} shrink-0 overflow-hidden">
+            <button type="button" onclick="selecionarLoteGedaiTse(${l.id})" class="px-2.5 py-1.5 text-xs flex items-center gap-1.5 cursor-pointer">
+              <span>🛡️ ${escHtmlGedai(l.uf)} • ${l.turno}ºT (${escHtmlGedai(l.pleito || '')})</span>
+              <span class="opacity-80 mono text-[10px]">${l.total_estacoes} est • ${Number(l.total_secoes_unicas || 0).toLocaleString('pt-BR')} seç</span>
+            </button>
+            <button type="button" onclick="excluirLoteGedaiTse(${l.id})" title="Remover este lote" class="px-2 py-1.5 border-l border-black/20 hover:bg-rose-600 hover:text-white text-[10px] transition cursor-pointer">✕</button>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function selecionarLoteGedaiTse(loteId) {
+      window.gedaiLogsState.selecionadoId = loteId;
+      window.gedaiLogsState.estacaoSelecionadaComp = null;
+      window.gedaiLogsState.correspOffset = 0;
+      renderizarPillsLotesGedaiTse();
+
+      const cont = document.getElementById("tseGedaiDetalheContainer");
+      if (cont) {
+        cont.innerHTML = `<div class="py-12 text-center text-teal-300 mono text-xs animate-pulse">Decodificando métricas do lote GEDAI #${loteId}...</div>`;
+      }
+      try {
+        const res = await fetch(`/api/tse-reverso/gedai/${loteId}/detalhe`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        window.gedaiLogsState.detalhe = await res.json();
+        renderizarDetalheLoteGedaiTse();
+      } catch (err) {
+        if (cont) cont.innerHTML = `<div class="p-4 rounded-xl bg-rose-950/60 border border-rose-600/50 text-rose-200 text-xs">Falha ao carregar lote: ${escHtmlGedai(err.message)}</div>`;
+      }
+    }
+
+    function trocarAbaGedaiTse(novaAba) {
+      window.gedaiLogsState.abaAtiva = novaAba;
+      renderizarDetalheLoteGedaiTse();
+      if (novaAba === "correspondencias") {
+        buscarCorrespondenciasGedaiTse(true);
+      }
+    }
+
+    async function dispararUploadLogsGedai(event) {
+      const files = event?.target?.files;
+      if (!files || files.length === 0) return;
+
+      const validos = [];
+      for (let i = 0; i < files.length; i++) {
+        const nm = (files[i].name || "").toLowerCase();
+        if (nm.endsWith(".zip") || nm.endsWith(".jez") || nm.endsWith(".log")) {
+          validos.push(files[i]);
+        }
+      }
+      if (validos.length === 0) {
+        setGedaiStatusBar("⚠️ Nenhum arquivo <strong>.zip</strong> ou <strong>.jez</strong> encontrado na seleção.", "err");
+        return;
+      }
+
+      setGedaiStatusBar(`<span class="animate-spin">⏳</span> Enviando e decodificando <strong>${validos.length} arquivo(s)</strong> GEDAI-UE no servidor...`, "info");
+
+      const fd = new FormData();
+      for (const f of validos) {
+        fd.append("files", f, f.webkitRelativePath || f.name);
+      }
+
+      try {
+        const res = await fetch("/api/tse-reverso/gedai/upload", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || `HTTP ${res.status}`);
+        setGedaiStatusBar(
+          `✅ Lote <strong>${escHtmlGedai(data.nome_origem)}</strong> processado: <strong>${data.total_estacoes} estações</strong> • ${Number(data.total_linhas || 0).toLocaleString('pt-BR')} linhas • ${Number(data.total_corresp_secao || 0).toLocaleString('pt-BR')} correspondências • ${Number(data.total_contingencias || 0).toLocaleString('pt-BR')} contingências.`,
+          "ok"
+        );
+        window.gedaiLogsState.selecionadoId = data.lote_id;
+        await carregarListaLotesGedaiTse(true);
+      } catch (err) {
+        setGedaiStatusBar(`❌ Erro ao processar logs GEDAI: ${escHtmlGedai(err.message)}`, "err");
+      } finally {
+        if (event.target) event.target.value = "";
+      }
+    }
+
+    async function detectarLogsGedaiServidor() {
+      setGedaiStatusBar(`<span class="animate-spin">⏳</span> Buscando pacotes <code>log_gedai_*.zip</code> ou pastas em <code>/root/tse_import</code>...`, "info");
+      try {
+        const resDet = await fetch("/api/tse-reverso/gedai/detectar-servidor", { method: "POST" });
+        const dDet = await resDet.json();
+        if (!dDet.arquivos || dDet.arquivos.length === 0) {
+          setGedaiStatusBar("⚠️ Nenhum arquivo/pasta GEDAI encontrado em <code>/root/tse_import</code>. Use os botões <strong>Enviar Pasta Local</strong> ou <strong>Enviar .ZIP / .JEZ</strong> acima.", "err");
+          return;
+        }
+        setGedaiStatusBar(`<span class="animate-spin">⏳</span> Encontrados ${dDet.arquivos.length} pacote(s) no servidor (${dDet.arquivos.map(a => escHtmlGedai(a.nome)).join(", ")}). Processando...`, "info");
+        const resIng = await fetch("/api/tse-reverso/gedai/ingerir-servidor", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({})
+        });
+        const dIng = await resIng.json();
+        if (!resIng.ok) throw new Error(dIng.detail || `HTTP ${resIng.status}`);
+        setGedaiStatusBar(`✅ Processamento no servidor concluído: <strong>${dIng.total_processados || 0} lote(s)</strong> importado(s).`, "ok");
+        await carregarListaLotesGedaiTse(true);
+      } catch (err) {
+        setGedaiStatusBar(`❌ Erro ao detectar no servidor: ${escHtmlGedai(err.message)}`, "err");
+      }
+    }
+
+    async function excluirLoteGedaiTse(loteId) {
+      if (!confirm("Remover este lote de logs GEDAI-UE do banco de dados?")) return;
+      try {
+        const res = await fetch(`/api/tse-reverso/gedai/${loteId}`, { method: "DELETE" });
+        if (res.ok) {
+          if (window.gedaiLogsState.selecionadoId === loteId) {
+            window.gedaiLogsState.selecionadoId = null;
+            window.gedaiLogsState.detalhe = null;
+          }
+          await carregarListaLotesGedaiTse(true);
+        }
+      } catch (e) {}
+    }
+
+    async function buscarCorrespondenciasGedaiTse(resetOffset = false) {
+      const st = window.gedaiLogsState;
+      if (!st.selecionadoId) return;
+      if (resetOffset) st.correspOffset = 0;
+
+      const params = new URLSearchParams({
+        busca: st.correspBusca || "",
+        tipo: st.correspTipo || "TODOS",
+        zona: st.correspZona || "",
+        limit: "150",
+        offset: String(st.correspOffset || 0),
+      });
+      const tbody = document.getElementById("tseGedaiCorrespTbody");
+      const infoEl = document.getElementById("tseGedaiCorrespPagInfo");
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-teal-300 animate-pulse mono">Consultando PostgreSQL...</td></tr>`;
+
+      try {
+        const res = await fetch(`/api/tse-reverso/gedai/${st.selecionadoId}/correspondencias?${params.toString()}`);
+        const data = await res.json();
+        st.correspTotal = data.total || 0;
+        st.correspItens = data.itens || [];
+        if (infoEl) {
+          const ini = st.correspTotal > 0 ? st.correspOffset + 1 : 0;
+          const fim = Math.min(st.correspOffset + st.correspItens.length, st.correspTotal);
+          infoEl.textContent = `Exibindo ${ini}–${fim} de ${Number(st.correspTotal).toLocaleString('pt-BR')} registros`;
+        }
+        if (tbody) {
+          if (st.correspItens.length === 0) {
+            tbody.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-slate-500">Nenhum registro encontrado com este filtro.</td></tr>`;
+          } else {
+            tbody.innerHTML = st.correspItens.map(c => {
+              const badgeTipo = c.tipo === "CONTINGENCIA"
+                ? `<span class="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/50 text-[9px] font-black">CONTINGÊNCIA</span>`
+                : `<span class="px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-600/50 text-[9px] font-black">SEÇÃO</span>`;
+              return `
+                <tr class="hover:bg-slate-900/70 border-b border-slate-800/60">
+                  <td class="py-1.5 px-2">${badgeTipo} <span class="text-[9px] text-slate-400 ml-1">${escHtmlGedai(c.acao)}</span></td>
+                  <td class="py-1.5 px-2 text-cyan-300 font-bold">${escHtmlGedai(c.computador)}</td>
+                  <td class="py-1.5 px-2 text-white">${escHtmlGedai(c.municipio_nome || c.municipio_codigo)} <span class="text-[9px] text-slate-500">(${escHtmlGedai(c.municipio_codigo)})</span></td>
+                  <td class="py-1.5 px-2 text-center text-indigo-300 font-bold">${String(c.zona).padStart(4, '0')}</td>
+                  <td class="py-1.5 px-2 text-center text-white font-bold">${c.secao ? String(c.secao).padStart(4, '0') : 'Reserva'}</td>
+                  <td class="py-1.5 px-2 text-emerald-300 font-bold">${escHtmlGedai(c.id_urna || '-')}</td>
+                  <td class="py-1.5 px-2 text-amber-300">${escHtmlGedai(c.midia_carga || '-')}</td>
+                  <td class="py-1.5 px-2 text-slate-300 text-[10px]">${escHtmlGedai(c.codigo_carga || '-')}</td>
+                </tr>
+              `;
+            }).join("");
+          }
+        }
+      } catch (err) {
+        if (tbody) tbody.innerHTML = `<tr><td colspan="8" class="py-6 text-center text-rose-400">Erro na busca: ${escHtmlGedai(err.message)}</td></tr>`;
+      }
+    }
+
+    function inspecionarEstacaoGedaiTse(comp) {
+      window.gedaiLogsState.estacaoSelecionadaComp = (window.gedaiLogsState.estacaoSelecionadaComp === comp) ? null : comp;
+      renderizarDetalheLoteGedaiTse();
+    }
+
+    function renderizarDetalheLoteGedaiTse() {
+      const cont = document.getElementById("tseGedaiDetalheContainer");
+      const det = window.gedaiLogsState.detalhe;
+      if (!cont || !det) return;
+
+      const l = det.lote;
+      const anom = det.anomalias || {};
+      const bat = det.batimento || {};
+      const aba = window.gedaiLogsState.abaAtiva || "resumo";
+
+      const tabBtn = (id, label) => {
+        const ativo = aba === id;
+        return `<button type="button" onclick="trocarAbaGedaiTse('${id}')" class="px-3 py-1.5 rounded-lg text-xs font-extrabold transition cursor-pointer ${ativo ? 'bg-teal-600 text-slate-950 shadow' : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'}">${label}</button>`;
+      };
+
+      let html = `
+        <!-- KPIs Principais do Lote -->
+        <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-2.5 text-xs mono">
+          <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
+            <span class="text-[9px] text-slate-400 uppercase font-bold block">Estações GEDAI (.jez)</span>
+            <strong class="text-lg font-black text-teal-300">${Number(l.total_estacoes).toLocaleString('pt-BR')}</strong>
+            <span class="text-[10px] text-slate-400 block">${Number(l.total_linhas).toLocaleString('pt-BR')} linhas</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
+            <span class="text-[9px] text-slate-400 uppercase font-bold block">Seções / Urnas Únicas</span>
+            <strong class="text-lg font-black text-white">${Number(l.total_secoes_unicas).toLocaleString('pt-BR')}</strong>
+            <span class="text-[10px] text-cyan-300 block">${Number(l.total_urnas_unicas).toLocaleString('pt-BR')} urnas (IDs)</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
+            <span class="text-[9px] text-slate-400 uppercase font-bold block">Correspondências</span>
+            <strong class="text-lg font-black text-emerald-300">${Number(l.total_corresp_secao).toLocaleString('pt-BR')}</strong>
+            <span class="text-[10px] text-amber-300 block">+${Number(l.total_contingencias).toLocaleString('pt-BR')} contingências</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
+            <span class="text-[9px] text-slate-400 uppercase font-bold block">Mídias Geradas</span>
+            <strong class="text-lg font-black text-indigo-300">${Number(l.total_midias_votacao).toLocaleString('pt-BR')} MV</strong>
+            <span class="text-[10px] text-slate-400 block">${l.total_midias_carga} MC • ${l.total_midias_resultado} MR</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
+            <span class="text-[9px] text-slate-400 uppercase font-bold block">Sobrescritas / Repreparo</span>
+            <strong class="text-lg font-black text-amber-400">${Number(l.total_sobrescritas).toLocaleString('pt-BR')}</strong>
+            <span class="text-[10px] text-amber-200 block">${anom.secoes_multiplas_cargas_qtd || 0} seç. multi-carga</span>
+          </div>
+          <div class="p-3 rounded-xl bg-slate-950 border border-slate-800">
+            <span class="text-[9px] text-slate-400 uppercase font-bold block">Erros & Alertas</span>
+            <strong class="text-lg font-black ${l.total_alertas > 0 ? 'text-rose-400' : 'text-emerald-400'}">${Number(l.total_erros).toLocaleString('pt-BR')} E / ${Number(l.total_alertas).toLocaleString('pt-BR')} A</strong>
+            <span class="text-[10px] ${(anom.mac_invalidos || 0) === 0 ? 'text-emerald-400' : 'text-rose-400'} block">MACs inválidos: ${anom.mac_invalidos || 0}</span>
+          </div>
+        </div>
+
+        <!-- Barra de Sub-Abas -->
+        <div class="flex flex-wrap items-center gap-2 pt-1 border-b border-slate-800 pb-3">
+          ${tabBtn("resumo", "📊 Resumo & Batimento Banco")}
+          ${tabBtn("estacoes", `💻 Estações GEDAI (${det.estacoes.length})`)}
+          ${tabBtn("correspondencias", "🔗 Rastreio Carga × Urna × Seção")}
+          ${tabBtn("erros", `⚠️ Erros, Alertas & Repreparos (${(anom.secoes_multiplas_cargas_qtd || 0)})`)}
+        </div>
+      `;
+
+      if (aba === "resumo") {
+        const pctCob = bat.cobertura_sobre_banco_pct !== undefined ? `${bat.cobertura_sobre_banco_pct}%` : "-";
+        const sistotMatches = bat.contingencias_sistot_matches || [];
+        const crossZona = anom.prep_cruzada_zona || [];
+        html += `
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+            <!-- Bloco 1: Batimento PostgreSQL -->
+            <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <h4 class="font-black text-white uppercase tracking-wider">🔗 Batimento GEDAI-UE × Banco PostgreSQL (${escHtmlGedai(l.uf)} • ${l.turno}ºT)</h4>
+                <span class="px-2 py-0.5 rounded bg-teal-950 text-teal-300 border border-teal-700/60 font-mono font-bold">${pctCob} cob.</span>
+              </div>
+              <div class="grid grid-cols-3 gap-2 mono text-center">
+                <div class="p-2 rounded bg-slate-900 border border-slate-800">
+                  <span class="text-[9px] text-slate-400 block">Seções no Banco</span>
+                  <strong class="text-white">${Number(bat.secoes_banco_uf || 0).toLocaleString('pt-BR')}</strong>
+                </div>
+                <div class="p-2 rounded bg-slate-900 border border-slate-800">
+                  <span class="text-[9px] text-slate-400 block">Presentes no GEDAI</span>
+                  <strong class="text-emerald-400">${Number(bat.secoes_gedai_no_banco || 0).toLocaleString('pt-BR')}</strong>
+                </div>
+                <div class="p-2 rounded bg-slate-900 border border-slate-800">
+                  <span class="text-[9px] text-slate-400 block">No GEDAI sem BU</span>
+                  <strong class="text-amber-300">${Number(bat.secoes_gedai_ausentes_banco || 0).toLocaleString('pt-BR')}</strong>
+                </div>
+              </div>
+              <div class="text-[11px] text-slate-300 leading-relaxed">
+                • <strong>Seções com múltiplas combinações (Urna/Carga) na preparação:</strong> <span class="text-amber-300 font-bold">${anom.secoes_multiplas_cargas_qtd || 0}</span><br/>
+                • <strong>Urnas físicas vinculadas a múltiplas seções/contingências:</strong> <span class="text-cyan-300 font-bold">${anom.urnas_multiplas_secoes_qtd || 0}</span><br/>
+                • <strong>Preparaçōes cruzadas entre Zonas diferentes:</strong> <span class="text-indigo-300 font-bold">${anom.prep_cruzada_zona_qtd || 0}</span><br/>
+                • <strong>Contingências rastreadas contra PDFs SISTOT:</strong> <span class="text-emerald-300 font-bold">${bat.contingencias_sistot_cruzadas || 0}</span>
+              </div>
+            </div>
+
+            <!-- Bloco 2: Top Alertas de Auditoria -->
+            <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2.5">
+              <h4 class="font-black text-amber-300 uppercase tracking-wider">🚨 Principais Alertas & Assinaturas GEDAI</h4>
+              <div class="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+                ${(det.resumo_alertas || []).map(a => `
+                  <div class="p-2 rounded bg-slate-900/90 border border-amber-700/40 flex items-start justify-between gap-2 text-[11px]">
+                    <span class="text-amber-100 leading-snug">${escHtmlGedai(a.mensagem)}</span>
+                    <span class="px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 font-mono font-black shrink-0">${a.ocorrencias}x</span>
+                  </div>
+                `).join("") || `<div class="text-slate-500 italic">Nenhum alerta registrado neste lote.</div>`}
+              </div>
+            </div>
+          </div>
+
+          ${crossZona.length > 0 ? `
+          <div class="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+            <h4 class="font-black text-indigo-300 text-xs uppercase tracking-wider">🔄 Amostra de Preparações em Estação de Outra Zona (Centralizadas / Polos)</h4>
+            <div class="overflow-x-auto max-h-56">
+              <table class="w-full text-[11px] mono text-left">
+                <thead class="text-[10px] text-slate-400 uppercase border-b border-slate-800">
+                  <tr>
+                    <th class="py-1.5 px-2">Computador</th>
+                    <th class="py-1.5 px-2">Zona Estação</th>
+                    <th class="py-1.5 px-2">Município</th>
+                    <th class="py-1.5 px-2">Zona Seção</th>
+                    <th class="py-1.5 px-2">Seção</th>
+                    <th class="py-1.5 px-2">ID Urna</th>
+                    <th class="py-1.5 px-2">Mídia Carga</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${crossZona.slice(0, 40).map(cz => `
+                    <tr class="border-b border-slate-900">
+                      <td class="py-1 px-2 text-cyan-300 font-bold">${escHtmlGedai(cz.computador)}</td>
+                      <td class="py-1 px-2 text-slate-300">Z${String(cz.zona_maquina).padStart(4, '0')}</td>
+                      <td class="py-1 px-2 text-white">${escHtmlGedai(cz.municipio_nome)}</td>
+                      <td class="py-1 px-2 text-amber-300 font-bold">Z${String(cz.zona_secao).padStart(4, '0')}</td>
+                      <td class="py-1 px-2 text-white">${String(cz.secao).padStart(4, '0')}</td>
+                      <td class="py-1 px-2 text-emerald-300">${escHtmlGedai(cz.id_urna)}</td>
+                      <td class="py-1 px-2 text-slate-300">${escHtmlGedai(cz.midia_carga)}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+          </div>` : ''}
+
+          ${sistotMatches.length > 0 ? `
+          <div class="p-4 rounded-xl bg-slate-950 border border-emerald-700/40 space-y-2">
+            <h4 class="font-black text-emerald-300 text-xs uppercase tracking-wider">✅ Cruzamento Confirmado: Urnas de Contingência SISTOT × Logs GEDAI</h4>
+            <div class="overflow-x-auto max-h-56">
+              <table class="w-full text-[11px] mono text-left">
+                <thead class="text-[10px] text-slate-400 uppercase border-b border-slate-800">
+                  <tr>
+                    <th class="py-1.5 px-2">Município</th><th class="py-1.5 px-2">Zona</th><th class="py-1.5 px-2">Seção Efetivada</th>
+                    <th class="py-1.5 px-2">UE Efetivada</th><th class="py-1.5 px-2">Estação GEDAI</th><th class="py-1.5 px-2">Tipo no GEDAI</th><th class="py-1.5 px-2">MC GEDAI</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${sistotMatches.map(m => `
+                    <tr class="border-b border-slate-900">
+                      <td class="py-1 px-2 text-white">${escHtmlGedai(m.municipio)}</td>
+                      <td class="py-1 px-2 text-cyan-300">${escHtmlGedai(m.zona)}</td>
+                      <td class="py-1 px-2 text-white font-bold">${escHtmlGedai(m.secao_efetivada)}</td>
+                      <td class="py-1 px-2 text-emerald-400 font-bold">${escHtmlGedai(m.id_urna_efetivada)}</td>
+                      <td class="py-1 px-2 text-indigo-300 font-bold">${escHtmlGedai(m.computador_gedai)}</td>
+                      <td class="py-1 px-2 text-amber-300">${escHtmlGedai(m.tipo_gedai)}</td>
+                      <td class="py-1 px-2 text-slate-300">${escHtmlGedai(m.midia_carga_gedai)}</td>
+                    </tr>
+                  `).join("")}
+                </tbody>
+              </table>
+            </div>
+          </div>` : ''}
+        `;
+      } else if (aba === "estacoes") {
+        const qEst = (window.gedaiLogsState.filtroEstacoes || "").toLowerCase().trim();
+        const listaEst = (det.estacoes || []).filter(e =>
+          !qEst ||
+          (e.computador || "").toLowerCase().includes(qEst) ||
+          (e.serial_tpm || "").toLowerCase().includes(qEst) ||
+          String(e.zona_computador || "").includes(qEst) ||
+          (e.usuarios_odin || []).some(u => u.toLowerCase().includes(qEst))
+        );
+        const estDetalhe = window.gedaiLogsState.estacaoSelecionadaComp
+          ? (det.estacoes || []).find(e => e.computador === window.gedaiLogsState.estacaoSelecionadaComp)
+          : null;
+
+        html += `
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <input
+              type="text"
+              value="${escHtmlGedai(window.gedaiLogsState.filtroEstacoes)}"
+              oninput="window.gedaiLogsState.filtroEstacoes = this.value; renderizarDetalheLoteGedaiTse();"
+              placeholder="🔍 Filtrar estação (ex: ZPR001STD01, zona 177, TPM, operador Odin...)"
+              class="w-full sm:w-96 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white mono focus:border-teal-500 outline-none"
+            />
+            <span class="text-[11px] text-slate-400 mono">Mostrando ${listaEst.length} de ${det.estacoes.length} estações (clique em uma linha para detalhar)</span>
+          </div>
+
+          ${estDetalhe ? `
+          <div class="p-4 rounded-xl bg-slate-950 border-2 border-teal-500/60 space-y-2.5 text-xs mono">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+              <div>
+                <span class="text-teal-300 font-black text-sm">💻 ${escHtmlGedai(estDetalhe.computador)}</span>
+                <span class="text-slate-400 ml-2">TPM: <strong class="text-white">${escHtmlGedai(estDetalhe.serial_tpm)}</strong> • Inst: <strong class="text-white">${escHtmlGedai(estDetalhe.serial_instalacao)}</strong></span>
+              </div>
+              <button type="button" onclick="inspecionarEstacaoGedaiTse('${escHtmlGedai(estDetalhe.computador)}')" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px]">Fechar detalhe</button>
+            </div>
+            <div class="text-[11px] text-slate-300">
+              <strong>Período:</strong> ${escHtmlGedai(estDetalhe.primeira_data_hora)} → ${escHtmlGedai(estDetalhe.ultima_data_hora)} •
+              <strong>Versão:</strong> ${escHtmlGedai(estDetalhe.versao_gedai)} •
+              <strong>VSC (.vsc presente):</strong> ${estDetalhe.possui_vsc ? '✅ Sim' : '⚠️ Não'}
+            </div>
+            <div class="text-[11px] text-slate-300">
+              <strong>Operadores Odin:</strong> ${escHtmlGedai((estDetalhe.usuarios_odin || []).join(' ; ') || '-')}
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+              <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 max-h-48 overflow-y-auto">
+                <div class="text-[10px] font-black text-cyan-300 uppercase mb-1">Mídias de Carga Geradas (${(estDetalhe.midias_carga || []).length})</div>
+                ${(estDetalhe.midias_carga || []).map(mc => `
+                  <div class="text-[10px] py-1 border-b border-slate-800/70">
+                    <strong class="text-amber-300">NS:${escHtmlGedai(mc.ns)}</strong> • Z:${String(mc.zona).padStart(4, '0')} M:${escHtmlGedai(mc.municipio_codigo)} • <span class="text-slate-400">${escHtmlGedai(mc.data_hora)}</span><br/>
+                    <span class="text-slate-300">Seções (${(mc.secoes || []).length}): ${(mc.secoes || []).join(' ')}</span>
+                  </div>
+                `).join("") || '<span class="text-slate-500">Nenhuma MC gerada diretamente nesta máquina.</span>'}
+              </div>
+              <div class="bg-slate-900 p-2.5 rounded-lg border border-slate-800 max-h-48 overflow-y-auto">
+                <div class="text-[10px] font-black text-rose-300 uppercase mb-1">Eventos Críticos / Sobrescritas (${(estDetalhe.eventos_criticos || []).length})</div>
+                ${(estDetalhe.eventos_criticos || []).map(ev => `
+                  <div class="text-[10px] py-1 border-b border-slate-800/70">
+                    <span class="px-1 rounded ${ev.nivel === 'ERRO' ? 'bg-rose-950 text-rose-300' : (ev.nivel === 'ALERTA' ? 'bg-amber-950 text-amber-300' : 'bg-cyan-950 text-cyan-300')}">${escHtmlGedai(ev.nivel)}</span>
+                    <span class="text-slate-400 ml-1">${escHtmlGedai(ev.data_hora)}</span>
+                    <div class="text-slate-200 mt-0.5">${escHtmlGedai(ev.mensagem)}</div>
+                  </div>
+                `).join("") || '<span class="text-emerald-400">Sem erros, alertas ou sobrescritas críticas nesta estação.</span>'}
+              </div>
+            </div>
+          </div>` : ''}
+
+          <div class="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950 max-h-[420px]">
+            <table class="w-full text-[11px] mono text-left">
+              <thead class="sticky top-0 bg-slate-900 text-[10px] text-slate-400 uppercase border-b border-slate-800">
+                <tr>
+                  <th class="py-2 px-2">Computador</th>
+                  <th class="py-2 px-2">Zona</th>
+                  <th class="py-2 px-2">Serial TPM</th>
+                  <th class="py-2 px-2 text-right">Corresp.</th>
+                  <th class="py-2 px-2 text-right">Conting.</th>
+                  <th class="py-2 px-2 text-right">MC / MV / MR</th>
+                  <th class="py-2 px-2 text-right">Sobresc.</th>
+                  <th class="py-2 px-2 text-right">Erros / Alertas</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${listaEst.map(e => `
+                  <tr onclick="inspecionarEstacaoGedaiTse('${escHtmlGedai(e.computador)}')" class="border-b border-slate-900 hover:bg-slate-900/80 cursor-pointer transition ${window.gedaiLogsState.estacaoSelecionadaComp === e.computador ? 'bg-teal-950/40' : ''}">
+                    <td class="py-1.5 px-2 text-teal-300 font-bold">${escHtmlGedai(e.computador)}</td>
+                    <td class="py-1.5 px-2 text-cyan-300">${e.zona_computador ? 'Z' + String(e.zona_computador).padStart(4, '0') : '-'}</td>
+                    <td class="py-1.5 px-2 text-slate-400">${escHtmlGedai(e.serial_tpm || '-')}</td>
+                    <td class="py-1.5 px-2 text-right text-white font-bold">${e.corresp_secao_qtd}</td>
+                    <td class="py-1.5 px-2 text-right text-amber-300">${e.corresp_contingencia_qtd}</td>
+                    <td class="py-1.5 px-2 text-right text-indigo-300">${e.midias_carga_qtd} / ${e.midias_votacao_qtd} / ${e.midias_resultado_qtd}</td>
+                    <td class="py-1.5 px-2 text-right ${(e.sobrescritas_qtd + e.apagamentos_qtd) > 0 ? 'text-amber-400 font-bold' : 'text-slate-500'}">${e.sobrescritas_qtd + e.apagamentos_qtd}</td>
+                    <td class="py-1.5 px-2 text-right ${(e.erros_qtd + e.alertas_qtd) > 0 ? 'text-rose-400 font-bold' : 'text-emerald-400'}">${e.erros_qtd} E / ${e.alertas_qtd} A</td>
+                  </tr>
+                `).join("")}
+              </tbody>
+            </table>
+          </div>
+        `;
+      } else if (aba === "correspondencias") {
+        html += `
+          <div class="flex flex-wrap items-center gap-2">
+            <input
+              type="text"
+              value="${escHtmlGedai(window.gedaiLogsState.correspBusca)}"
+              oninput="window.gedaiLogsState.correspBusca = this.value;"
+              onkeydown="if (event.key === 'Enter') buscarCorrespondenciasGedaiTse(true);"
+              placeholder="🔍 Buscar seção, município, ID urna (ex: 02029422), código carga ou mídia MC..."
+              class="flex-1 min-w-[240px] px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white mono focus:border-teal-500 outline-none"
+            />
+            <input
+              type="text"
+              value="${escHtmlGedai(window.gedaiLogsState.correspZona)}"
+              oninput="window.gedaiLogsState.correspZona = this.value;"
+              onkeydown="if (event.key === 'Enter') buscarCorrespondenciasGedaiTse(true);"
+              placeholder="Zona (ex: 177)"
+              class="w-28 px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white mono focus:border-teal-500 outline-none"
+            />
+            <select onchange="window.gedaiLogsState.correspTipo = this.value; buscarCorrespondenciasGedaiTse(true);" class="px-3 py-1.5 rounded-lg bg-slate-950 border border-slate-700 text-xs text-white mono">
+              <option value="TODOS" ${window.gedaiLogsState.correspTipo === 'TODOS' ? 'selected' : ''}>Todas (Seção + Conting.)</option>
+              <option value="SECAO" ${window.gedaiLogsState.correspTipo === 'SECAO' ? 'selected' : ''}>Apenas Seções</option>
+              <option value="CONTINGENCIA" ${window.gedaiLogsState.correspTipo === 'CONTINGENCIA' ? 'selected' : ''}>Apenas Contingências</option>
+            </select>
+            <button type="button" onclick="buscarCorrespondenciasGedaiTse(true)" class="px-3.5 py-1.5 rounded-lg bg-teal-600 hover:bg-teal-500 text-slate-950 font-black text-xs transition cursor-pointer">Buscar</button>
+          </div>
+          <div class="flex items-center justify-between text-[11px] text-slate-400 mono">
+            <span id="tseGedaiCorrespPagInfo">Carregando registros...</span>
+            <div class="flex items-center gap-1.5">
+              <button type="button" onclick="if (window.gedaiLogsState.correspOffset >= 150) { window.gedaiLogsState.correspOffset -= 150; buscarCorrespondenciasGedaiTse(false); }" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200">◀ Anterior</button>
+              <button type="button" onclick="if (window.gedaiLogsState.correspOffset + 150 < window.gedaiLogsState.correspTotal) { window.gedaiLogsState.correspOffset += 150; buscarCorrespondenciasGedaiTse(false); }" class="px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-200">Próxima ▶</button>
+            </div>
+          </div>
+          <div class="overflow-x-auto border border-slate-800 rounded-xl bg-slate-950 max-h-[390px]">
+            <table class="w-full text-[11px] mono text-left">
+              <thead class="sticky top-0 bg-slate-900 text-[10px] text-slate-400 uppercase border-b border-slate-800">
+                <tr>
+                  <th class="py-2 px-2">Tipo / Ação</th>
+                  <th class="py-2 px-2">Estação</th>
+                  <th class="py-2 px-2">Município</th>
+                  <th class="py-2 px-2 text-center">Zona</th>
+                  <th class="py-2 px-2 text-center">Seção</th>
+                  <th class="py-2 px-2">ID Urna</th>
+                  <th class="py-2 px-2">Mídia Carga</th>
+                  <th class="py-2 px-2">Código de Carga</th>
+                </tr>
+              </thead>
+              <tbody id="tseGedaiCorrespTbody"></tbody>
+            </table>
+          </div>
+        `;
+      } else if (aba === "erros") {
+        const multCargas = anom.secoes_multiplas_cargas || [];
+        const multUrnas = anom.urnas_multiplas_secoes || [];
+        html += `
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
+            <div class="p-4 rounded-xl bg-slate-950 border border-rose-700/40 space-y-2">
+              <h4 class="font-black text-rose-300 uppercase">❌ Erros Agrupados (${Number(l.total_erros).toLocaleString('pt-BR')} ocorrências)</h4>
+              <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                ${(det.resumo_erros || []).map(e => `
+                  <div class="p-2 rounded bg-slate-900 border border-slate-800 flex items-start justify-between gap-2 text-[11px]">
+                    <span class="text-slate-200">${escHtmlGedai(e.mensagem)}</span>
+                    <span class="px-1.5 py-0.5 rounded bg-rose-950 text-rose-300 font-mono font-black shrink-0">${e.ocorrencias}x</span>
+                  </div>
+                `).join("") || '<div class="text-slate-500">Nenhum erro.</div>'}
+              </div>
+            </div>
+
+            <div class="p-4 rounded-xl bg-slate-950 border border-amber-700/40 space-y-2">
+              <h4 class="font-black text-amber-300 uppercase">🔁 Seções com Múltiplas Cargas / Urnas (${anom.secoes_multiplas_cargas_qtd || 0})</h4>
+              <div class="space-y-1.5 max-h-60 overflow-y-auto pr-1 mono text-[10px]">
+                ${multCargas.slice(0, 60).map(s => `
+                  <div class="p-2 rounded bg-slate-900 border border-amber-700/30">
+                    <div class="font-bold text-white">${escHtmlGedai(s.municipio_nome)} • Z${String(s.zona).padStart(4, '0')} S${String(s.secao).padStart(4, '0')} <span class="text-amber-300">(${s.qtd_combinacoes} cargas/urnas)</span></div>
+                    ${(s.detalhes || []).map(d => `<div class="text-slate-400">• ${escHtmlGedai(d.computador)} | Urna ${escHtmlGedai(d.id_urna)} | MC ${escHtmlGedai(d.midia_carga)} | ${escHtmlGedai(d.data_hora)}</div>`).join("")}
+                  </div>
+                `).join("") || '<div class="text-emerald-400">Nenhuma seção com múltiplas cargas na preparação.</div>'}
+              </div>
+            </div>
+          </div>
+
+          ${multUrnas.length > 0 ? `
+          <div class="p-4 rounded-xl bg-slate-950 border border-cyan-700/40 space-y-2 text-xs">
+            <h4 class="font-black text-cyan-300 uppercase">🖥️ Urnas (<code>id_urna</code>) Registradas em Múltiplas Seções / Contingência (${anom.urnas_multiplas_secoes_qtd || 0})</h4>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-56 overflow-y-auto mono text-[10px]">
+              ${multUrnas.slice(0, 40).map(u => `
+                <div class="p-2 rounded bg-slate-900 border border-slate-800">
+                  <div class="font-black text-emerald-300">Urna ${escHtmlGedai(u.id_urna)} (${u.qtd_ocorrencias} vínculos)</div>
+                  ${(u.ocorrencias || []).map(o => `<div class="text-slate-300">• [${escHtmlGedai(o.tipo)}] ${escHtmlGedai(o.municipio_nome)} Z${String(o.zona).padStart(4, '0')} ${o.secao ? 'S' + String(o.secao).padStart(4, '0') : 'Contingência'}</div>`).join("")}
+                </div>
+              `).join("")}
+            </div>
+          </div>` : ''}
+        `;
+      }
+
+      cont.innerHTML = html;
+    }
+
     async function checarVersaoProducao() {
       try {
         const r = await fetch("/api/versao");
@@ -15459,6 +16214,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
     fetchStatusAndCandidates();
     atualizarBadgeHistoricoUploads();
     atualizarBadgeRelatoriosOficiais();
+    atualizarBadgeGedaiLogs();
     checarVersaoProducao();
     try {
       const modSalvo = localStorage.getItem("urna_modulo_ativo") || "simulador";

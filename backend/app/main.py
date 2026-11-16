@@ -92,8 +92,8 @@ from .tse_bweb_parser import (
 )
 
 SYSTEM_VERSION = "2.6.0"
-SYSTEM_BUILD = "2026-11-14-rev68"
-SYSTEM_COMMIT = "rev68-enderecos-reais-tse-2026-pins-limpos-mapa-dinamico"
+SYSTEM_BUILD = "2026-11-15-rev69"
+SYSTEM_COMMIT = "rev69-auditoria-logs-preparacao-gedai-ue"
 
 def obter_basemaps_apikey() -> str:
     """Retorna a API key do CartoDB Basemaps a partir de variáveis de ambiente do Portainer/Docker."""
@@ -1997,6 +1997,131 @@ def api_tse_reverso_bweb_progresso():
 def api_tse_reverso_bweb_cancelar():
     """Cancela a ingestão BWEB em andamento."""
     return cancelar_ingestao_bweb()
+
+
+# ==============================================================================
+# LOGS DE PREPARAÇÃO DAS URNAS (GEDAI-UE / TSE)
+# ==============================================================================
+
+@app.get("/api/tse-reverso/gedai/listar")
+def api_tse_reverso_gedai_listar(db: Session = Depends(get_db)):
+    """Lista os lotes de logs de preparação GEDAI-UE processados no PostgreSQL."""
+    from .tse_gedai_parser import listar_lotes_gedai
+    return listar_lotes_gedai(db)
+
+
+@app.post("/api/tse-reverso/gedai/upload")
+async def api_tse_reverso_gedai_upload(
+    files: list[UploadFile] = File(...),
+    db: Session = Depends(get_db),
+):
+    """
+    Recebe pacote .ZIP (ex: log_gedai_1t_PR_*.zip) ou pasta aberta com múltiplos `.jez`
+    diretamente do navegador e processa todas as estações GEDAI-UE para o PostgreSQL.
+    """
+    from .tse_gedai_parser import processar_pacote_gedai_para_banco
+
+    if not files:
+        raise HTTPException(status_code=400, detail="Nenhum arquivo enviado.")
+
+    try:
+        if len(files) == 1 and (files[0].filename or "").lower().endswith(".zip"):
+            raw = await files[0].read()
+            return processar_pacote_gedai_para_banco(
+                db=db,
+                nome_origem=files[0].filename or "log_gedai.zip",
+                zip_bytes=raw,
+            )
+
+        pares: list[tuple[str, bytes]] = []
+        pasta_nome = "Pasta GEDAI-UE"
+        for uf_file in files:
+            fn = uf_file.filename or ""
+            low = fn.lower()
+            if not (low.endswith(".jez") or low.endswith(".zip") or low.endswith(".log")):
+                continue
+            if "/" in fn and pasta_nome == "Pasta GEDAI-UE":
+                pasta_nome = fn.split("/", 1)[0] or pasta_nome
+            raw = await uf_file.read()
+            if raw:
+                pares.append((os.path.basename(fn), raw))
+
+        if len(files) == 1 and pares and pasta_nome == "Pasta GEDAI-UE":
+            pasta_nome = pares[0][0]
+
+        return processar_pacote_gedai_para_banco(
+            db=db,
+            nome_origem=pasta_nome,
+            arquivos_individuais=pares,
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao processar logs GEDAI-UE: {exc}")
+
+
+@app.post("/api/tse-reverso/gedai/detectar-servidor")
+def api_tse_reverso_gedai_detectar_servidor():
+    """Detecta pacotes log_gedai_*.zip ou pastas GEDAI no servidor (/root/tse_import)."""
+    from .tse_gedai_parser import detectar_arquivos_gedai_servidor
+    arquivos = detectar_arquivos_gedai_servidor()
+    return {"total": len(arquivos), "arquivos": arquivos}
+
+
+@app.post("/api/tse-reverso/gedai/ingerir-servidor")
+def api_tse_reverso_gedai_ingerir_servidor(
+    payload: dict = Body(default={}),
+    db: Session = Depends(get_db),
+):
+    """Processa pacotes/pastas GEDAI-UE presentes no disco do servidor."""
+    from .tse_gedai_parser import processar_caminho_gedai_servidor
+    caminho = payload.get("caminho_arquivo") if isinstance(payload, dict) else None
+    return processar_caminho_gedai_servidor(db=db, caminho=caminho)
+
+
+@app.get("/api/tse-reverso/gedai/{lote_id}/detalhe")
+def api_tse_reverso_gedai_detalhe(lote_id: int, db: Session = Depends(get_db)):
+    """Retorna análise pericial completa de um lote GEDAI-UE (estações, erros, alertas e batimentos)."""
+    from .tse_gedai_parser import obter_detalhe_lote_gedai
+    det = obter_detalhe_lote_gedai(db, lote_id)
+    if not det:
+        raise HTTPException(status_code=404, detail="Lote GEDAI não encontrado.")
+    return det
+
+
+@app.get("/api/tse-reverso/gedai/{lote_id}/correspondencias")
+def api_tse_reverso_gedai_correspondencias(
+    lote_id: int,
+    busca: str = "",
+    tipo: str = "TODOS",
+    zona: str = "",
+    limit: int = 250,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
+    """Busca paginada de vinculações Carga x ID Urna x Seção x Mídia de Carga."""
+    from .tse_gedai_parser import consultar_correspondencias_gedai
+    return consultar_correspondencias_gedai(
+        db=db,
+        lote_id=lote_id,
+        busca=busca,
+        tipo=tipo,
+        zona=zona,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@app.delete("/api/tse-reverso/gedai/{lote_id}")
+def api_tse_reverso_gedai_delete(lote_id: int, db: Session = Depends(get_db)):
+    """Remove um lote GEDAI-UE processado do PostgreSQL."""
+    from .database import TseGedaiLote
+    lote = db.query(TseGedaiLote).filter(TseGedaiLote.id == lote_id).first()
+    if not lote:
+        raise HTTPException(status_code=404, detail="Lote GEDAI não encontrado.")
+    db.delete(lote)
+    db.commit()
+    return {"status": "REMOVIDO", "id": lote_id}
 
 
 

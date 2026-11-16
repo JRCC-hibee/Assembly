@@ -384,6 +384,115 @@ class TseRelatorioOficialTse(Base):
     )
 
 
+class TseGedaiLote(Base):
+    """
+    Armazena lotes processados de Logs de Preparação das Urnas (GEDAI-UE).
+    Agrega todas as estações (computadores STD), geração de mídias, correspondências
+    (código de carga x ID da urna x mídia de carga) e batimento com a votação real.
+    """
+    __tablename__ = "tse_gedai_lotes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    uf = Column(String(10), index=True, default="PR", nullable=False)
+    pleito = Column(String(10), index=True, nullable=True)
+    turno = Column(SmallInteger, index=True, default=1, nullable=False)
+    nome_origem = Column(String(255), nullable=False)
+    tamanho_bytes = Column(BigInteger, default=0)
+    hash_sha256 = Column(String(64), index=True, nullable=True)
+
+    total_estacoes = Column(Integer, default=0)
+    total_linhas = Column(Integer, default=0)
+    total_corresp_secao = Column(Integer, default=0)
+    total_contingencias = Column(Integer, default=0)
+    total_secoes_unicas = Column(Integer, default=0)
+    total_urnas_unicas = Column(Integer, default=0)
+    total_midias_carga = Column(Integer, default=0)
+    total_midias_votacao = Column(Integer, default=0)
+    total_midias_resultado = Column(Integer, default=0)
+    total_sobrescritas = Column(Integer, default=0)
+    total_erros = Column(Integer, default=0)
+    total_alertas = Column(Integer, default=0)
+
+    resumo_erros_json = Column(Text, nullable=True)
+    resumo_alertas_json = Column(Text, nullable=True)
+    anomalias_cruzamento_json = Column(Text, nullable=True)
+    batimento_banco_json = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    estacoes = relationship("TseGedaiEstacao", back_populates="lote_rel", cascade="all, delete-orphan")
+
+
+class TseGedaiEstacao(Base):
+    """
+    Metadados e contadores operacionais de cada estação/computador GEDAI-UE (ex: ZPR001STD01).
+    """
+    __tablename__ = "tse_gedai_estacoes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lote_id = Column(Integer, ForeignKey("tse_gedai_lotes.id", ondelete="CASCADE"), index=True, nullable=False)
+    nome_arquivo = Column(String(255), nullable=False)
+    computador = Column(String(40), index=True, nullable=False)
+    zona_computador = Column(Integer, index=True, nullable=True)
+    serial_tpm = Column(String(24), nullable=True)
+    serial_instalacao = Column(String(24), nullable=True)
+    uf = Column(String(10), nullable=True)
+    pleito = Column(String(10), nullable=True)
+    turno = Column(SmallInteger, default=1)
+    versao_gedai = Column(String(80), nullable=True)
+    possui_vsc = Column(Boolean, default=False)
+
+    usuarios_windows_json = Column(Text, nullable=True)
+    usuarios_odin_json = Column(Text, nullable=True)
+    primeira_data_hora = Column(String(25), nullable=True)
+    ultima_data_hora = Column(String(25), nullable=True)
+
+    total_linhas = Column(Integer, default=0)
+    corresp_secao_qtd = Column(Integer, default=0)
+    corresp_contingencia_qtd = Column(Integer, default=0)
+    midias_carga_qtd = Column(Integer, default=0)
+    midias_votacao_qtd = Column(Integer, default=0)
+    midias_resultado_qtd = Column(Integer, default=0)
+    sobrescritas_qtd = Column(Integer, default=0)
+    apagamentos_qtd = Column(Integer, default=0)
+    erros_qtd = Column(Integer, default=0)
+    alertas_qtd = Column(Integer, default=0)
+
+    eventos_criticos_json = Column(Text, nullable=True)
+    midias_carga_json = Column(Text, nullable=True)
+
+    lote_rel = relationship("TseGedaiLote", back_populates="estacoes")
+
+
+class TseGedaiCorrespondencia(Base):
+    """
+    Registro normalizado de vinculação Carga × Urna × Seção × Mídia de Carga nos logs GEDAI-UE.
+    Permite rastrear exatamente qual equipamento e operador gerou a carga de cada seção ou contingência.
+    """
+    __tablename__ = "tse_gedai_correspondencias"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    lote_id = Column(Integer, ForeignKey("tse_gedai_lotes.id", ondelete="CASCADE"), index=True, nullable=False)
+    estacao_id = Column(Integer, ForeignKey("tse_gedai_estacoes.id", ondelete="CASCADE"), index=True, nullable=False)
+    computador = Column(String(40), index=True, nullable=False)
+    tipo = Column(String(20), index=True, nullable=False)        # SECAO | CONTINGENCIA
+    acao = Column(String(20), index=True, nullable=False)        # TRANSMITIDA | RECEBIDA
+    municipio_codigo = Column(String(10), index=True, nullable=False)
+    municipio_nome = Column(String(80), nullable=True)
+    zona = Column(Integer, index=True, default=0)
+    secao = Column(Integer, index=True, default=0)
+    codigo_carga = Column(String(32), index=True, nullable=True)
+    id_urna = Column(String(16), index=True, nullable=True)
+    midia_carga = Column(String(16), index=True, nullable=True)
+    data_hora = Column(String(25), nullable=True)
+    operador = Column(String(40), nullable=True)
+
+    __table_args__ = (
+        Index("idx_tse_gedai_corresp_sec", "lote_id", "municipio_codigo", "zona", "secao"),
+        Index("idx_tse_gedai_corresp_urna", "lote_id", "id_urna"),
+    )
+
+
 # Mapeamento Oficial de Regiões do Brasil
 ESTADOS_E_REGIOES_BR = {
     "AC": {"nome": "Acre", "regiao": "NORTE"},
