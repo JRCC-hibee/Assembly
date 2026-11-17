@@ -7900,10 +7900,70 @@ def compilar_locais_votacao_para_mapa(rows_sec, votos_cands_sec, uf_filtro="TODA
             for s in loc["detalhes_secoes"]:
                 s["delta_media_predio"] = 0.0
 
+        # Cálculo do Desvio Estatístico e Homogeneidade de Votos Novos Intra-Local
+        # Avalia se a taxa de captação de novos votos (1ºT -> 2ºT) foi homogênea entre as seções do mesmo prédio
+        secoes_novos_validas = [
+            s for s in loc["detalhes_secoes"]
+            if (s["votos_novos_22"] + s["votos_novos_13"]) > 0
+        ]
+        n_sec_novos = len(secoes_novos_validas)
+        if n_sec_novos > 1:
+            # Clamping suave [-50%, 150%] para estabilidade numérica contra pequenos divisores
+            pcts_novos_22 = [max(-50.0, min(150.0, float(s["pct_novos_22"]))) for s in secoes_novos_validas]
+            mean_p_novos = sum(pcts_novos_22) / n_sec_novos
+            variance_novos = sum((p - mean_p_novos) ** 2 for p in pcts_novos_22) / (n_sec_novos - 1)
+            std_dev_novos = math.sqrt(variance_novos)
+            max_delta_novos = max(abs(p - mean_p_novos) for p in pcts_novos_22)
+            sec_max_novos = max(secoes_novos_validas, key=lambda s: abs(max(-50.0, min(150.0, float(s["pct_novos_22"]))) - mean_p_novos))
+
+            loc["desvio_padrao_novos"] = round(std_dev_novos, 2)
+            loc["delta_max_novos"] = round(max_delta_novos, 2)
+            loc["media_pct_novos_22"] = round(mean_p_novos, 1)
+            loc["secao_mais_discrepante_novos"] = sec_max_novos["secao"]
+            loc["delta_novos_secao_mais_discrepante"] = round(float(sec_max_novos["pct_novos_22"]) - mean_p_novos, 1)
+            loc["tem_anomalia_novos_intra_local"] = bool(std_dev_novos >= 20.0 or max_delta_novos >= 30.0)
+
+            for s in loc["detalhes_secoes"]:
+                if (s["votos_novos_22"] + s["votos_novos_13"]) > 0:
+                    s["delta_novos_media_predio"] = round(float(s["pct_novos_22"]) - mean_p_novos, 1)
+                else:
+                    s["delta_novos_media_predio"] = 0.0
+
+            if loc["tem_anomalia_novos_intra_local"]:
+                loc["diagnostico_homogeneidade_novos"] = (
+                    f"🚨 Alta Discrepância em Votos Novos: A Seção {sec_max_novos['secao']:04d} teve "
+                    f"{loc['delta_novos_secao_mais_discrepante']:+.1f}% de afastamento da média de novos votos do prédio "
+                    f"({mean_p_novos:.1f}% para 22). Desvio padrão σ_novos = {std_dev_novos:.1f}% (Δmax = {max_delta_novos:.1f}%)."
+                )
+            elif std_dev_novos >= 12.0 or max_delta_novos >= 18.0:
+                loc["diagnostico_homogeneidade_novos"] = (
+                    f"🟡 Variação Moderada em Novos Votos: Absorção de novos votos teve oscilações pontuais entre as urnas "
+                    f"(σ_novos = {std_dev_novos:.1f}%, Δmax = {max_delta_novos:.1f}%). Maior desvio na Seção {sec_max_novos['secao']:04d} "
+                    f"({loc['delta_novos_secao_mais_discrepante']:+.1f}% da média)."
+                )
+            else:
+                loc["diagnostico_homogeneidade_novos"] = (
+                    f"🟢 Padrão Homogêneo em Novos Votos: Todas as urnas absorveram novos votos de forma uniforme e balanceada "
+                    f"(σ_novos = ±{std_dev_novos:.1f}%, Δmax = {max_delta_novos:.1f}%)."
+                )
+        else:
+            loc["desvio_padrao_novos"] = 0.0
+            loc["delta_max_novos"] = 0.0
+            loc["media_pct_novos_22"] = loc["pct_novos_22"]
+            loc["secao_mais_discrepante_novos"] = None
+            loc["delta_novos_secao_mais_discrepante"] = 0.0
+            loc["tem_anomalia_novos_intra_local"] = False
+            loc["diagnostico_homogeneidade_novos"] = (
+                "🏢 Seção Única no Local de Votação" if loc["qtd_secoes"] <= 1
+                else "ℹ️ Volume de novos votos insuficiente para cálculo de dispersão"
+            )
+            for s in loc["detalhes_secoes"]:
+                s["delta_novos_media_predio"] = 0.0
+
         locais_lista.append(loc)
 
-    # Ordenação por prioridade forense: primeiro prédios com discrepância interna, depois mais seções
-    locais_lista.sort(key=lambda x: (not x["tem_anomalia_intra_local"], -x["qtd_secoes"], -x["votos_22"]))
+    # Ordenação por prioridade forense: primeiro prédios com discrepância interna (geral ou novos), depois mais seções
+    locais_lista.sort(key=lambda x: (not x["tem_anomalia_intra_local"], not x["tem_anomalia_novos_intra_local"], -x["qtd_secoes"], -x["votos_22"]))
 
     # Dessobreposição suave (~28 m em anel espiralado) quando 2+ locais distintos compartilham exatamente o mesmo ponto GPS
     coords_ocupadas: dict[tuple[int, int], int] = {}

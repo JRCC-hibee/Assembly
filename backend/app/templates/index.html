@@ -1910,7 +1910,8 @@ o Boletim de Urna (apos encerramento da votacao).
                   <option value="PROXIMIDADE_TRE">🟣 Mais Próximos do TRE/Fórum</option>
                   <option value="DIVERGENCIA_NOVOS" selected>⚠️ Sem Unanimidade (Âmbar)</option>
                   <option value="INVERSAO">🔄 Inversão (Geral × Novos)</option>
-                  <option value="ANOMALIA">🚨 Desvio Estatístico (σ)</option>
+                  <option value="ANOMALIA">🚨 Desvio Votos Totais (σ)</option>
+                  <option value="DESVIO_NOVOS">⚡ Desvio Votos Novos (σ_novos)</option>
                   <option value="SECOES">🗳️ Mais Seções</option>
                   <option value="NOVOS_22">🟢 Votos Novos 22</option>
                   <option value="NOVOS_13">🔴 Votos Novos 13</option>
@@ -14796,6 +14797,13 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           }
           return (b.desvio_padrao || 0) - (a.desvio_padrao || 0);
         });
+      } else if (criterio === "DESVIO_NOVOS") {
+        filtrados.sort((a, b) => {
+          if (a.tem_anomalia_novos_intra_local !== b.tem_anomalia_novos_intra_local) {
+            return a.tem_anomalia_novos_intra_local ? -1 : 1;
+          }
+          return (b.desvio_padrao_novos || 0) - (a.desvio_padrao_novos || 0);
+        });
       } else if (criterio === "SECOES") {
         filtrados.sort((a, b) => b.qtd_secoes - a.qtd_secoes);
       } else if (criterio === "NOVOS_22") {
@@ -14864,6 +14872,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
                   ${loc.tem_divergencia_interna_novos ? `<span class="px-1.5 py-0.2 rounded bg-amber-600 text-[9px] font-black text-slate-950 animate-pulse">⚠️ SEM UNANIMIDADE</span>` : ''}
                   ${loc.houve_inversao ? `<span class="px-1.5 py-0.2 rounded bg-cyan-700 text-[9px] font-black text-white">🔄 INVERSÃO</span>` : ''}
                   ${loc.tem_anomalia_intra_local ? `<span class="px-1.5 py-0.2 rounded bg-rose-600 text-[9px] font-black text-white">DESVIO σ</span>` : ''}
+                  ${loc.tem_anomalia_novos_intra_local ? `<span class="px-1.5 py-0.2 rounded bg-amber-500 text-[9px] font-black text-slate-950">DESVIO Δ NOVOS</span>` : ''}
                   ${(treAtivo && loc._distTreKm !== null && loc._distTreKm !== undefined) ? `<span class="px-1.5 py-0.2 rounded bg-purple-900/90 border border-purple-400/60 text-[9px] font-black text-purple-100">🟣 ${typeof formatarDistanciaTse === "function" ? formatarDistanciaTse(loc._distTreKm) : `${loc._distTreKm.toFixed(2)} km`}</span>` : ''}
                 </div>
                 ${(loc.endereco || loc.bairro) ? `<div class="text-[10px] text-slate-300 mono mt-0.5 truncate" title="${[loc.endereco, loc.bairro].filter(Boolean).join(' • ')}">📍 ${[loc.endereco, loc.bairro].filter(Boolean).join(' • ')}</div>` : ''}
@@ -15087,7 +15096,8 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             : '<span class="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-600/40 font-bold">🟡 Empate</span>');
 
         const isDivergenteDaMedia = loc.tem_anomalia_intra_local && loc.secao_mais_discrepante === s.secao;
-        const rowBg = isDivergenteDaMedia ? "bg-rose-950/30 border-rose-500/50" : (idx % 2 === 0 ? "bg-slate-950/40" : "bg-slate-900/40");
+        const isDivergenteNovos = loc.tem_anomalia_novos_intra_local && loc.secao_mais_discrepante_novos === s.secao;
+        const rowBg = isDivergenteDaMedia ? "bg-rose-950/30 border-rose-500/50" : (isDivergenteNovos ? "bg-amber-950/20 border-amber-500/40" : (idx % 2 === 0 ? "bg-slate-950/40" : "bg-slate-900/40"));
 
         const v1_s22 = s.votos_1t_22 || 0;
         const v1_s13 = s.votos_1t_13 || 0;
@@ -15101,7 +15111,8 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
               <div class="flex items-center gap-1.5">
                 <span class="text-indigo-400 font-black">S:${sPad}</span>
                 <span class="text-[10px] text-slate-500">(Z:${zPad})</span>
-                ${isDivergenteDaMedia ? '<span class="px-1.5 py-0.2 rounded bg-rose-600 text-white text-[9px] font-black">DISCREPANTE</span>' : ''}
+                ${isDivergenteDaMedia ? '<span class="px-1.5 py-0.2 rounded bg-rose-600 text-white text-[9px] font-black" title="Maior afastamento nos votos totais">DISCREPÂNCIA TOTAL</span>' : ''}
+                ${isDivergenteNovos ? '<span class="px-1.5 py-0.2 rounded bg-amber-500 text-slate-950 text-[9px] font-black" title="Maior afastamento na captação de novos votos">DESVIO NOVOS</span>' : ''}
               </div>
             </td>
             <td class="p-2.5 whitespace-nowrap">
@@ -15117,13 +15128,29 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
                 <span class="text-slate-600 mx-1">×</span>
                 <span class="text-rose-400">13: ${s.votos_13}v</span> <span class="text-[10px] text-slate-400">(${s.pct_13}%)</span>
               </div>
+              ${(s.delta_media_predio !== undefined && loc.qtd_secoes > 1) ? `
+                <div class="text-[10px] mono text-slate-400 mt-0.5 flex items-center gap-1">
+                  <span>Δ Prédio 2T:</span>
+                  <span class="font-bold ${Math.abs(s.delta_media_predio) >= 7 ? 'text-rose-400' : 'text-slate-300'}">
+                    ${s.delta_media_predio >= 0 ? '+' : ''}${s.delta_media_predio}%
+                  </span>
+                </div>
+              ` : ''}
             </td>
             <td class="p-2.5 whitespace-nowrap">
               <div class="text-xs font-bold text-slate-200">
-                <span class="text-cyan-400">+22: +${s.votos_novos_22}v</span> <span class="text-[10px] text-slate-400">(${s.pct_novos_22}%)</span>
+                <span class="text-cyan-400">+22: ${s.votos_novos_22 >= 0 ? '+' : ''}${s.votos_novos_22}v</span> <span class="text-[10px] text-slate-400">(${s.pct_novos_22}%)</span>
                 <span class="text-slate-600 mx-1">×</span>
-                <span class="text-rose-400">+13: +${s.votos_novos_13}v</span> <span class="text-[10px] text-slate-400">(${s.pct_novos_13}%)</span>
+                <span class="text-rose-400">+13: ${s.votos_novos_13 >= 0 ? '+' : ''}${s.votos_novos_13}v</span> <span class="text-[10px] text-slate-400">(${s.pct_novos_13}%)</span>
               </div>
+              ${(s.delta_novos_media_predio !== undefined && loc.qtd_secoes > 1) ? `
+                <div class="text-[10px] mono text-slate-400 mt-0.5 flex items-center gap-1">
+                  <span>Δ Méd Novos (22):</span>
+                  <span class="font-bold ${Math.abs(s.delta_novos_media_predio) >= 20 ? 'text-amber-400' : 'text-slate-300'}">
+                    ${s.delta_novos_media_predio >= 0 ? '+' : ''}${s.delta_novos_media_predio}%
+                  </span>
+                </div>
+              ` : ''}
             </td>
             <td class="p-2.5 whitespace-nowrap text-center">
               ${badgeNovos}
@@ -15403,13 +15430,13 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             </div>
           </div>` : ''}
 
-          <!-- Alerta 3: Desvio Estatístico Intra-Prédio -->
+          <!-- Alerta 3: Desvio Estatístico Intra-Prédio (Votos Totais) -->
           <div class="p-3 rounded-xl border ${loc.tem_anomalia_intra_local ? 'bg-rose-950/60 border-rose-500/80 text-rose-100' : 'bg-slate-950 border-slate-800 text-slate-300'}">
             <div class="flex items-center justify-between border-b ${loc.tem_anomalia_intra_local ? 'border-rose-800/80' : 'border-slate-800'} pb-2 mb-2">
               <div class="flex items-center gap-2">
                 <span>${loc.tem_anomalia_intra_local ? '🚨' : '✅'}</span>
                 <span class="text-xs font-black uppercase ${loc.tem_anomalia_intra_local ? 'text-rose-300' : 'text-emerald-400'}">
-                  ${loc.tem_anomalia_intra_local ? 'Anomalia Estatística Intra-Prédio (Discrepância Acima do Padrão)' : 'Coerência Estatística Intra-Prédio'}
+                  ${loc.tem_anomalia_intra_local ? 'Anomalia Estatística Intra-Prédio (Votos Totais)' : 'Coerência Estatística Intra-Prédio (Votos Totais)'}
                 </span>
               </div>
               ${loc.qtd_secoes > 1 ? `
@@ -15420,6 +15447,27 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             </div>
             <p class="text-[11px] leading-relaxed">
               ${loc.diagnostico_forense}
+            </p>
+          </div>
+
+          <!-- Alerta 4: Análise de Homogeneidade e Dispersão de Votos Novos Intra-Prédio -->
+          <div class="p-3 rounded-xl border ${loc.tem_anomalia_novos_intra_local ? 'bg-amber-950/70 border-amber-500/80 text-amber-100' : (loc.desvio_padrao_novos >= 12.0 ? 'bg-amber-950/30 border-amber-600/40 text-amber-200' : 'bg-slate-950 border-slate-800 text-slate-300')}">
+            <div class="flex items-center justify-between border-b ${loc.tem_anomalia_novos_intra_local ? 'border-amber-800/80' : 'border-slate-800'} pb-2 mb-2">
+              <div class="flex items-center gap-2">
+                <span>${loc.tem_anomalia_novos_intra_local ? '🚨' : (loc.desvio_padrao_novos >= 12.0 ? '🟡' : '⚡')}</span>
+                <span class="text-xs font-black uppercase ${loc.tem_anomalia_novos_intra_local ? 'text-amber-300' : (loc.desvio_padrao_novos >= 12.0 ? 'text-amber-400' : 'text-cyan-400')}">
+                  ${loc.tem_anomalia_novos_intra_local ? 'Discrepância em Votos Novos Intra-Prédio' : 'Homogeneidade de Votos Novos Intra-Prédio (Δ)'}
+                </span>
+              </div>
+              ${loc.qtd_secoes > 1 ? `
+              <div class="flex items-center gap-3 text-[11px]">
+                <span>Desvio Padrão (σ_novos): <strong class="text-white">${loc.desvio_padrao_novos !== undefined ? loc.desvio_padrao_novos + '%' : '-'}</strong></span>
+                <span>Delta Máx Novos (Δmax): <strong class="text-white">${loc.delta_max_novos !== undefined ? loc.delta_max_novos + '%' : '-'}</strong></span>
+                ${loc.secao_mais_discrepante_novos ? `<span class="hidden sm:inline text-slate-400">Pico: S:${String(loc.secao_mais_discrepante_novos).padStart(4, '0')} (${loc.delta_novos_secao_mais_discrepante >= 0 ? '+' : ''}${loc.delta_novos_secao_mais_discrepante}%)</span>` : ''}
+              </div>` : ''}
+            </div>
+            <p class="text-[11px] leading-relaxed">
+              ${loc.diagnostico_homogeneidade_novos || 'Distribuição dos novos votos uniforme no estabelecimento.'}
             </p>
           </div>
         </div>
@@ -15887,15 +15935,15 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
             <div class="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
               <span class="text-[10px] font-black uppercase text-slate-400 block">📊 Dispersão Intra-Prédio</span>
               <div class="flex items-center justify-between text-xs font-bold pt-0.5">
-                <span class="text-slate-400">Desvio Padrão (σ):</span>
-                <span class="text-white font-black">${loc.desvio_padrao}%</span>
+                <span class="text-slate-400">σ Totais | σ Novos:</span>
+                <span class="text-white font-black">${loc.desvio_padrao}% | ${loc.desvio_padrao_novos !== undefined ? loc.desvio_padrao_novos + '%' : '-'}</span>
               </div>
               <div class="flex items-center justify-between text-xs font-bold">
-                <span class="text-slate-400">Delta Máximo (Δmax):</span>
-                <span class="text-white font-black">${loc.delta_max}%</span>
+                <span class="text-slate-400">Δmax Tot | Δmax Nov:</span>
+                <span class="text-white font-black">${loc.delta_max}% | ${loc.delta_max_novos !== undefined ? loc.delta_max_novos + '%' : '-'}</span>
               </div>
-              <div class="text-[10px] truncate ${loc.tem_anomalia_intra_local ? 'text-rose-400 font-bold' : 'text-emerald-400'}">
-                ${loc.tem_anomalia_intra_local ? `🚨 Seção ${loc.secao_mais_discrepante} atípica` : '🟢 Distribuição Homogênea'}
+              <div class="text-[10px] truncate ${loc.tem_anomalia_novos_intra_local || loc.tem_anomalia_intra_local ? 'text-amber-400 font-bold' : 'text-emerald-400'}">
+                ${loc.tem_anomalia_intra_local ? `🚨 Seção ${loc.secao_mais_discrepante} atípica (totais)` : (loc.tem_anomalia_novos_intra_local ? `🚨 Seção ${loc.secao_mais_discrepante_novos} atípica (novos)` : '🟢 Distribuição Homogênea')}
               </div>
             </div>
           </div>
@@ -15991,6 +16039,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
               Na absorção de novos votos entre turnos, ${loc.tem_divergencia_interna_novos ? `constatou-se ausência de unanimidade entre as seções físicas, resultando em um placar de <strong>${loc.placar_urnas_novos}</strong>` : `todas as seções convergiram de forma 100% unânime para <strong>${loc.vencedor_novos === 22 ? 'Flávio (22)' : 'Lula (13)'}</strong>`}.
               ${loc.houve_inversao ? `Foi identificada inversão de tendência eleitoral entre a preferência agregada e a dinâmica de novos eleitores.` : ''}
               A dispersão estatística intra-prédio registrou Desvio Padrão σ = <strong>${loc.desvio_padrao}%</strong> e Afastamento Máximo Δmax = <strong>${loc.delta_max}%</strong> (${loc.diagnostico_forense}).
+              Na absorção de novos votos (1ºT → 2ºT), registrou-se σ_novos = <strong>${loc.desvio_padrao_novos !== undefined ? loc.desvio_padrao_novos + '%' : '-'}</strong> e Δmax_novos = <strong>${loc.delta_max_novos !== undefined ? loc.delta_max_novos + '%' : '-'}</strong> (${loc.diagnostico_homogeneidade_novos || 'Padrão homogêneo'}).
             </p>
             <div class="flex flex-wrap items-center justify-between text-[10px] text-slate-500 pt-2 border-t border-slate-800/80">
               <span>Chave de Integridade: <strong class="text-slate-400 font-mono">${protocoloHash}</strong></span>
