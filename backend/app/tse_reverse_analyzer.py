@@ -816,9 +816,13 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
     sha256_jez = hashlib.sha256(log_jez_bytes).hexdigest().upper()
 
     with zipfile.ZipFile(io.BytesIO(log_jez_bytes), "r") as zf:
-        names = zf.namelist()
-        target_name = "logd.dat" if "logd.dat" in names else names[0]
-        raw_logd = zf.read(target_name)
+        names = [n for n in zf.namelist() if not n.endswith("/")]
+        log_names = sorted(
+            [n for n in names if n.lower().endswith(".dat") or "log" in n.lower()],
+            key=lambda x: (0 if os.path.basename(x).lower() != "logd.dat" else 1, x),
+        ) or names[:1]
+        raw_parts = [zf.read(n) for n in log_names]
+        raw_logd = b"\n".join(raw_parts)
 
     text_logd = raw_logd.decode("iso-8859-1", errors="ignore")
     lines = text_logd.splitlines()
@@ -1135,6 +1139,7 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
                 est["ciclos_votacao"].append({
                     "seq": len(est["ciclos_votacao"]) + 1,
                     "linha_log": line_num,
+                    "serial_ue": serial_ue,
                     "data_eleicao": data_cur,
                     "faixa_horaria": t_computado.strftime("%H") + "h",
                     "hora_aguardando": est["t_aguardando"].strftime("%H:%M:%S") if est["t_aguardando"] else inicio_ref.strftime("%H:%M:%S"),
@@ -4324,8 +4329,40 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             local_votacao=secao_db.local_votacao,
                             modelo_urna=secao_db.modelo_urna,
                         )
-                        bu1_snap = _types.SimpleNamespace(mac_urna=getattr(bu1, "mac_urna", None)) if bu1 is not None else None
-                        bu2_snap = _types.SimpleNamespace(mac_urna=getattr(bu2, "mac_urna", None)) if bu2 is not None else None
+                        bu1_snap = _types.SimpleNamespace(
+                            mac_urna=getattr(bu1, "mac_urna", None) if bu1 is not None else None,
+                            comparecimento=comp_1t_val,
+                            eleitores_aptos=aptos_1t_val,
+                            votos_brancos=brancos_1t_val,
+                            votos_nulos=nulos_1t_val,
+                            candidatos=cands_1t_pres,
+                            vph=vph_1t_db,
+                            vph_outro_turno=vph_db,
+                        ) if (bu1 is not None or tem_bu_1t) else None
+                        bu2_snap = _types.SimpleNamespace(
+                            mac_urna=getattr(bu2, "mac_urna", None) if bu2 is not None else None,
+                            comparecimento=comp_2t_val,
+                            eleitores_aptos=aptos_2t_val,
+                            votos_brancos=brancos_2t_val,
+                            votos_nulos=nulos_2t_val,
+                            candidatos=cands_2t_pres,
+                            vph=vph_db,
+                            vph_outro_turno=vph_1t_db,
+                        ) if (bu2 is not None or tem_bu_2t) else None
+                        met1_snap = _types.SimpleNamespace(
+                            total_votos_computados=getattr(met1, "total_votos_computados", 0),
+                            vazao_horaria_json=getattr(met1, "vazao_horaria_json", None),
+                            tempo_medio_voto_segundos=getattr(met1, "tempo_medio_voto_segundos", 0),
+                            teclas_indevidas_total=getattr(met1, "teclas_indevidas_total", 0),
+                            teclas_indevidas_pres=getattr(met1, "teclas_indevidas_pres", 0),
+                        ) if met1 is not None else None
+                        met2_snap = _types.SimpleNamespace(
+                            total_votos_computados=getattr(met2, "total_votos_computados", 0),
+                            vazao_horaria_json=getattr(met2, "vazao_horaria_json", None),
+                            tempo_medio_voto_segundos=getattr(met2, "tempo_medio_voto_segundos", 0),
+                            teclas_indevidas_total=getattr(met2, "teclas_indevidas_total", 0),
+                            teclas_indevidas_pres=getattr(met2, "teclas_indevidas_pres", 0),
+                        ) if met2 is not None else None
                         custodia_urna = analisar_custodia_urna_secao(
                             db=db,
                             secao_db=sec_snap,
@@ -4333,8 +4370,8 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                             bu2=bu2_snap,
                             espelho_1t=espelho_1t or "",
                             espelho_2t=espelho_2t or "",
-                            met1=met1,
-                            met2=met2,
+                            met1=met1_snap,
+                            met2=met2_snap,
                             ciclos_1t=ciclos_1t,
                             ciclos_2t=ciclos_2t,
                         )

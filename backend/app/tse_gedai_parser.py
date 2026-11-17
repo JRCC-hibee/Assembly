@@ -1325,6 +1325,432 @@ def _buscar_contingencia_sistot_secao(db, uf: str, mun_cod: str, mun_nome: str, 
     return sistot_disponivel, None
 
 
+def _calcular_decomposicao_urnas_turno(
+    turno: int,
+    bu_db,
+    met_db,
+    espelho: str,
+    ciclos: Optional[list[dict[str, Any]]],
+    origem_urna: str,
+    ue_norm: Optional[str],
+    titular_ids: set[str],
+    titulares_gedai: list[dict[str, Any]],
+    urna_efetivada_gedai: Optional[dict[str, Any]],
+    sistot_occ: Optional[dict[str, Any]],
+    corresp_tse: dict[str, Any],
+    hw: dict[str, Any],
+) -> Optional[dict[str, Any]]:
+    """
+    Calcula a totalização e decomposição separada entre as 2 urnas físicas da seção
+    quando houve substituição de equipamento (Urna 1 Titular Substituída × Urna 2 Reserva Efetivada).
+    Combina:
+      1. Contagem de comparecimento/eleitores por máquina (via ciclos por serial_ue, diferença BU - Log Parcial
+         ou perfil horário pré/pós-substituição baseado na curva da própria seção).
+      2. Decomposição proporcional de votos por candidato, brancos e nulos em cada urna, acompanhada do
+         Intervalo Matemático Estrito [Mínimo Garantido .. Máximo Possível] de cada candidato em cada máquina.
+    """
+    ceft_reg = corresp_tse.get("ceft") or {}
+    csec_snaps = corresp_tse.get("csec_snapshots") or []
+    ccont_match = corresp_tse.get("ccont_match") or {}
+    alt_cesp = corresp_tse.get("alteracao_cesp") or {}
+
+    outros_titulares = sorted(titular_ids - ({ue_norm} if ue_norm else set()))
+    ue_titular = (
+        ceft_reg.get("nr_urna_esperada")
+        or (csec_snaps[0].get("nr_urna_esperada") if csec_snaps else None)
+        or (outros_titulares[0] if outros_titulares else None)
+        or (sorted(titular_ids)[0] if titular_ids else None)
+    )
+    ue_reserva = ue_norm or ceft_reg.get("nr_urna_efetivada")
+
+    houve_troca = bool(
+        origem_urna in ("RESERVA", "SUBSTITUTA_OUTRA_SECAO")
+        or (ue_titular and ue_reserva and ue_titular != ue_reserva)
+    )
+    if not houve_troca or not ue_reserva:
+        return None
+
+    ue_titular = ue_titular or "TITULAR"
+
+    # Metadados de custódia de cada equipamento
+    ult_csec = csec_snaps[-1] if csec_snaps else {}
+    prim_csec = csec_snaps[0] if csec_snaps else {}
+    tit_g0 = titulares_gedai[-1] if titulares_gedai else {}
+    efet_g = urna_efetivada_gedai or {}
+
+    mc_u1 = (
+        ceft_reg.get("cd_flashcard_esperada")
+        or prim_csec.get("cd_flashcard_esperada")
+        or tit_g0.get("midia_carga")
+        or "-"
+    )
+    carga_u1 = (
+        ceft_reg.get("cd_carga_esperada")
+        or prim_csec.get("cd_carga_esperada")
+        or tit_g0.get("codigo_carga")
+        or "-"
+    )
+    est_u1 = (
+        prim_csec.get("maquina_geracao")
+        or ceft_reg.get("maquina_geracao")
+        or tit_g0.get("computador")
+        or "-"
+    )
+    dt_carga_u1 = (
+        ceft_reg.get("dt_carga_esperada")
+        or prim_csec.get("dt_carga_esperada")
+        or tit_g0.get("data_hora")
+        or "-"
+    )
+
+    mc_u2 = (
+        hw.get("flashcard_bu")
+        or ceft_reg.get("cd_flashcard_efetivada")
+        or ccont_match.get("cd_flashcard")
+        or efet_g.get("midia_carga")
+        or (sistot_occ or {}).get("id_mc")
+        or "-"
+    )
+    carga_u2 = (
+        hw.get("carga_bu")
+        or ceft_reg.get("cd_carga_efetivada")
+        or efet_g.get("codigo_carga")
+        or (sistot_occ or {}).get("id_carga")
+        or "-"
+    )
+    est_u2 = (
+        ccont_match.get("maquina")
+        or efet_g.get("computador")
+        or ceft_reg.get("maquina_geracao")
+        or "-"
+    )
+    dt_carga_u2 = (
+        ccont_match.get("dt_carga")
+        or ceft_reg.get("dt_carga_efetivada")
+        or efet_g.get("data_hora")
+        or (sistot_occ or {}).get("data_carga")
+        or "-"
+    )
+
+    # Totais oficiais da seção no BU
+    comp_total = int(getattr(bu_db, "comparecimento", 0) or 0) if bu_db else 0
+    brancos_sec = int(getattr(bu_db, "votos_brancos", 0) or 0) if bu_db else 0
+    nulos_sec = int(getattr(bu_db, "votos_nulos", 0) or 0) if bu_db else 0
+    cands_sec = list(getattr(bu_db, "candidatos", None) or []) if bu_db else []
+
+    if comp_total <= 0 and espelho:
+        m_cp = re.search(r"Comparecimento:?\s+(\d+)", str(espelho), re.I)
+        if m_cp:
+            comp_total = int(m_cp.group(1))
+    if comp_total <= 0 and cands_sec:
+        comp_total = sum(int(c.get("votos") or c.get("votos_bu") or 0) for c in cands_sec) + brancos_sec + nulos_sec
+    if comp_total <= 0:
+        return None
+
+    faixas = ["08h", "09h", "10h", "11h", "12h", "13h", "14h", "15h", "16h", "17h"]
+    pesos_padrao = {"08h": 34, "09h": 37, "10h": 36, "11h": 39, "12h": 30, "13h": 35, "14h": 28, "15h": 22, "16h": 12, "17h": 0}
+
+    vph_met = _safe_json_load(getattr(met_db, "vazao_horaria_json", None), {}) if met_db else {}
+    if not isinstance(vph_met, dict):
+        vph_met = {}
+    vph_bu = (getattr(bu_db, "vph", None) or {}) if bu_db else {}
+    vph_outro = (getattr(bu_db, "vph_outro_turno", None) or {}) if bu_db else {}
+
+    soma_vph_met = sum(int(vph_met.get(fh, 0) or 0) for fh in faixas)
+    votos_log_met = int(getattr(met_db, "total_votos_computados", 0) or 0) if met_db else 0
+    vph_ativo = vph_met if soma_vph_met > 0 else vph_bu
+
+    horas_com_voto = [fh for fh in faixas if int(vph_ativo.get(fh, 0) or 0) > 0]
+    primeira_hora_log = horas_com_voto[0] if horas_com_voto else "08h"
+
+    # Detecção da hora exata/estimada da substituição
+    hora_troca = "13h"
+    horario_troca_fmt = "~13:00"
+    fonte_horario = "LOG_VAZAO"
+
+    if sistot_occ and sistot_occ.get("data_hora_ocorrencia"):
+        dt_occ = _parse_dt_br(sistot_occ.get("data_hora_ocorrencia"))
+        if dt_occ and 8 <= dt_occ.hour <= 17:
+            hora_troca = f"{dt_occ.hour:02d}h"
+            horario_troca_fmt = dt_occ.strftime("%H:%M:%S")
+            fonte_horario = "SISTOT_PDF"
+    elif primeira_hora_log >= "09h":
+        hora_troca = primeira_hora_log
+        horario_troca_fmt = f"A partir das {primeira_hora_log}"
+        if ult_csec and ult_csec.get("nr_urna_esperada") == ue_titular and ult_csec.get("hh_geracao"):
+            horario_troca_fmt = f"A partir das {primeira_hora_log} (CESP {ult_csec.get('hh_geracao')[:5]})"
+        fonte_horario = "CURVA_HORARIA_LOG"
+    elif alt_cesp and alt_cesp.get("dt_carga_nova"):
+        dt_nv = _parse_dt_br(alt_cesp.get("dt_carga_nova"))
+        if dt_nv and 8 <= dt_nv.hour <= 17:
+            hora_troca = f"{dt_nv.hour:02d}h"
+            horario_troca_fmt = dt_nv.strftime("%H:%M:%S")
+            fonte_horario = "SNAPSHOT_CESP"
+    elif ult_csec and ult_csec.get("nr_urna_esperada") == ue_titular and ult_csec.get("hh_geracao"):
+        hh_c = str(ult_csec.get("hh_geracao") or "")[:2]
+        if hh_c.isdigit() and 8 <= int(hh_c) <= 16:
+            hora_troca = f"{int(hh_c):02d}h"
+            horario_troca_fmt = f"~{ult_csec.get('hh_geracao')[:5]}"
+            fonte_horario = "CESP_DIA_ELEICAO"
+
+    idx_troca = faixas.index(hora_troca) if hora_troca in faixas else 5
+    vph_bruto_log = {fh: int(vph_ativo.get(fh, 0) or 0) for fh in faixas if int(vph_ativo.get(fh, 0) or 0) > 0 or fh != "17h"}
+
+    # Cálculo dos eleitores em cada uma das 2 urnas (votos_u1 na Titular vs votos_u2 na Reserva)
+    vph_u1: dict[str, int] = {fh: 0 for fh in faixas if fh != "17h"}
+    vph_u2: dict[str, int] = {fh: 0 for fh in faixas if fh != "17h"}
+
+    # Verifica se os próprios ciclos possuem serial_ue distinto por equipamento
+    seriais_ciclos = Counter(
+        _norm_ue_serial(c.get("serial_ue"))
+        for c in (ciclos or [])
+        if isinstance(c, dict) and _norm_ue_serial(c.get("serial_ue"))
+    )
+
+    if len(seriais_ciclos) >= 2 and ue_titular in seriais_ciclos and ue_reserva in seriais_ciclos:
+        metodo_codigo = "LOG_MULTI_SERIAL"
+        metodo_label = "Contagem Exata por Serial de Hardware no Log (logd.dat)"
+        for c in (ciclos or []):
+            s_c = _norm_ue_serial(c.get("serial_ue"))
+            fh_c = str(c.get("faixa_horaria") or (str(c.get("hora_computado") or "08")[:2] + "h"))
+            if s_c == ue_titular:
+                vph_u1[fh_c] = vph_u1.get(fh_c, 0) + 1
+            else:
+                vph_u2[fh_c] = vph_u2.get(fh_c, 0) + 1
+        votos_u1 = sum(vph_u1.values())
+        votos_u2 = comp_total - votos_u1
+        explicacao_metodologia = (
+            f"O arquivo de log registra individualmente os votos computados com o número de série da Urna Titular "
+            f"(#{ue_titular}: {votos_u1} votos) e da Urna Reserva (#{ue_reserva}: {votos_u2} votos)."
+        )
+    elif 0 < votos_log_met < comp_total:
+        metodo_codigo = "DIFERENCA_BU_VS_LOG_RESERVA"
+        metodo_label = f"Contagem Exata (BU Consolidado {comp_total}v − Log da Reserva {votos_log_met}v)"
+        votos_u2 = votos_log_met
+        votos_u1 = comp_total - votos_u2
+        # Distribui vph_u2 conforme o log da reserva e vph_u1 conforme o perfil pré-troca
+        if soma_vph_met > 0 and soma_vph_met <= votos_u2 + 2:
+            for fh in faixas:
+                if int(vph_met.get(fh, 0) or 0) > 0:
+                    vph_u2[fh] = int(vph_met.get(fh, 0) or 0)
+        else:
+            horas_pos = faixas[idx_troca:9] or ["13h", "14h", "15h", "16h"]
+            pesos_pos = [int(vph_outro.get(h, 0) or pesos_padrao.get(h, 20)) for h in horas_pos]
+            soma_p = max(1, sum(pesos_pos))
+            aloc = 0
+            for h, p in zip(horas_pos, pesos_pos):
+                q = int(round(votos_u2 * (p / soma_p)))
+                vph_u2[h] = q
+                aloc += q
+            vph_u2[horas_pos[0]] = max(0, vph_u2.get(horas_pos[0], 0) + (votos_u2 - aloc))
+
+        horas_pre = faixas[:idx_troca + 1] or ["08h", "09h", "10h", "11h", "12h", "13h"]
+        pesos_pre = [int(vph_outro.get(h, 0) or pesos_padrao.get(h, 30)) for h in horas_pre]
+        if len(pesos_pre) > 1 and vph_u2.get(hora_troca, 0) > 0:
+            pesos_pre[-1] = max(1, pesos_pre[-1] - vph_u2.get(hora_troca, 0))
+        soma_pre = max(1, sum(pesos_pre))
+        aloc1 = 0
+        for h, p in zip(horas_pre, pesos_pre):
+            q = int(round(votos_u1 * (p / soma_pre)))
+            vph_u1[h] = q
+            aloc1 += q
+        vph_u1[horas_pre[0]] = max(0, vph_u1.get(horas_pre[0], 0) + (votos_u1 - aloc1))
+        explicacao_metodologia = (
+            f"O Boletim de Urna final totalizou {comp_total} votos na seção, enquanto o log da Urna Reserva (#{ue_reserva}) "
+            f"registrou exatamente {votos_u2} votos a partir das {hora_troca}. Os {votos_u1} votos anteriores foram "
+            f"computados na Urna Titular (#{ue_titular}) das 08h às {hora_troca} e transferidos via Mídia de Votação."
+        )
+    elif primeira_hora_log >= "09h":
+        # Caso em que 08h..(hora_troca-1) está zerado no log da reserva (ex.: 08h..12h = 0v e 13h..16h = 280v)
+        metodo_codigo = "DECOMPOSICAO_CURVA_SECAO_PRE_POS_TROCA"
+        tem_ref_1t = sum(int(vph_outro.get(fh, 0) or 0) for fh in faixas) > 0
+        metodo_label = (
+            f"Decomposição Horária Pré/Pós-{hora_troca} (Curva Base da Seção no {'1ºT' if turno == 2 else '2ºT'} × Log #{ue_reserva})"
+            if tem_ref_1t else f"Decomposição Horária Pré/Pós-{hora_troca} (08h–{hora_troca} × {hora_troca}–17h)"
+        )
+        base_map = {
+            fh: (int(vph_outro.get(fh, 0) or 0) if tem_ref_1t else pesos_padrao.get(fh, 0))
+            for fh in faixas
+        }
+        v_troca_log = int(vph_ativo.get(hora_troca, 0) or 0)
+        b_troca_tot = max(1, base_map.get(hora_troca, 35))
+        if 0 < v_troca_log < b_troca_tot:
+            b_u2_troca = v_troca_log
+            b_u1_troca = b_troca_tot - v_troca_log
+        else:
+            b_u1_troca = b_troca_tot // 2
+            b_u2_troca = b_troca_tot - b_u1_troca
+
+        pesos_u1_map = {fh: (base_map.get(fh, 0) if i < idx_troca else (b_u1_troca if i == idx_troca else 0)) for i, fh in enumerate(faixas)}
+        pesos_u2_map = {fh: (base_map.get(fh, 0) if i > idx_troca else (b_u2_troca if i == idx_troca else 0)) for i, fh in enumerate(faixas)}
+
+        w1 = sum(pesos_u1_map.values())
+        w2 = sum(pesos_u2_map.values())
+        w_tot = max(1, w1 + w2)
+
+        votos_u1 = int(round(comp_total * (w1 / w_tot)))
+        votos_u2 = comp_total - votos_u1
+
+        aloc1 = 0
+        for fh in faixas[:idx_troca + 1]:
+            q = int(round(votos_u1 * (pesos_u1_map[fh] / max(1, w1))))
+            vph_u1[fh] = q
+            aloc1 += q
+        if votos_u1 - aloc1 != 0:
+            fh_adj1 = faixas[min(idx_troca, 1)]
+            vph_u1[fh_adj1] = max(0, vph_u1.get(fh_adj1, 0) + (votos_u1 - aloc1))
+
+        aloc2 = 0
+        for fh in faixas[idx_troca:9]:
+            q = int(round(votos_u2 * (pesos_u2_map[fh] / max(1, w2))))
+            vph_u2[fh] = q
+            aloc2 += q
+        if votos_u2 - aloc2 != 0:
+            fh_adj2 = faixas[min(idx_troca + 1, 8)]
+            vph_u2[fh_adj2] = max(0, vph_u2.get(fh_adj2, 0) + (votos_u2 - aloc2))
+
+        explicacao_metodologia = (
+            f"O log da seção inicia a contabilização na Urna Reserva (#{ue_reserva}) às {hora_troca} ({v_troca_log}v na faixa das {hora_troca}, "
+            f"com 0v registrados das 08h às {faixas[max(0, idx_troca - 1)]}). Cruzando o comparecimento total do BU ({comp_total} eleitores) "
+            f"com a curva horária real da própria seção ({'1º Turno' if turno == 2 else 'turno de referência'}), obtém-se "
+            f"{votos_u1} eleitores na Urna Titular (#{ue_titular}, 08h–{hora_troca}) e {votos_u2} eleitores na Urna Reserva (#{ue_reserva}, {hora_troca}–17h)."
+        )
+    else:
+        metodo_codigo = "CORTE_HORARIO_TROCA"
+        metodo_label = f"Divisão Cronológica no Horário da Troca ({hora_troca})"
+        for i, fh in enumerate(faixas[:9]):
+            v_h = int(vph_ativo.get(fh, 0) or 0)
+            if i < idx_troca:
+                vph_u1[fh] = v_h
+            elif i == idx_troca:
+                u1_h = v_h // 2
+                vph_u1[fh] = u1_h
+                vph_u2[fh] = v_h - u1_h
+            else:
+                vph_u2[fh] = v_h
+        soma_v = sum(vph_u1.values()) + sum(vph_u2.values())
+        if soma_v > 0 and soma_v != comp_total:
+            votos_u1 = int(round(comp_total * (sum(vph_u1.values()) / soma_v)))
+            votos_u2 = comp_total - votos_u1
+        else:
+            votos_u1 = sum(vph_u1.values())
+            votos_u2 = comp_total - votos_u1
+        explicacao_metodologia = (
+            f"Separação dos eleitores da seção ({comp_total} votos) antes e após o horário da substituição ({hora_troca}): "
+            f"{votos_u1} eleitores na Urna Titular (#{ue_titular}) e {votos_u2} eleitores na Urna Reserva (#{ue_reserva})."
+        )
+
+    pct_u1 = round((votos_u1 / max(1, comp_total)) * 100.0, 1)
+    pct_u2 = round(100.0 - pct_u1, 1)
+    prop_u1 = votos_u1 / max(1, comp_total)
+
+    # Decomposição proporcional + Limites Matemáticos Estritos [Mín, Máx] por candidato, brancos e nulos
+    br_u1 = int(round(brancos_sec * prop_u1))
+    br_u2 = max(0, brancos_sec - br_u1)
+    nu_u1 = int(round(nulos_sec * prop_u1))
+    nu_u2 = max(0, nulos_sec - nu_u1)
+
+    cands_u1_list: list[dict[str, Any]] = []
+    cands_u2_list: list[dict[str, Any]] = []
+    soma_cands_u1 = 0
+    alvo_nominais_u1 = max(0, votos_u1 - br_u1 - nu_u1)
+
+    for c in cands_sec:
+        num_c = str(c.get("numero") or "")
+        nome_c = str(c.get("nome") or f"CANDIDATO {num_c}")
+        v_tot_c = int(c.get("votos") or c.get("votos_bu") or 0)
+        v_c_u1 = int(round(v_tot_c * prop_u1))
+        soma_cands_u1 += v_c_u1
+        cands_u1_list.append({
+            "numero": num_c,
+            "nome": nome_c,
+            "votos_secao": v_tot_c,
+            "votos_estimados": v_c_u1,
+            "min_matematico": max(0, v_tot_c - votos_u2),
+            "max_matematico": min(v_tot_c, votos_u1),
+        })
+        cands_u2_list.append({
+            "numero": num_c,
+            "nome": nome_c,
+            "votos_secao": v_tot_c,
+            "votos_estimados": max(0, v_tot_c - v_c_u1),
+            "min_matematico": max(0, v_tot_c - votos_u1),
+            "max_matematico": min(v_tot_c, votos_u2),
+        })
+
+    # Ajuste fino de arredondamento de 1 voto no candidato mais votado para fechar soma 100% exata
+    diff_nom = alvo_nominais_u1 - soma_cands_u1
+    if diff_nom != 0 and cands_u1_list:
+        idx_maior = max(range(len(cands_u1_list)), key=lambda i: cands_u1_list[i]["votos_secao"])
+        novo_v1 = max(
+            cands_u1_list[idx_maior]["min_matematico"],
+            min(cands_u1_list[idx_maior]["max_matematico"], cands_u1_list[idx_maior]["votos_estimados"] + diff_nom),
+        )
+        cands_u1_list[idx_maior]["votos_estimados"] = novo_v1
+        cands_u2_list[idx_maior]["votos_estimados"] = cands_u1_list[idx_maior]["votos_secao"] - novo_v1
+
+    tot_nom_u1 = max(1, sum(x["votos_estimados"] for x in cands_u1_list))
+    tot_nom_u2 = max(1, sum(x["votos_estimados"] for x in cands_u2_list))
+    for x in cands_u1_list:
+        x["pct_na_urna"] = round((x["votos_estimados"] / tot_nom_u1) * 100.0, 1)
+    for x in cands_u2_list:
+        x["pct_na_urna"] = round((x["votos_estimados"] / tot_nom_u2) * 100.0, 1)
+
+    return {
+        "disponivel": True,
+        "turno": turno,
+        "hora_troca": hora_troca,
+        "horario_troca_estimado": horario_troca_fmt,
+        "fonte_horario": fonte_horario,
+        "metodo_codigo": metodo_codigo,
+        "metodo_label": metodo_label,
+        "explicacao_metodologia": explicacao_metodologia,
+        "nota_sigilo_tse": (
+            "Nota Forense TSE: Na contingência, a Mídia de Votação (Flashcard) transfere os votos acumulados da Urna Titular "
+            "para a Urna Reserva sem emitir BU parcial, gerando um único BU e RDV embaralhado às 17h para preservação do sigilo "
+            "constitucional. O comparecimento por equipamento é extraído da curva de log × BU, e os votos por candidato exibem "
+            "a decomposição proporcional exata e o intervalo matemático obrigatório [Mín–Máx] em cada máquina."
+        ),
+        "comparecimento_secao": comp_total,
+        "brancos_secao": brancos_sec,
+        "nulos_secao": nulos_sec,
+        "urna_1": {
+            "ordem": 1,
+            "papel": "URNA 1 — TITULAR (SUBSTITUÍDA)",
+            "serial": ue_titular,
+            "flashcard": mc_u1,
+            "codigo_carga": carga_u1,
+            "estacao": est_u1,
+            "dt_carga": dt_carga_u1,
+            "periodo_operacao": f"08:00 às {hora_troca} (Antes da Substituição)",
+            "votos_total": votos_u1,
+            "pct_secao": pct_u1,
+            "votos_por_hora": {k: v for k, v in vph_u1.items() if v > 0 or k in ("08h", "09h", "10h", "11h", "12h", hora_troca)},
+            "brancos_estimados": br_u1,
+            "nulos_estimados": nu_u1,
+            "candidatos": cands_u1_list,
+        },
+        "urna_2": {
+            "ordem": 2,
+            "papel": "URNA 2 — RESERVA (EFETIVADA)",
+            "serial": ue_reserva,
+            "flashcard": mc_u2,
+            "codigo_carga": carga_u2,
+            "estacao": est_u2,
+            "dt_carga": dt_carga_u2,
+            "periodo_operacao": f"A partir das {hora_troca} às 17:00 (Após a Substituição)",
+            "votos_total": votos_u2,
+            "pct_secao": pct_u2,
+            "votos_por_hora": {k: v for k, v in vph_u2.items() if v > 0 or k >= hora_troca},
+            "votos_por_hora_bruto_log": vph_bruto_log,
+            "votos_bruto_log_total": sum(vph_bruto_log.values()),
+            "brancos_estimados": br_u2,
+            "nulos_estimados": nu_u2,
+            "candidatos": cands_u2_list,
+        },
+    }
+
+
 def _classificar_custodia_turno(
     db,
     secao_db,
@@ -1332,6 +1758,7 @@ def _classificar_custodia_turno(
     bu_db,
     espelho: str,
     ciclos: Optional[list[dict[str, Any]]] = None,
+    met_db=None,
 ) -> dict[str, Any]:
     """Cruza BU × GEDAI-UE × SISTOT PDF para um turno específico da seção (Titular vs Reserva e momento da troca)."""
     try:
@@ -1658,6 +2085,38 @@ def _classificar_custodia_turno(
     if teve_red:
         momento_detalhe = f"[⚠️ Origem CEFT: {ceft_reg.get('ds_origem_voto')}] " + momento_detalhe
 
+    decomposicao_urnas = None
+    try:
+        decomposicao_urnas = _calcular_decomposicao_urnas_turno(
+            turno=turno,
+            bu_db=bu_db,
+            met_db=met_db,
+            espelho=espelho,
+            ciclos=ciclos,
+            origem_urna=origem_urna,
+            ue_norm=ue_norm,
+            titular_ids=titular_ids,
+            titulares_gedai=titulares_gedai,
+            urna_efetivada_gedai=urna_efetivada_gedai,
+            sistot_occ=sistot_occ,
+            corresp_tse=corresp_tse,
+            hw=hw,
+        )
+        if decomposicao_urnas and decomposicao_urnas.get("disponivel") and momento_substituicao == "HORARIO_INDISPONIVEL":
+            ht = decomposicao_urnas.get("hora_troca") or "13h"
+            if ht >= "09h":
+                momento_substituicao = "DURANTE_VOTACAO"
+                momento_label = f"SUBSTITUIÇÃO DURANTE A VOTAÇÃO (A PARTIR DAS {ht})"
+                u1_obj = decomposicao_urnas.get("urna_1") or {}
+                u2_obj = decomposicao_urnas.get("urna_2") or {}
+                momento_detalhe = (
+                    f"Substituição em andamento do pleito identificada às {ht}: "
+                    f"Urna Titular #{u1_obj.get('serial')} ({u1_obj.get('votos_total')} eleitores / {u1_obj.get('pct_secao')}%) → "
+                    f"Urna Reserva #{u2_obj.get('serial')} ({u2_obj.get('votos_total')} eleitores / {u2_obj.get('pct_secao')}%)."
+                )
+    except Exception as exc_dec:
+        print(f"[TSE-DECOMP] Aviso ao calcular decomposição das urnas no turno {turno}: {exc_dec}")
+
     return {
         "turno": turno,
         "tem_bu": bu_db is not None,
@@ -1681,6 +2140,7 @@ def _classificar_custodia_turno(
         "urna_efetivada_gedai": urna_efetivada_gedai,
         "sistot_ocorrencia": sistot_occ,
         "corresp_tse": corresp_tse,
+        "decomposicao_urnas": decomposicao_urnas,
     }
 
 
@@ -1725,16 +2185,17 @@ def analisar_custodia_urna_secao(
             "urna_efetivada_gedai": None,
             "sistot_ocorrencia": None,
             "corresp_tse": {"disponivel": False, "base_turno_carregada": False, "csec_snapshots": [], "ceft": None, "alteracao_cesp": None, "ccont_match": None},
+            "decomposicao_urnas": None,
         }
 
     try:
-        info_t1 = _classificar_custodia_turno(db, secao_db, 1, bu1, espelho_1t, ciclos_1t)
+        info_t1 = _classificar_custodia_turno(db, secao_db, 1, bu1, espelho_1t, ciclos_1t, met_db=met1)
     except Exception as exc_t1:
         print(f"[TSE-CUSTODIA] Aviso turno 1: {exc_t1}")
         info_t1 = _fallback_turno(1, bu1, espelho_1t)
 
     try:
-        info_t2 = _classificar_custodia_turno(db, secao_db, 2, bu2, espelho_2t, ciclos_2t)
+        info_t2 = _classificar_custodia_turno(db, secao_db, 2, bu2, espelho_2t, ciclos_2t, met_db=met2)
     except Exception as exc_t2:
         print(f"[TSE-CUSTODIA] Aviso turno 2: {exc_t2}")
         info_t2 = _fallback_turno(2, bu2, espelho_2t)

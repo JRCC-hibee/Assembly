@@ -7758,7 +7758,9 @@ o Boletim de Urna (apos encerramento da votacao).
           const cachedPayload = window.tseConsolidarCache.get(chave);
           const isSecStale = cachedPayload?.modo_visao === "SECAO_INDIVIDUAL" && (
             !cachedPayload?.secao_individual?.custodia_urna ||
-            !cachedPayload?.secao_individual?.custodia_urna?.turno_1
+            !cachedPayload?.secao_individual?.custodia_urna?.turno_1 ||
+            cachedPayload?.secao_individual?.custodia_urna?.turno_1?.decomposicao_urnas === undefined ||
+            cachedPayload?.secao_individual?.custodia_urna?.turno_2?.decomposicao_urnas === undefined
           );
           const isConsStale = cachedPayload?.modo_visao === "CONSOLIDADO_GLOBAL" && (
             cachedPayload?.consolidado?.custodia_consolidada === undefined ||
@@ -9014,6 +9016,123 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
         `;
       }).join("");
 
+      const decompBlocksHtml = [
+        { key: "turno_1", titulo: "1º Turno (04/10/2026)" },
+        { key: "turno_2", titulo: "2º Turno (25/10/2026)" },
+      ].map(({ key, titulo }) => {
+        const dec = custodia[key]?.decomposicao_urnas;
+        if (!dec || !dec.disponivel) return "";
+        const u1 = dec.urna_1 || {};
+        const u2 = dec.urna_2 || {};
+
+        const renderUrnaDecompCard = (u, isReserva) => {
+          const bdr = isReserva ? "border-orange-500/50 bg-orange-950/10" : "border-cyan-500/50 bg-cyan-950/10";
+          const hdrClr = isReserva ? "text-orange-300" : "text-cyan-300";
+          const badgeCls = isReserva
+            ? "bg-orange-950 text-orange-300 border-orange-500/50"
+            : "bg-cyan-950 text-cyan-300 border-cyan-500/50";
+          const vphEntries = Object.entries(u.votos_por_hora || {});
+          const vphPills = vphEntries.map(([hh, q]) =>
+            `<span class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-[10px] mono"><strong class="text-slate-300">${esc(hh)}:</strong> <span class="${q > 0 ? hdrClr + ' font-extrabold' : 'text-slate-500'}">${Number(q || 0)}v</span></span>`
+          ).join("");
+
+          const brutoEntries = isReserva && u.votos_por_hora_bruto_log
+            ? Object.entries(u.votos_por_hora_bruto_log).filter(([, q]) => Number(q || 0) > 0)
+            : [];
+          const brutoHtml = brutoEntries.length > 0
+            ? `<div class="text-[10px] mono text-slate-400 pt-1">
+                 <span class="text-amber-300 font-bold">Leitura Bruta logd.dat (#${esc(u.serial)}):</span>
+                 ${brutoEntries.map(([hh, q]) => `${esc(hh)}: <strong>${q}v</strong>`).join(" • ")}
+                 (Total no arquivo: <strong>${Number(u.votos_bruto_log_total || 0)}v</strong>)
+               </div>`
+            : "";
+
+          const candsRows = (u.candidatos || []).map(cd => `
+            <tr class="border-b border-slate-800/70">
+              <td class="py-1 px-2 font-bold text-white"><span class="text-cyan-300">#${esc(cd.numero)}</span> ${esc(cd.nome)}</td>
+              <td class="py-1 px-2 text-right text-slate-400">${Number(cd.votos_secao || 0)}v</td>
+              <td class="py-1 px-2 text-right font-black ${hdrClr}">${Number(cd.votos_estimados || 0)}v <span class="text-[9px] text-slate-400 font-normal">(${cd.pct_na_urna ?? 0}%)</span></td>
+              <td class="py-1 px-2 text-right text-[10px] text-slate-300">${Number(cd.min_matematico || 0)} a ${Number(cd.max_matematico || 0)}v</td>
+            </tr>
+          `).join("");
+
+          return `
+            <div class="rounded-xl border ${bdr} p-3.5 space-y-2.5">
+              <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                <div>
+                  <span class="px-2 py-0.5 rounded border text-[10px] font-black mono ${badgeCls}">${esc(u.papel)}</span>
+                  <div class="text-sm font-black text-white mono mt-1">UE #${esc(u.serial)} <span class="text-xs font-normal text-slate-400">• MC ${esc(u.flashcard || '-')} • Est. ${esc(u.estacao || '-')}</span></div>
+                </div>
+                <div class="text-right mono">
+                  <div class="text-lg font-black ${hdrClr}">${Number(u.votos_total || 0)} eleitores</div>
+                  <div class="text-[10px] text-slate-300 font-bold">${u.pct_secao ?? 0}% do total da seção</div>
+                </div>
+              </div>
+              <div class="text-[11px] mono text-slate-300 flex flex-wrap items-center justify-between gap-2">
+                <span>⏱️ <strong>Janela de Operação:</strong> ${esc(u.periodo_operacao)}</span>
+                <span class="text-slate-400">Carga: ${esc(u.dt_carga || '-')}</span>
+              </div>
+              <div class="space-y-1">
+                <div class="text-[10px] font-bold uppercase mono text-slate-400">Vazão Horária Estimada nesta Máquina:</div>
+                <div class="flex flex-wrap gap-1">${vphPills}</div>
+                ${brutoHtml}
+              </div>
+              <div class="overflow-x-auto border border-slate-800 rounded-lg bg-slate-950/90">
+                <table class="w-full text-[11px] mono text-left">
+                  <thead class="bg-slate-900 text-[9px] text-slate-400 uppercase border-b border-slate-800">
+                    <tr>
+                      <th class="py-1 px-2">Candidato / Item</th>
+                      <th class="py-1 px-2 text-right">Seção (BU)</th>
+                      <th class="py-1 px-2 text-right">Nesta Urna (#${esc(u.serial)})</th>
+                      <th class="py-1 px-2 text-right">Intervalo Matemático [Mín–Máx]</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${candsRows}
+                    <tr class="border-b border-slate-800/60 text-slate-300 text-[10px]">
+                      <td class="py-1 px-2">Votos em Branco + Nulos</td>
+                      <td class="py-1 px-2 text-right text-slate-400">${Number((dec.brancos_secao || 0) + (dec.nulos_secao || 0))}v</td>
+                      <td class="py-1 px-2 text-right font-bold">${Number((u.brancos_estimados || 0) + (u.nulos_estimados || 0))}v <span class="text-[9px] text-slate-500">(B:${u.brancos_estimados || 0} / N:${u.nulos_estimados || 0})</span></td>
+                      <td class="py-1 px-2 text-right text-slate-400">-</td>
+                    </tr>
+                    <tr class="bg-slate-900/70 font-black text-white">
+                      <td class="py-1.5 px-2">TOTAL NA URNA #${esc(u.serial)}</td>
+                      <td class="py-1.5 px-2 text-right text-slate-300">${Number(dec.comparecimento_secao || 0)}v</td>
+                      <td class="py-1.5 px-2 text-right ${hdrClr}">${Number(u.votos_total || 0)}v (${u.pct_secao ?? 0}%)</td>
+                      <td class="py-1.5 px-2 text-right text-[10px] text-emerald-300">Soma U1+U2 = 100% BU</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `;
+        };
+
+        return `
+          <div class="mt-3 rounded-xl border-2 border-amber-500/50 bg-slate-950/95 p-4 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
+              <div>
+                <div class="text-xs font-black uppercase tracking-wider text-amber-300 flex items-center gap-2">
+                  <span>⚖️</span>
+                  <span>Totalização Separada por Urna Física — ${esc(titulo)}: Titular #${esc(u1.serial)} × Reserva #${esc(u2.serial)}</span>
+                </div>
+                <p class="text-[11px] text-slate-300 mt-0.5">${esc(dec.explicacao_metodologia || "")}</p>
+              </div>
+              <span class="px-2.5 py-1 rounded-lg bg-amber-950 text-amber-200 border border-amber-500/50 text-[10px] font-black mono">
+                ⏱️ Troca: ${esc(dec.horario_troca_estimado || dec.hora_troca)} • ${esc(dec.metodo_label || "")}
+              </span>
+            </div>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              ${renderUrnaDecompCard(u1, false)}
+              ${renderUrnaDecompCard(u2, true)}
+            </div>
+            <div class="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 text-[10px] text-slate-400 mono leading-relaxed">
+              💡 <strong>Por que o TSE emite um único BU/RDV na seção?</strong> ${esc(dec.nota_sigilo_tse || "")}
+            </div>
+          </div>
+        `;
+      }).join("");
+
       box.innerHTML = `
         <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2.5">
           <div class="flex items-center gap-2">
@@ -9035,6 +9154,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
           </div>
         </div>
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">${cardsHtml}</div>
+        ${decompBlocksHtml}
       `;
       box.classList.remove("hidden");
     }
