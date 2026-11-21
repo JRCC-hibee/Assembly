@@ -1033,7 +1033,9 @@ def api_simular_segundo_turno(payload: SimulacaoSegundoTurnoSchema, db: Session 
             resultado["historico_id"] = hist["id"]
             resultado["historico_info"] = hist
         except Exception as e_hist:
-            print(f"[HISTORICO-SIMULACAO] Aviso ao arquivar simulação: {e_hist}")
+            import traceback
+            print(f"[HISTORICO-SIMULACAO] ERRO ao arquivar simulação:\n{traceback.format_exc()}")
+            resultado["historico_erro"] = str(e_hist)
 
         return resultado
     except ValueError as exc:
@@ -1083,10 +1085,20 @@ def api_simulacao_dados_secao_real(
 
 
 @app.get("/api/simulacao/historico")
-def api_simulacao_listar_historico(limit: int = 30, db: Session = Depends(get_db)):
+def api_simulacao_listar_historico(limit: int = 50, db: Session = Depends(get_db)):
     """Lista as simulações eleitorais arquivadas no histórico."""
+    garantir_tabelas_custodia_tse()
     try:
-        return listar_historico_simulacoes(db, limit=limit)
+        HistoricoSimulacao.__table__.create(bind=engine, checkfirst=True)
+    except Exception:
+        pass
+    try:
+        itens = listar_historico_simulacoes(db, limit=limit)
+        total = db.query(HistoricoSimulacao).count()
+        return {
+            "total": total,
+            "simulacoes": itens,
+        }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Erro ao listar histórico de simulações: {str(exc)}")
 

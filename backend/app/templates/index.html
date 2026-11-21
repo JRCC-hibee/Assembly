@@ -6126,6 +6126,11 @@ o Boletim de Urna (apos encerramento da votacao).
         // Atualizar contador do Histórico de Simulações
         atualizarContadorHistoricoSimulacoes();
 
+        if (data.historico_erro) {
+          console.warn("[HISTORICO-SIMULACAO] Aviso ao persistir:", data.historico_erro);
+          showSecurityAlert("Atenção: A simulação foi concluída, mas houve erro ao gravar no histórico: " + data.historico_erro, true);
+        }
+
         // Disparar auditoria forense independente no Módulo 2
         await executarAuditoriaIndependenteNaBase();
 
@@ -6642,13 +6647,14 @@ o Boletim de Urna (apos encerramento da votacao).
         const res = await fetch("/api/simulacao/historico?limit=50");
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
-        const lista = data.simulacoes || [];
+        const lista = Array.isArray(data) ? data : (data.simulacoes || []);
+        const totalGeral = Array.isArray(data) ? data.length : (data.total !== undefined ? data.total : lista.length);
 
         const countBadge = document.getElementById("badgeHistoricoSimCount");
-        if (countBadge) countBadge.textContent = data.total || lista.length;
+        if (countBadge) countBadge.textContent = totalGeral;
 
         if (rodape) {
-          rodape.textContent = `Total de ${data.total || lista.length} simulações arquivadas permanentemente no banco`;
+          rodape.textContent = `Total de ${totalGeral} simulações arquivadas permanentemente no banco`;
         }
 
         if (lista.length === 0) {
@@ -6664,15 +6670,27 @@ o Boletim de Urna (apos encerramento da votacao).
 
         container.innerHTML = lista.map(item => {
           const isSecaoReal = item.tipo_origem === "SECAO_REAL";
-          const dCrt = item.criado_em ? new Date(item.criado_em).toLocaleString("pt-BR") : "-";
+          const dCrt = item.criado_em || item.created_at || "-";
+
+          const c1Nome = item.cand1_nome || (item.cand1 && item.cand1.nome) || "C1";
+          const c2Nome = item.cand2_nome || (item.cand2 && item.cand2.nome) || "C2";
+          const c1Num = item.cand1_numero || (item.cand1 && item.cand1.numero) || "22";
+          const c2Num = item.cand2_numero || (item.cand2 && item.cand2.numero) || "13";
+          const c1Votos = item.cand1_votos ?? (item.cand1 && item.cand1.votos) ?? 0;
+          const c2Votos = item.cand2_votos ?? (item.cand2 && item.cand2.votos) ?? 0;
+          const c1Pct = item.cand1_pct ?? (item.cand1 && item.cand1.pct) ?? 0;
+          const c2Pct = item.cand2_pct ?? (item.cand2 && item.cand2.pct) ?? 0;
+
+          const vencNome = item.vencedor_nome || "EMPATE";
+          const vencPct = item.vencedor_pct || (item.vencedor_numero === c1Num ? c1Pct : (item.vencedor_numero === c2Num ? c2Pct : 50.0));
 
           let origemBadge = isSecaoReal
-            ? `<span class="px-2 py-0.5 rounded text-[10px] font-black mono bg-cyan-950 text-cyan-300 border border-cyan-700">🏛️ SEÇÃO REAL: ${item.uf || ''} ${item.municipio || ''} Z:${item.zona} S:${item.secao}</span>`
+            ? `<span class="px-2 py-0.5 rounded text-[10px] font-black mono bg-cyan-950 text-cyan-300 border border-cyan-700">🏛️ SEÇÃO REAL: ${item.uf || ''} ${item.municipio_nome || item.municipio || ''} Z:${item.zona} S:${item.secao}</span>`
             : `<span class="px-2 py-0.5 rounded text-[10px] font-black mono bg-slate-800 text-slate-300 border border-slate-700">⚡ PARAMÉTRICO</span>`;
 
           let vencColor = "text-slate-300";
-          if (item.vencedor_numero === item.cand1_numero) vencColor = "text-cyan-400";
-          else if (item.vencedor_numero === item.cand2_numero) vencColor = "text-rose-400";
+          if (item.vencedor_numero === c1Num) vencColor = "text-cyan-400";
+          else if (item.vencedor_numero === c2Num) vencColor = "text-rose-400";
 
           return `
             <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-indigo-500/50 transition space-y-2 text-xs">
@@ -6706,11 +6724,11 @@ o Boletim de Urna (apos encerramento da votacao).
               <div class="grid grid-cols-12 gap-2 items-center text-[11px] mono">
                 <div class="col-span-12 sm:col-span-5">
                   <span class="text-[10px] text-slate-500 block">VENCEDOR:</span>
-                  <span class="font-extrabold ${vencColor} text-xs">🏆 ${item.vencedor_nome || 'EMPATE'} (${item.vencedor_pct || 0}%)</span>
+                  <span class="font-extrabold ${vencColor} text-xs">🏆 ${vencNome} (${vencPct}%)</span>
                 </div>
                 <div class="col-span-12 sm:col-span-4">
                   <span class="text-[10px] text-slate-500 block">PLACAR VÁLIDOS:</span>
-                  <span class="text-white font-bold">${item.cand1_nome ? item.cand1_nome.split(" ")[0] : 'C1'}: ${item.cand1_votos}v × ${item.cand2_nome ? item.cand2_nome.split(" ")[0] : 'C2'}: ${item.cand2_votos}v</span>
+                  <span class="text-white font-bold">${c1Nome.split(" ")[0]}: ${c1Votos}v × ${c2Nome.split(" ")[0]}: ${c2Votos}v</span>
                 </div>
                 <div class="col-span-12 sm:col-span-3 text-right">
                   <span class="text-[10px] text-slate-500 block">COMPARECIMENTO:</span>
@@ -6807,7 +6825,8 @@ o Boletim de Urna (apos encerramento da votacao).
         if (res.ok) {
           const d = await res.json();
           const badge = document.getElementById("badgeHistoricoSimCount");
-          if (badge) badge.textContent = d.total || 0;
+          const tot = Array.isArray(d) ? d.length : (d.total !== undefined ? d.total : (d.simulacoes ? d.simulacoes.length : 0));
+          if (badge) badge.textContent = tot;
         }
       } catch (e) {}
     }

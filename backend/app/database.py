@@ -1710,7 +1710,12 @@ _CUSTODIA_TABELAS_VERIFICADAS = False
 
 
 def garantir_tabelas_custodia_tse():
-    """Garante sob demanda que as tabelas GEDAI e CESP/CEFT existam no PostgreSQL sem exigir restart."""
+    """Garante sob demanda que as tabelas GEDAI, CESP/CEFT e Histórico de Simulações existam no PostgreSQL sem exigir restart."""
+    try:
+        HistoricoSimulacao.__table__.create(bind=engine, checkfirst=True)
+    except Exception as e_hist:
+        print(f"[DB] Aviso ao verificar tabela historico_simulacoes: {e_hist}")
+
     global _CUSTODIA_TABELAS_VERIFICADAS
     if _CUSTODIA_TABELAS_VERIFICADAS:
         return
@@ -1721,7 +1726,6 @@ def garantir_tabelas_custodia_tse():
             TseGedaiCorrespondencia.__table__,
             TseCorrespArquivo.__table__,
             TseCorrespRegistro.__table__,
-            HistoricoSimulacao.__table__,
         ):
             try:
                 tbl.create(bind=engine, checkfirst=True)

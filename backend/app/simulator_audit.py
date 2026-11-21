@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from .database import (
+    engine,
     SeccaoConfig,
     EleitorSeccao,
     Partido,
@@ -1302,7 +1303,11 @@ def salvar_historico_simulacao(
     parametros_extra: dict = None,
 ) -> dict:
     """Salva no banco de dados o snapshot de uma simulação realizada."""
-    garantir_tabelas_custodia_tse()
+    try:
+        HistoricoSimulacao.__table__.create(bind=engine, checkfirst=True)
+    except Exception as e_tbl:
+        print(f"[HISTORICO-SIMULACAO] Aviso ao verificar tabela: {e_tbl}")
+
     p = resultado_simulacao.get("parametros", {})
     r = resultado_simulacao.get("resultado_urna", {})
     extra = parametros_extra or {}
@@ -1320,6 +1325,28 @@ def salvar_historico_simulacao(
         else:
             titulo = f"Simulação 2º Turno ({c1.get('pct_validos', 0)}% x {c2.get('pct_validos', 0)}%)"
 
+    def _safe_int(val):
+        if val is None:
+            return None
+        s = str(val).strip()
+        return int(s) if s.isdigit() else None
+
+    def _safe_float(val, default=0.0):
+        if val is None:
+            return default
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return default
+
+    zona_val = _safe_int(extra.get("zona"))
+    secao_val = _safe_int(extra.get("secao"))
+    v1t_c1 = _safe_int(extra.get("votos_1t_c1"))
+    v1t_c2 = _safe_int(extra.get("votos_1t_c2"))
+    v1t_out = _safe_int(extra.get("votos_1t_outros"))
+    comp_1t = _safe_int(extra.get("comparecimento_1t"))
+    novos_vot = _safe_int(extra.get("novos_votos_efetivos"))
+
     entry = HistoricoSimulacao(
         created_at=datetime.now(timezone.utc),
         tipo_origem=tipo_origem,
@@ -1328,52 +1355,65 @@ def salvar_historico_simulacao(
         uf=extra.get("uf"),
         municipio_codigo=extra.get("municipio_codigo"),
         municipio_nome=extra.get("municipio_nome") or extra.get("municipio"),
-        zona=int(extra["zona"]) if extra.get("zona") is not None else None,
-        secao=int(extra["secao"]) if extra.get("secao") is not None else None,
+        zona=zona_val,
+        secao=secao_val,
         local_votacao=extra.get("local_votacao"),
         perfil_vazao=p.get("perfil_vazao", "PADRAO_REAL_TSE"),
         modo_anomalia=p.get("modo_anomalia", "NORMAL"),
-        eleitores_aptos=p.get("eleitores_aptos", 0),
-        comparecimento=r.get("comparecimento_total", 0),
-        abstencoes=r.get("abstencao_total", 0),
-        pct_abstencao=r.get("pct_abstencao", 0.0),
-        pct_brancos=r.get("pct_brancos", 0.0),
-        pct_nulos=r.get("pct_nulos", 0.0),
-        votos_brancos=r.get("votos_brancos", 0),
-        votos_nulos=r.get("votos_nulos", 0),
-        votos_validos=r.get("votos_validos", 0),
-        votos_1t_c1=extra.get("votos_1t_c1"),
-        votos_1t_c2=extra.get("votos_1t_c2"),
-        votos_1t_outros=extra.get("votos_1t_outros"),
-        comparecimento_1t=extra.get("comparecimento_1t"),
-        novos_votos_efetivos=extra.get("novos_votos_efetivos"),
-        pct_absorcao_c1=extra.get("pct_absorcao_c1"),
-        pct_absorcao_c2=extra.get("pct_absorcao_c2"),
-        real_2t_c1_votos=extra.get("real_2t_c1_votos"),
-        real_2t_c2_votos=extra.get("real_2t_c2_votos"),
+        eleitores_aptos=_safe_int(p.get("eleitores_aptos")) or 0,
+        comparecimento=_safe_int(r.get("comparecimento_total")) or 0,
+        abstencoes=_safe_int(r.get("abstencao_total")) or 0,
+        pct_abstencao=_safe_float(r.get("pct_abstencao")),
+        pct_brancos=_safe_float(r.get("pct_brancos")),
+        pct_nulos=_safe_float(r.get("pct_nulos")),
+        votos_brancos=_safe_int(r.get("votos_brancos")) or 0,
+        votos_nulos=_safe_int(r.get("votos_nulos")) or 0,
+        votos_validos=_safe_int(r.get("votos_validos")) or 0,
+        votos_1t_c1=v1t_c1,
+        votos_1t_c2=v1t_c2,
+        votos_1t_outros=v1t_out,
+        comparecimento_1t=comp_1t,
+        novos_votos_efetivos=novos_vot,
+        pct_absorcao_c1=_safe_float(extra.get("pct_absorcao_c1")),
+        pct_absorcao_c2=_safe_float(extra.get("pct_absorcao_c2")),
+        real_2t_c1_votos=_safe_int(extra.get("real_2t_c1_votos")),
+        real_2t_c2_votos=_safe_int(extra.get("real_2t_c2_votos")),
         real_2t_vencedor=extra.get("real_2t_vencedor"),
-        cand1_numero=c1.get("numero", "22"),
-        cand1_nome=c1.get("nome", "CANDIDATO 1"),
-        cand1_partido=c1.get("partido", "PL"),
-        cand1_pct_pesquisa=c1.get("pct_pesquisa", 50.0),
-        cand1_votos_urna=c1.get("votos", 0),
-        cand1_pct_urna=c1.get("pct_validos", 0.0),
-        cand2_numero=c2.get("numero", "13"),
-        cand2_nome=c2.get("nome", "CANDIDATO 2"),
-        cand2_partido=c2.get("partido", "PT"),
-        cand2_pct_pesquisa=c2.get("pct_pesquisa", 50.0),
-        cand2_votos_urna=c2.get("votos", 0),
-        cand2_pct_urna=c2.get("pct_validos", 0.0),
-        vencedor_numero=r.get("vencedor_numero", "EMPATE"),
-        vencedor_nome=r.get("vencedor_nome", "EMPATE"),
-        margem_amostral_pct=r.get("margem_amostral_secao_pct", 0.0),
-        dentro_margem=r.get("dentro_margem_amostral", True),
+        cand1_numero=str(c1.get("numero", "22")),
+        cand1_nome=str(c1.get("nome", "CANDIDATO 1")),
+        cand1_partido=str(c1.get("partido", "PL")),
+        cand1_pct_pesquisa=_safe_float(c1.get("pct_pesquisa", 50.0)),
+        cand1_votos_urna=_safe_int(c1.get("votos")) or 0,
+        cand1_pct_urna=_safe_float(c1.get("pct_validos", 0.0)),
+        cand2_numero=str(c2.get("numero", "13")),
+        cand2_nome=str(c2.get("nome", "CANDIDATO 2")),
+        cand2_partido=str(c2.get("partido", "PT")),
+        cand2_pct_pesquisa=_safe_float(c2.get("pct_pesquisa", 50.0)),
+        cand2_votos_urna=_safe_int(c2.get("votos")) or 0,
+        cand2_pct_urna=_safe_float(c2.get("pct_validos", 0.0)),
+        vencedor_numero=str(r.get("vencedor_numero", "EMPATE")),
+        vencedor_nome=str(r.get("vencedor_nome", "EMPATE")),
+        margem_amostral_pct=_safe_float(r.get("margem_amostral_secao_pct", 0.0)),
+        dentro_margem=bool(r.get("dentro_margem_amostral", True)),
         veredito_forense="APROVADA" if p.get("modo_anomalia") == "NORMAL" else "ANOMALIA DETECTADA",
         payload_completo_json=json.dumps(resultado_simulacao, ensure_ascii=False),
     )
-    db.add(entry)
-    db.commit()
-    db.refresh(entry)
+
+    try:
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+    except Exception as exc_first:
+        db.rollback()
+        # Segunda tentativa garantindo criação de tabela
+        try:
+            HistoricoSimulacao.__table__.create(bind=engine, checkfirst=True)
+            db.add(entry)
+            db.commit()
+            db.refresh(entry)
+        except Exception as exc_second:
+            db.rollback()
+            raise RuntimeError(f"Erro ao persistir simulação no PostgreSQL: {exc_second}")
 
     return {
         "id": entry.id,
@@ -1383,9 +1423,13 @@ def salvar_historico_simulacao(
     }
 
 
-def listar_historico_simulacoes(db: Session, limit: int = 30) -> list[dict]:
+def listar_historico_simulacoes(db: Session, limit: int = 50) -> list[dict]:
     """Lista as simulações arquivadas ordenadas por data descrescente."""
-    garantir_tabelas_custodia_tse()
+    try:
+        HistoricoSimulacao.__table__.create(bind=engine, checkfirst=True)
+    except Exception:
+        pass
+
     registros = (
         db.query(HistoricoSimulacao)
         .order_by(HistoricoSimulacao.id.desc())
@@ -1394,18 +1438,34 @@ def listar_historico_simulacoes(db: Session, limit: int = 30) -> list[dict]:
     )
     itens = []
     for h in registros:
+        venc_pct = h.cand1_pct_urna if h.vencedor_numero == h.cand1_numero else (h.cand2_pct_urna if h.vencedor_numero == h.cand2_numero else 50.0)
+        dt_str = h.created_at.strftime("%d/%m/%Y %H:%M:%S") if h.created_at else "-"
+
         itens.append({
             "id": h.id,
-            "created_at": h.created_at.strftime("%d/%m/%Y %H:%M:%S") if h.created_at else "-",
+            "created_at": dt_str,
+            "criado_em": dt_str,
             "tipo_origem": h.tipo_origem,
             "titulo_cenario": h.titulo_cenario,
             "uf": h.uf,
             "municipio_nome": h.municipio_nome,
+            "municipio": h.municipio_nome,
             "zona": h.zona,
             "secao": h.secao,
             "local_votacao": h.local_votacao,
             "comparecimento": h.comparecimento,
             "eleitores_aptos": h.eleitores_aptos,
+            "votos_validos": h.votos_validos,
+            "cand1_numero": h.cand1_numero,
+            "cand1_nome": h.cand1_nome,
+            "cand1_partido": h.cand1_partido,
+            "cand1_votos": h.cand1_votos_urna,
+            "cand1_pct": h.cand1_pct_urna,
+            "cand2_numero": h.cand2_numero,
+            "cand2_nome": h.cand2_nome,
+            "cand2_partido": h.cand2_partido,
+            "cand2_votos": h.cand2_votos_urna,
+            "cand2_pct": h.cand2_pct_urna,
             "cand1": {
                 "numero": h.cand1_numero,
                 "nome": h.cand1_nome,
@@ -1422,11 +1482,14 @@ def listar_historico_simulacoes(db: Session, limit: int = 30) -> list[dict]:
             },
             "vencedor_numero": h.vencedor_numero,
             "vencedor_nome": h.vencedor_nome,
+            "vencedor_pct": venc_pct,
             "margem_amostral_pct": h.margem_amostral_pct,
             "dentro_margem": h.dentro_margem,
             "veredito_forense": h.veredito_forense,
             "perfil_vazao": h.perfil_vazao,
             "modo_anomalia": h.modo_anomalia,
+            "votos_1t_c1": h.votos_1t_c1,
+            "votos_1t_c2": h.votos_1t_c2,
             "novos_votos_efetivos": h.novos_votos_efetivos,
             "pct_absorcao_c1": h.pct_absorcao_c1,
             "pct_absorcao_c2": h.pct_absorcao_c2,
@@ -1436,19 +1499,26 @@ def listar_historico_simulacoes(db: Session, limit: int = 30) -> list[dict]:
 
 def obter_historico_simulacao(db: Session, simulacao_id: int) -> dict:
     """Recupera o registro e o payload completo de uma simulação anterior."""
-    garantir_tabelas_custodia_tse()
+    try:
+        HistoricoSimulacao.__table__.create(bind=engine, checkfirst=True)
+    except Exception:
+        pass
+
     h = db.query(HistoricoSimulacao).filter(HistoricoSimulacao.id == simulacao_id).first()
     if not h:
         raise ValueError(f"Simulação #{simulacao_id} não encontrada no histórico.")
 
     payload = json.loads(h.payload_completo_json) if h.payload_completo_json else {}
+    dt_str = h.created_at.strftime("%d/%m/%Y %H:%M:%S") if h.created_at else "-"
     return {
         "id": h.id,
-        "created_at": h.created_at.strftime("%d/%m/%Y %H:%M:%S") if h.created_at else "-",
+        "created_at": dt_str,
+        "criado_em": dt_str,
         "tipo_origem": h.tipo_origem,
         "titulo_cenario": h.titulo_cenario,
         "uf": h.uf,
         "municipio_nome": h.municipio_nome,
+        "municipio": h.municipio_nome,
         "zona": h.zona,
         "secao": h.secao,
         "local_votacao": h.local_votacao,
@@ -1466,6 +1536,7 @@ def obter_historico_simulacao(db: Session, simulacao_id: int) -> dict:
             "real_2t_vencedor": h.real_2t_vencedor,
         },
         "resultado_simulacao": payload,
+        "payload_completo_json": payload,
     }
 
 
