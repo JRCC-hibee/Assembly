@@ -936,7 +936,7 @@ o Boletim de Urna (apos encerramento da votacao).
     <!-- TAB 5: SIMULADOR DE CADÊNCIA & SISTEMA PARALELO DE AUDITORIA FORENSE DE LOGS -->
     <section id="tab-simulacao" class="hidden space-y-6">
 
-      <!-- Seletor Superior de Modo da Simulação: 2º Turno (Foco Principal) vs 1º Turno (5 Cargos) -->
+      <!-- Seletor Superior de Modo da Simulação: 2º Turno vs 1º Turno + Histórico -->
       <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-xl">
         <div class="flex flex-wrap items-center gap-2">
           <button
@@ -956,6 +956,15 @@ o Boletim de Urna (apos encerramento da votacao).
           >
             <span>🔄</span>
             <span>Modo Genérico / 1º Turno (5 Cargos)</span>
+          </button>
+          <button
+            type="button"
+            onclick="abrirModalHistoricoSimulacoes()"
+            class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition bg-slate-800/80 hover:bg-slate-700 border border-indigo-500/50 text-indigo-300 hover:text-white cursor-pointer shadow"
+          >
+            <span>📜</span>
+            <span>Histórico de Simulações</span>
+            <span id="badgeHistoricoSimCount" class="px-1.5 py-0.2 rounded-full bg-indigo-950 text-indigo-200 text-[10px] font-black border border-indigo-700">0</span>
           </button>
         </div>
         <div class="flex items-center gap-2 text-xs mono text-slate-300">
@@ -978,12 +987,181 @@ o Boletim de Urna (apos encerramento da votacao).
               </span>
               <h2 class="text-base font-bold text-white mt-1">Simulador Voto a Voto e Hora a Hora</h2>
               <p class="text-xs text-slate-400 mt-0.5">
-                Simula um dia inteiro de votação da urna (08h00 às 17h00) em segundos: insira os percentuais de pesquisa, eleitores, candidatos e curva de vazão horária.
+                Simula um dia inteiro de votação da urna (08h00 às 17h00) em segundos: insira percentuais de pesquisa ou vincule diretamente a uma seção real do TSE com absorção de novos votos.
               </p>
             </div>
 
-            <!-- Presets Rápidos com 1 Clique -->
-            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+            <!-- Seletor de Origem: Modo Paramétrico vs Atrelado a Seção Real do TSE -->
+            <div class="grid grid-cols-2 gap-1.5 p-1 bg-slate-950 border border-slate-800 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                id="btnModoSimParametrico"
+                onclick="alternarOrigemSimulacao2T('PARAMETRICO')"
+                class="py-2 px-2.5 rounded-lg text-center transition bg-emerald-600 text-white shadow font-extrabold cursor-pointer"
+              >
+                ⚡ Simulação Paramétrica
+              </button>
+              <button
+                type="button"
+                id="btnModoSimSecaoReal"
+                onclick="alternarOrigemSimulacao2T('SECAO_REAL')"
+                class="py-2 px-2.5 rounded-lg text-center transition bg-slate-900 text-slate-400 hover:text-white cursor-pointer font-bold"
+              >
+                🏛️ Atrelar a Seção Real (1ºT ➔ 2ºT)
+              </button>
+            </div>
+
+            <!-- Painel de Seleção e Setup de Seção Real do TSE (Modo 2) -->
+            <div id="boxSetupSecaoReal2T" class="hidden space-y-3 p-3.5 rounded-xl bg-slate-950 border border-cyan-500/40 text-xs">
+              <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span class="font-extrabold text-cyan-300 uppercase tracking-wide flex items-center gap-1.5">
+                  <span>🏛️</span>
+                  <span>Vincular Seção Real do TSE</span>
+                </span>
+                <span class="text-[10px] mono text-slate-400">Banco de Dados Oficial</span>
+              </div>
+
+              <!-- Inputs de Busca da Seção -->
+              <div class="grid grid-cols-12 gap-2">
+                <div class="col-span-3">
+                  <label class="block text-[10px] text-slate-400 font-bold mb-1">UF (Estado)</label>
+                  <input id="simSecaoUf" type="text" value="PR" maxlength="2" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-center text-cyan-300 font-black uppercase mono" placeholder="PR" />
+                </div>
+                <div class="col-span-9">
+                  <label class="block text-[10px] text-slate-400 font-bold mb-1">Município (Cidade)</label>
+                  <input id="simSecaoMunicipio" type="text" value="CURITIBA" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" placeholder="Nome da cidade" />
+                </div>
+                <div class="col-span-4">
+                  <label class="block text-[10px] text-slate-400 font-bold mb-1">Zona Eleitoral</label>
+                  <input id="simSecaoZona" type="number" value="26" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-center text-white mono font-bold" placeholder="26" />
+                </div>
+                <div class="col-span-4">
+                  <label class="block text-[10px] text-slate-400 font-bold mb-1">Seção Eleitoral</label>
+                  <input id="simSecaoNumero" type="number" value="128" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-center text-white mono font-bold" placeholder="128" />
+                </div>
+                <div class="col-span-4 flex items-end">
+                  <button
+                    type="button"
+                    onclick="carregarSetupSecaoRealTse()"
+                    class="w-full py-2 bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-black rounded-lg text-xs shadow transition cursor-pointer flex items-center justify-center gap-1"
+                  >
+                    <span>🔍</span>
+                    <span>Buscar</span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Atalhos de Seções Reais do Banco -->
+              <div class="space-y-1">
+                <span class="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">⚡ Seções Sugeridas do Banco:</span>
+                <div class="flex flex-wrap gap-1 text-[10px] mono">
+                  <button type="button" onclick="preencherSecaoReal('PR', 'CURITIBA', 26, 128)" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 cursor-pointer">Curitiba Z:26 S:128</button>
+                  <button type="button" onclick="preencherSecaoReal('PR', 'CURITIBA', 1, 185)" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 cursor-pointer">Curitiba Z:1 S:185</button>
+                  <button type="button" onclick="preencherSecaoReal('PR', 'MARINGÁ', 66, 267)" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 cursor-pointer">Maringá Z:66 S:267</button>
+                  <button type="button" onclick="preencherSecaoReal('PR', 'LONDRINA', 41, 15)" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 cursor-pointer">Londrina Z:41 S:15</button>
+                  <button type="button" onclick="preencherSecaoReal('MA', 'SÃO LUÍS', 3, 1619)" class="px-2 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 cursor-pointer">São Luís Z:3 S:1619</button>
+                </div>
+              </div>
+
+              <!-- Card de Feedback da Seção Carregada -->
+              <div id="simSecaoFeedbackBox" class="hidden space-y-2 pt-2 border-t border-slate-800">
+                <div class="p-2 rounded-lg bg-slate-900 border border-cyan-500/40">
+                  <div class="flex items-start justify-between">
+                    <div>
+                      <span id="simSecaoNomeLocal" class="font-bold text-white block text-xs"></span>
+                      <span id="simSecaoSubInfo" class="text-[10px] text-cyan-300 mono"></span>
+                    </div>
+                    <span id="simSecaoStatusBadge" class="px-2 py-0.5 rounded text-[10px] font-black mono uppercase"></span>
+                  </div>
+                </div>
+
+                <!-- Comparativo 1T (Piso) x Condições 2T (Contorno) -->
+                <div class="grid grid-cols-2 gap-2 text-[11px] mono">
+                  <div class="p-2 rounded-lg bg-slate-900 border border-slate-800 space-y-1">
+                    <span class="text-[10px] font-bold text-amber-300 uppercase block">🗳️ 1º Turno (Piso Oficial):</span>
+                    <div>• <span id="simSecao1TCand1Nome">C1</span>: <strong id="simSecao1TCand1Votos" class="text-white"></strong></div>
+                    <div>• <span id="simSecao1TCand2Nome">C2</span>: <strong id="simSecao1TCand2Votos" class="text-white"></strong></div>
+                    <div>• Terceiras Vias: <strong id="simSecao1TOutrosVotos" class="text-slate-400"></strong></div>
+                    <div>• Válidos 1T: <strong id="simSecao1TValidos" class="text-slate-300"></strong></div>
+                  </div>
+
+                  <div class="p-2 rounded-lg bg-slate-900 border border-emerald-500/40 space-y-1">
+                    <span class="text-[10px] font-bold text-emerald-300 uppercase block">⚙️ Condições Efetivas 2T:</span>
+                    <div>• Comparecimento: <strong id="simSecao2TComp" class="text-emerald-400"></strong></div>
+                    <div>• Abstenção: <strong id="simSecao2TAbst" class="text-amber-300"></strong></div>
+                    <div>• Brancos: <strong id="simSecao2TBrancos" class="text-slate-300"></strong></div>
+                    <div>• Nulos: <strong id="simSecao2TNulos" class="text-slate-300"></strong></div>
+                  </div>
+                </div>
+
+                <!-- Destaque: Novos Votos Efetivos em Disputa -->
+                <div class="p-2.5 rounded-xl bg-gradient-to-r from-emerald-950/60 to-cyan-950/60 border border-emerald-500/50 space-y-1 text-xs">
+                  <div class="flex items-center justify-between">
+                    <span class="font-extrabold text-emerald-300 uppercase text-[11px] flex items-center gap-1.5">
+                      <span>⚡</span>
+                      <span>Novos Votos Efetivos em Disputa:</span>
+                    </span>
+                    <span id="simSecaoNovosVotosBadge" class="text-sm font-black text-emerald-400 mono"></span>
+                  </div>
+                  <p class="text-[10px] text-slate-300 leading-snug">
+                    Variação líquida de eleitores comparecentes no 2ºT somada aos eleitores de terceiras vias que votaram em outros candidatos no 1ºT.
+                  </p>
+                </div>
+
+                <!-- Setup de Absorção dos Novos Votos -->
+                <div class="p-2.5 rounded-xl bg-slate-900 border border-indigo-500/40 space-y-2">
+                  <div class="flex items-center justify-between text-[11px]">
+                    <span class="font-bold text-indigo-300">Hipótese de Absorção dos Novos Votos:</span>
+                    <span id="simSetupAbsorcaoRotulo" class="font-black mono text-cyan-300">50% C1 × 50% C2</span>
+                  </div>
+
+                  <!-- Slider Interativo de Absorção -->
+                  <div class="space-y-1">
+                    <div class="flex items-center justify-between text-[10px] mono">
+                      <span id="simSliderLabelC1" class="text-cyan-400 font-bold">C1: 50%</span>
+                      <span id="simSliderLabelC2" class="text-rose-400 font-bold">C2: 50%</span>
+                    </div>
+                    <input
+                      id="simSliderAbsorcaoC1"
+                      type="range"
+                      min="0"
+                      max="100"
+                      value="50"
+                      oninput="atualizarSetupAbsorcaoSlider(this.value)"
+                      class="w-full accent-cyan-400 cursor-pointer"
+                    />
+                  </div>
+
+                  <!-- Presets Rápidos de Absorção -->
+                  <div class="grid grid-cols-4 gap-1 text-[10px] mono">
+                    <button type="button" onclick="aplicarPresetAbsorcao(50)" class="p-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-slate-300 text-center cursor-pointer">⚖️ 50/50</button>
+                    <button type="button" onclick="aplicarPresetAbsorcao(65)" class="p-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-cyan-300 text-center cursor-pointer">📈 65/35</button>
+                    <button type="button" onclick="aplicarPresetAbsorcao(35)" class="p-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-rose-300 text-center cursor-pointer">📉 35/65</button>
+                    <button type="button" onclick="aplicarPresetAbsorcaoProporcional1T()" class="p-1 rounded bg-slate-950 hover:bg-slate-800 border border-slate-700 text-emerald-300 text-center cursor-pointer">🎯 Prop. 1T</button>
+                  </div>
+
+                  <!-- Projeção Resultante -->
+                  <div class="p-2 rounded-lg bg-slate-950 border border-slate-800 text-[11px] mono flex items-center justify-between">
+                    <div>
+                      <span class="text-[9px] text-slate-400 block uppercase">Projeção Resultante:</span>
+                      <div class="flex items-center gap-2 mt-0.5">
+                        <span id="simProjC1Texto" class="text-cyan-400 font-black"></span>
+                        <span class="text-slate-500">×</span>
+                        <span id="simProjC2Texto" class="text-rose-400 font-black"></span>
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <span class="text-[9px] text-slate-400 block uppercase">Intenção nos Válidos:</span>
+                      <span id="simProjPctTexto" class="font-black text-emerald-400"></span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+
+            <!-- Presets Rápidos com 1 Clique (Visível no Modo Paramétrico) -->
+            <div id="boxPresetsParametricos2T" class="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
               <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">⚡ Presets Rápidos de Cenário:</span>
               <div class="grid grid-cols-2 gap-1.5 text-[11px] mono">
                 <button
@@ -1232,6 +1410,40 @@ o Boletim de Urna (apos encerramento da votacao).
         <!-- PAINEL CONSOLIDADO DE RESULTADOS DO 2º TURNO (APÓS A SIMULAÇÃO) -->
         <!-- ============================================================== -->
         <div id="sim2tResultadosContainer" class="hidden space-y-6 pt-2">
+
+          <!-- Card de Dossiê da Seção Real: Transição 1ºT -> 2ºT & Validação com a Urna do TSE -->
+          <div id="sim2tDossieSecaoRealBox" class="hidden bg-slate-900 border-2 border-cyan-500/50 rounded-2xl p-5 space-y-4 shadow-2xl">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div class="flex items-center gap-2.5">
+                <span class="text-2xl">🏛️</span>
+                <div>
+                  <h3 id="sim2tDossieTitulo" class="text-base font-extrabold text-white">Transição 1ºT ➔ 2ºT em Seção Real do TSE</h3>
+                  <p id="sim2tDossieSubtitulo" class="text-xs text-slate-400"></p>
+                </div>
+              </div>
+              <span id="sim2tDossieBadgeOrigem" class="px-3 py-1 rounded-full text-xs font-black mono uppercase bg-cyan-950 text-cyan-300 border border-cyan-700">Seção Real Auditada</span>
+            </div>
+
+            <!-- Tabela de Comparação: 1º Turno (Piso) x Absorção Novos Votos x Simulação x Realidade 2T -->
+            <div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
+              <table class="w-full text-left text-xs mono">
+                <thead class="bg-slate-900/90 text-slate-400 text-[10px] uppercase font-bold border-b border-slate-800">
+                  <tr>
+                    <th class="p-2.5">Candidato / Cargo</th>
+                    <th class="p-2.5 text-center">1º Turno (Piso)</th>
+                    <th class="p-2.5 text-center">Hipótese Absorção Novos Votos</th>
+                    <th class="p-2.5 text-center">Simulado na Urna (2ºT)</th>
+                    <th class="p-2.5 text-center">Oficial TSE no 2ºT (Físico)</th>
+                    <th class="p-2.5 text-right">Acurácia da Hipótese (Δ)</th>
+                  </tr>
+                </thead>
+                <tbody id="sim2tDossieTbody" class="divide-y divide-slate-800/60"></tbody>
+              </table>
+            </div>
+
+            <!-- Parecer da Acurácia do Setup de Novos Votos -->
+            <div id="sim2tDossieParecerBox" class="p-3 rounded-xl border text-xs leading-relaxed"></div>
+          </div>
 
           <!-- Card 1: Comparativo Executivo Pesquisa x Resultado Apurado na Urna -->
           <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-2xl">
@@ -4527,6 +4739,49 @@ o Boletim de Urna (apos encerramento da votacao).
         </div>
       </div>
     </div>
+
+    <!-- MODAL POPUP HISTÓRICO DE SIMULAÇÕES ELEITORAIS -->
+    <div id="modalHistoricoSimulacoes" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" onclick="fecharModalHistoricoSimulacoes(event)">
+      <div class="bg-slate-900 border-2 border-indigo-500/60 rounded-2xl max-w-4xl w-full p-5 space-y-4 shadow-2xl max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+        <div class="flex items-start justify-between border-b border-slate-800 pb-3 shrink-0">
+          <div class="flex items-center gap-2.5">
+            <span class="text-2xl">📜</span>
+            <div>
+              <h3 class="text-base font-black text-white">Histórico de Simulações de Votação</h3>
+              <p class="text-xs text-slate-400 mono">Arquivo permanente de cenários estocásticos e seções reais auditadas</p>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick="limparTodoHistoricoSimulacoesFront()"
+              class="px-2.5 py-1 rounded-lg bg-rose-950/60 hover:bg-rose-900 text-rose-300 font-bold text-xs border border-rose-800 cursor-pointer"
+            >
+              🗑️ Limpar Tudo
+            </button>
+            <button onclick="fecharModalHistoricoSimulacoes()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer">
+              ✕ Fechar
+            </button>
+          </div>
+        </div>
+
+        <!-- Lista Rolável de Simulações -->
+        <div id="modalHistoricoCorpoLista" class="overflow-y-auto space-y-2.5 pr-1 flex-1">
+          <!-- Renderizado via JavaScript -->
+        </div>
+
+        <div class="flex items-center justify-between pt-2 border-t border-slate-800 text-xs shrink-0">
+          <span id="modalHistoricoRodapeInfo" class="text-slate-400 mono text-[11px]">Carregando histórico...</span>
+          <button
+            type="button"
+            onclick="fecharModalHistoricoSimulacoes()"
+            class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition cursor-pointer"
+          >
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
         </div>
       </div>
     </div>
@@ -5550,6 +5805,234 @@ o Boletim de Urna (apos encerramento da votacao).
       atualizarAbstencaoCalculada2T();
     }
 
+    // ==============================================================
+    // SIMULADOR 2º TURNO: ATRELAMENTO A SEÇÃO REAL DO TSE & NOVOS VOTOS
+    // ==============================================================
+    window.origemSimulacao2T = 'PARAMETRICO';
+    window.setupSecaoRealAtual = null;
+
+    function alternarOrigemSimulacao2T(modo) {
+      window.origemSimulacao2T = modo;
+      const btnParam = document.getElementById("btnModoSimParametrico");
+      const btnReal = document.getElementById("btnModoSimSecaoReal");
+      const boxReal = document.getElementById("boxSetupSecaoReal2T");
+
+      if (modo === "SECAO_REAL") {
+        if (btnReal) {
+          btnReal.className = "py-2 px-2.5 rounded-lg text-center transition bg-cyan-600 text-slate-950 font-black shadow cursor-pointer";
+        }
+        if (btnParam) {
+          btnParam.className = "py-2 px-2.5 rounded-lg text-center transition bg-slate-900 text-slate-400 hover:text-white cursor-pointer font-bold";
+        }
+        if (boxReal) boxReal.classList.remove("hidden");
+
+        // Se ainda não tiver carregado a seção selecionada, consulta o banco
+        if (!window.setupSecaoRealAtual) {
+          carregarSetupSecaoRealTse();
+        }
+      } else {
+        if (btnParam) {
+          btnParam.className = "py-2 px-2.5 rounded-lg text-center transition bg-emerald-600 text-white shadow font-extrabold cursor-pointer";
+        }
+        if (btnReal) {
+          btnReal.className = "py-2 px-2.5 rounded-lg text-center transition bg-slate-900 text-slate-400 hover:text-white cursor-pointer font-bold";
+        }
+        if (boxReal) boxReal.classList.add("hidden");
+      }
+    }
+
+    function preencherSecaoReal(uf, mun, zona, secao) {
+      const ufInput = document.getElementById("simSecaoUf");
+      const munInput = document.getElementById("simSecaoMunicipio");
+      const zonaInput = document.getElementById("simSecaoZona");
+      const secaoInput = document.getElementById("simSecaoNumero");
+
+      if (ufInput) ufInput.value = uf;
+      if (munInput) munInput.value = mun;
+      if (zonaInput) zonaInput.value = zona;
+      if (secaoInput) secaoInput.value = secao;
+
+      carregarSetupSecaoRealTse();
+    }
+
+    async function carregarSetupSecaoRealTse() {
+      const uf = (document.getElementById("simSecaoUf")?.value || "").trim().toUpperCase();
+      const mun = (document.getElementById("simSecaoMunicipio")?.value || "").trim();
+      const zona = parseInt(document.getElementById("simSecaoZona")?.value || "0", 10);
+      const secao = parseInt(document.getElementById("simSecaoNumero")?.value || "0", 10);
+
+      const fBox = document.getElementById("simSecaoFeedbackBox");
+      if (!uf || !zona || !secao) {
+        showSecurityAlert("Por favor, preencha UF, Zona e Seção eleitoral para buscar no banco oficial.", true);
+        return;
+      }
+
+      try {
+        const url = `/api/simulacao/dados-secao-real?uf=${encodeURIComponent(uf)}&zona=${zona}&secao=${secao}`;
+        const res = await fetch(url);
+        const rawText = await res.text();
+        let data = {};
+        try { data = JSON.parse(rawText); } catch(e) {
+          showSecurityAlert(`Erro no servidor ao buscar seção: ${rawText.slice(0, 150)}`, true);
+          return;
+        }
+
+        if (!res.ok) {
+          showSecurityAlert(data.detail || "Seção eleitoral não encontrada na base de dados do TSE.", true);
+          if (fBox) fBox.classList.add("hidden");
+          window.setupSecaoRealAtual = null;
+          return;
+        }
+
+        window.setupSecaoRealAtual = data;
+        const sInfo = data.secao_info;
+        const p1t = data.primeiro_turno;
+        const c2t = data.segundo_turno_condicoes_efetivas;
+
+        // 1. Exibir feedback box
+        if (fBox) fBox.classList.remove("hidden");
+
+        const elNomeLocal = document.getElementById("simSecaoNomeLocal");
+        if (elNomeLocal) elNomeLocal.textContent = `${sInfo.local_votacao} (${sInfo.municipio_nome} - ${sInfo.uf})`;
+
+        const elSubInfo = document.getElementById("simSecaoSubInfo");
+        if (elSubInfo) elSubInfo.textContent = `Zona ${sInfo.zona} • Seção ${sInfo.secao} • Modelo: ${sInfo.modelo_urna} • Chave: ${sInfo.chave_secao}`;
+
+        const elBadge = document.getElementById("simSecaoStatusBadge");
+        if (elBadge) {
+          if (c2t.tem_dados_2t_oficiais) {
+            elBadge.className = "px-2 py-0.5 rounded text-[10px] font-black mono uppercase bg-emerald-950 text-emerald-300 border border-emerald-700";
+            elBadge.textContent = "1ºT + 2ºT Integrados";
+          } else {
+            elBadge.className = "px-2 py-0.5 rounded text-[10px] font-black mono uppercase bg-amber-950 text-amber-300 border border-amber-700";
+            elBadge.textContent = "1ºT Integral (2ºT Condições)";
+          }
+        }
+
+        // 2. Preencher dados do 1º Turno (Piso Oficial)
+        const c1Nome1T = document.getElementById("simSecao1TCand1Nome");
+        if (c1Nome1T) c1Nome1T.textContent = `${p1t.cand1.numero} ${p1t.cand1.nome}`;
+        const c1Votos1T = document.getElementById("simSecao1TCand1Votos");
+        if (c1Votos1T) c1Votos1T.textContent = `${p1t.cand1.votos}v (${p1t.cand1.pct_validos}%)`;
+
+        const c2Nome1T = document.getElementById("simSecao1TCand2Nome");
+        if (c2Nome1T) c2Nome1T.textContent = `${p1t.cand2.numero} ${p1t.cand2.nome}`;
+        const c2Votos1T = document.getElementById("simSecao1TCand2Votos");
+        if (c2Votos1T) c2Votos1T.textContent = `${p1t.cand2.votos}v (${p1t.cand2.pct_validos}%)`;
+
+        const outrosVotos1T = document.getElementById("simSecao1TOutrosVotos");
+        if (outrosVotos1T) outrosVotos1T.textContent = `${p1t.votos_outros_candidatos}v`;
+
+        const val1T = document.getElementById("simSecao1TValidos");
+        if (val1T) val1T.textContent = `${p1t.votos_validos}v`;
+
+        // 3. Preencher Condições Efetivas 2T (Demografia & Fluxo da Urna)
+        const comp2T = document.getElementById("simSecao2TComp");
+        if (comp2T) comp2T.textContent = `${c2t.comparecimento} (${(100 - c2t.pct_abstencao).toFixed(1)}%)`;
+
+        const abst2T = document.getElementById("simSecao2TAbst");
+        if (abst2T) abst2T.textContent = `${c2t.abstencoes} (${c2t.pct_abstencao}%)`;
+
+        const brancos2T = document.getElementById("simSecao2TBrancos");
+        if (brancos2T) brancos2T.textContent = `${c2t.brancos}v (${c2t.pct_brancos}%)`;
+
+        const nulos2T = document.getElementById("simSecao2TNulos");
+        if (nulos2T) nulos2T.textContent = `${c2t.nulos}v (${c2t.pct_nulos}%)`;
+
+        // 4. Novos Votos Efetivos em Disputa
+        const novosVotosBadge = document.getElementById("simSecaoNovosVotosBadge");
+        if (novosVotosBadge) novosVotosBadge.textContent = `+${c2t.novos_votos_efetivos_disputa} votos`;
+
+        // 5. Sincronizar inputs do formulário principal da urna com a seção
+        document.getElementById("sim2tCand1Num").value = p1t.cand1.numero;
+        document.getElementById("sim2tCand1Nome").value = p1t.cand1.nome;
+        document.getElementById("sim2tCand1Partido").value = p1t.cand1.partido || (p1t.cand1.numero === "22" ? "PL" : "");
+
+        document.getElementById("sim2tCand2Num").value = p1t.cand2.numero;
+        document.getElementById("sim2tCand2Nome").value = p1t.cand2.nome;
+        document.getElementById("sim2tCand2Partido").value = p1t.cand2.partido || (p1t.cand2.numero === "13" ? "PT" : "");
+
+        document.getElementById("sim2tAptos").value = c2t.aptos;
+        document.getElementById("sim2tComparecimento").value = c2t.comparecimento;
+        document.getElementById("sim2tBrancos").value = c2t.pct_brancos;
+        document.getElementById("sim2tNulos").value = c2t.pct_nulos;
+
+        // 6. Atualizar slider e projeção com preset padrão (50/50 neutro ou o valor atual)
+        const slider = document.getElementById("simSliderAbsorcaoC1");
+        const valSlider = slider ? parseFloat(slider.value) : 50.0;
+        atualizarSetupAbsorcaoSlider(valSlider);
+        atualizarAbstencaoCalculada2T();
+
+      } catch (err) {
+        console.error("Erro ao consultar seção real:", err);
+        showSecurityAlert("Falha na requisição ao banco do TSE: " + err.message, true);
+      }
+    }
+
+    function atualizarSetupAbsorcaoSlider(val) {
+      const pctC1 = parseFloat(val);
+      const pctC2 = +(100.0 - pctC1).toFixed(1);
+
+      const rotulo = document.getElementById("simSetupAbsorcaoRotulo");
+      if (rotulo) rotulo.textContent = `${pctC1.toFixed(0)}% C1 × ${pctC2.toFixed(0)}% C2`;
+
+      const lC1 = document.getElementById("simSliderLabelC1");
+      if (lC1) {
+        const c1Nome = window.setupSecaoRealAtual ? (window.setupSecaoRealAtual.primeiro_turno.cand1.numero) : "C1";
+        lC1.textContent = `${c1Nome}: ${pctC1.toFixed(0)}%`;
+      }
+      const lC2 = document.getElementById("simSliderLabelC2");
+      if (lC2) {
+        const c2Nome = window.setupSecaoRealAtual ? (window.setupSecaoRealAtual.primeiro_turno.cand2.numero) : "C2";
+        lC2.textContent = `${c2Nome}: ${pctC2.toFixed(0)}%`;
+      }
+
+      if (!window.setupSecaoRealAtual) return;
+
+      const p1t = window.setupSecaoRealAtual.primeiro_turno;
+      const c2t = window.setupSecaoRealAtual.segundo_turno_condicoes_efetivas;
+      const novosVotos = c2t.novos_votos_efetivos_disputa || 0;
+
+      // Cálculo da projeção estocástica
+      const absorvC1 = Math.round(novosVotos * (pctC1 / 100.0));
+      const absorvC2 = Math.max(0, novosVotos - absorvC1);
+
+      const projVotosC1 = p1t.cand1.votos + absorvC1;
+      const projVotosC2 = p1t.cand2.votos + absorvC2;
+      const projValidos = Math.max(1, projVotosC1 + projVotosC2);
+
+      const projPctC1 = +((projVotosC1 / projValidos) * 100.0).toFixed(1);
+      const projPctC2 = +((projVotosC2 / projValidos) * 100.0).toFixed(1);
+
+      const elProjC1 = document.getElementById("simProjC1Texto");
+      if (elProjC1) elProjC1.textContent = `${p1t.cand1.numero}: ${projVotosC1}v (+${absorvC1}v novos)`;
+
+      const elProjC2 = document.getElementById("simProjC2Texto");
+      if (elProjC2) elProjC2.textContent = `${p1t.cand2.numero}: ${projVotosC2}v (+${absorvC2}v novos)`;
+
+      const elProjPct = document.getElementById("simProjPctTexto");
+      if (elProjPct) elProjPct.textContent = `${projPctC1}% × ${projPctC2}%`;
+
+      // Sincronizar com os inputs de intenção de pesquisa do formulário
+      const inP1 = document.getElementById("sim2tCand1Pesquisa");
+      const inP2 = document.getElementById("sim2tCand2Pesquisa");
+      if (inP1) inP1.value = projPctC1;
+      if (inP2) inP2.value = projPctC2;
+    }
+
+    function aplicarPresetAbsorcao(pctC1) {
+      const slider = document.getElementById("simSliderAbsorcaoC1");
+      if (slider) slider.value = pctC1;
+      atualizarSetupAbsorcaoSlider(pctC1);
+    }
+
+    function aplicarPresetAbsorcaoProporcional1T() {
+      if (!window.setupSecaoRealAtual) return;
+      const p1t = window.setupSecaoRealAtual.primeiro_turno;
+      const pctC1 = p1t.cand1.pct_validos || 50.0;
+      aplicarPresetAbsorcao(pctC1);
+    }
+
     async function executarSimulacaoSegundoTurno(e) {
       if (e) e.preventDefault();
       const btn = document.getElementById("btnExecutarSimulacao2T");
@@ -5576,6 +6059,33 @@ o Boletim de Urna (apos encerramento da votacao).
           qtd_votos_anomalia: document.getElementById("sim2tModoAnomalia").value === "NORMAL" ? 0 : parseInt(document.getElementById("sim2tQtdAnomalia").value || "0", 10),
           candidato_alvo_anomalia: document.getElementById("sim2tAlvoAnomalia").value.trim()
         };
+
+        // Anexar dados de Seção Real e absorção se estiver no modo Seção Real
+        if (window.origemSimulacao2T === "SECAO_REAL" && window.setupSecaoRealAtual) {
+          const s = window.setupSecaoRealAtual;
+          payload.tipo_origem = "SECAO_REAL";
+          payload.secao_id = s.secao_info.id;
+          payload.secao_chave = s.secao_info.chave_secao;
+          payload.uf = s.secao_info.uf;
+          payload.municipio = s.secao_info.municipio_nome;
+          payload.municipio_codigo = s.secao_info.municipio_codigo;
+          payload.zona = s.secao_info.zona;
+          payload.secao = s.secao_info.secao;
+          payload.local_votacao = s.secao_info.local_votacao;
+          payload.votos_1t_c1 = s.primeiro_turno.cand1.votos;
+          payload.votos_1t_c2 = s.primeiro_turno.cand2.votos;
+          payload.votos_1t_outros = s.primeiro_turno.votos_outros_candidatos;
+          payload.comparecimento_1t = s.primeiro_turno.comparecimento;
+          payload.novos_votos_efetivos = s.segundo_turno_condicoes_efetivas.novos_votos_efetivos_disputa;
+          payload.pct_absorcao_c1 = parseFloat(document.getElementById("simSliderAbsorcaoC1")?.value || "50");
+          payload.pct_absorcao_c2 = +(100.0 - payload.pct_absorcao_c1).toFixed(1);
+
+          if (s.resultado_real_2t_tse) {
+            payload.real_2t_c1_votos = s.resultado_real_2t_tse.votos_cand1;
+            payload.real_2t_c2_votos = s.resultado_real_2t_tse.votos_cand2;
+            payload.real_2t_vencedor = s.resultado_real_2t_tse.vencedor_real;
+          }
+        }
 
         const res = await fetch("/api/simulacao/segundo-turno", {
           method: "POST",
@@ -5613,6 +6123,9 @@ o Boletim de Urna (apos encerramento da votacao).
         // Renderizar todos os cards de resultado do 2T
         renderizarResultadosSimulacao2T(data);
 
+        // Atualizar contador do Histórico de Simulações
+        atualizarContadorHistoricoSimulacoes();
+
         // Disparar auditoria forense independente no Módulo 2
         await executarAuditoriaIndependenteNaBase();
 
@@ -5639,6 +6152,110 @@ o Boletim de Urna (apos encerramento da votacao).
       const r = data.resultado_urna;
       const c1 = r.cand1;
       const c2 = r.cand2;
+
+      // Dossiê de Seção Real do TSE (se houver dados de seção real no payload retornado)
+      const dossieBox = document.getElementById("sim2tDossieSecaoRealBox");
+      const sr = data.dados_secao_real;
+      if (dossieBox) {
+        if (sr && sr.uf) {
+          dossieBox.classList.remove("hidden");
+          const elTit = document.getElementById("sim2tDossieTitulo");
+          if (elTit) elTit.textContent = `Transição 1ºT ➔ 2ºT: ${sr.municipio} (${sr.uf}) — Zona ${sr.zona}, Seção ${sr.secao}`;
+          const elSub = document.getElementById("sim2tDossieSubtitulo");
+          if (elSub) elSub.textContent = `Local: ${sr.local_votacao || 'Local TSE'} • Hipótese de Absorção: ${sr.pct_absorcao_c1}% (${c1.nome}) × ${sr.pct_absorcao_c2}% (${c2.nome}) sobre ${sr.novos_votos_efetivos} novos votos`;
+
+          const tbody = document.getElementById("sim2tDossieTbody");
+          if (tbody) {
+            const piso1 = sr.votos_1t_c1 || 0;
+            const piso2 = sr.votos_1t_c2 || 0;
+            const novosTot = sr.novos_votos_efetivos || 0;
+            const hipNovos1 = Math.round(novosTot * ((sr.pct_absorcao_c1 || 50) / 100));
+            const hipNovos2 = Math.max(0, novosTot - hipNovos1);
+
+            const realC1 = sr.real_2t_c1_votos;
+            const realC2 = sr.real_2t_c2_votos;
+            const temReal = realC1 !== null && realC1 !== undefined && realC2 !== null && realC2 !== undefined;
+            const totalReal = temReal ? (realC1 + realC2) : 0;
+            const pctReal1 = temReal && totalReal > 0 ? ((realC1 / totalReal) * 100).toFixed(1) : "-";
+            const pctReal2 = temReal && totalReal > 0 ? ((realC2 / totalReal) * 100).toFixed(1) : "-";
+
+            const delta1 = temReal ? (c1.votos - realC1) : null;
+            const delta2 = temReal ? (c2.votos - realC2) : null;
+
+            tbody.innerHTML = `
+              <tr class="hover:bg-slate-900/60 transition">
+                <td class="p-2.5 font-bold text-white flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                  <span>${c1.nome} (${c1.numero} • ${c1.partido})</span>
+                </td>
+                <td class="p-2.5 text-center font-bold text-slate-300">${piso1}v</td>
+                <td class="p-2.5 text-center font-bold text-cyan-300">+${hipNovos1}v (${sr.pct_absorcao_c1}%)</td>
+                <td class="p-2.5 text-center font-black text-white bg-slate-900/80">${c1.votos}v (${c1.pct_validos}%)</td>
+                <td class="p-2.5 text-center font-black ${temReal ? 'text-emerald-400' : 'text-slate-500'}">${temReal ? `${realC1}v (${pctReal1}%)` : 'Não apurado'}</td>
+                <td class="p-2.5 text-right font-black mono ${temReal ? (Math.abs(delta1) <= 2 ? 'text-emerald-400' : 'text-amber-400') : 'text-slate-500'}">
+                  ${temReal ? `${delta1 >= 0 ? '+' : ''}${delta1}v (Δ ${Math.abs(c1.pct_validos - pctReal1).toFixed(1)}%)` : '-'}
+                </td>
+              </tr>
+              <tr class="hover:bg-slate-900/60 transition">
+                <td class="p-2.5 font-bold text-white flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+                  <span>${c2.nome} (${c2.numero} • ${c2.partido})</span>
+                </td>
+                <td class="p-2.5 text-center font-bold text-slate-300">${piso2}v</td>
+                <td class="p-2.5 text-center font-bold text-rose-300">+${hipNovos2}v (${sr.pct_absorcao_c2}%)</td>
+                <td class="p-2.5 text-center font-black text-white bg-slate-900/80">${c2.votos}v (${c2.pct_validos}%)</td>
+                <td class="p-2.5 text-center font-black ${temReal ? 'text-emerald-400' : 'text-slate-500'}">${temReal ? `${realC2}v (${pctReal2}%)` : 'Não apurado'}</td>
+                <td class="p-2.5 text-right font-black mono ${temReal ? (Math.abs(delta2) <= 2 ? 'text-emerald-400' : 'text-amber-400') : 'text-slate-500'}">
+                  ${temReal ? `${delta2 >= 0 ? '+' : ''}${delta2}v (Δ ${Math.abs(c2.pct_validos - pctReal2).toFixed(1)}%)` : '-'}
+                </td>
+              </tr>
+              <tr class="bg-slate-900 font-extrabold text-[11px] text-slate-300 border-t border-slate-800">
+                <td class="p-2.5">Total Válidos / Novos</td>
+                <td class="p-2.5 text-center">${piso1 + piso2}v</td>
+                <td class="p-2.5 text-center text-emerald-400">+${novosTot}v em disputa</td>
+                <td class="p-2.5 text-center text-white">${r.votos_validos}v</td>
+                <td class="p-2.5 text-center">${temReal ? `${totalReal}v` : '-'}</td>
+                <td class="p-2.5 text-right text-cyan-300">${temReal ? (totalReal === r.votos_validos ? 'Batimento Exato (0v)' : `Δ ${r.votos_validos - totalReal}v`) : 'Simulação Pura'}</td>
+              </tr>
+            `;
+          }
+
+          const parecerBox = document.getElementById("sim2tDossieParecerBox");
+          if (parecerBox) {
+            const temReal = sr.real_2t_c1_votos !== null && sr.real_2t_c1_votos !== undefined;
+            if (temReal) {
+              const deltaPct = Math.abs(c1.pct_validos - ((sr.real_2t_c1_votos / (sr.real_2t_c1_votos + sr.real_2t_c2_votos)) * 100)).toFixed(1);
+              parecerBox.className = "p-3 rounded-xl border text-xs leading-relaxed bg-cyan-950/40 border-cyan-500/50 text-cyan-300";
+              parecerBox.innerHTML = `
+                <div class="flex items-start gap-2">
+                  <span class="text-xl">🎯</span>
+                  <div>
+                    <strong>Confrontação Forense da Hipótese com o Resultado Real do TSE (2º Turno):</strong>
+                    <p class="text-slate-300 text-[11px] mt-1">
+                      A hipótese de absorção de novos votos configurada (${sr.pct_absorcao_c1}% p/ ${c1.nome} e ${sr.pct_absorcao_c2}% p/ ${c2.nome}) gerou uma divergência de apenas <strong>${deltaPct}%</strong> em relação ao Boletim de Urna oficial do TSE emitido na urna física desta seção. O piso nominal do 1º Turno foi integralmente preservado.
+                    </p>
+                  </div>
+                </div>
+              `;
+            } else {
+              parecerBox.className = "p-3 rounded-xl border text-xs leading-relaxed bg-slate-950 border-slate-800 text-slate-300";
+              parecerBox.innerHTML = `
+                <div class="flex items-start gap-2">
+                  <span class="text-xl">📊</span>
+                  <div>
+                    <strong>Simulação com Condições Efetivas de Seção Real:</strong>
+                    <p class="text-[11px] text-slate-400 mt-1">
+                      A urna simulou o fluxo da seção oficial com comparecimento de ${r.comparecimento_total} eleitores, absorvendo ${sr.novos_votos_efetivos} novos votos sobre o piso do 1º Turno.
+                    </p>
+                  </div>
+                </div>
+              `;
+            }
+          }
+        } else {
+          dossieBox.classList.add("hidden");
+        }
+      }
 
       // 1. Vencedor Badge
       const vBadge = document.getElementById("sim2tVencedorBadge");
@@ -5991,6 +6608,208 @@ o Boletim de Urna (apos encerramento da votacao).
         </html>
       `);
       printWindow.document.close();
+    }
+
+    // ==============================================================
+    // HISTÓRICO PERSISTIDO DE SIMULAÇÕES ELEITORAIS
+    // ==============================================================
+    function abrirModalHistoricoSimulacoes() {
+      const modal = document.getElementById("modalHistoricoSimulacoes");
+      if (modal) modal.classList.remove("hidden");
+      carregarListaHistoricoSimulacoes();
+    }
+
+    function fecharModalHistoricoSimulacoes(e) {
+      if (e && e.target && e.target.id !== "modalHistoricoSimulacoes" && !e.target.closest("button")) {
+        return;
+      }
+      const modal = document.getElementById("modalHistoricoSimulacoes");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    async function carregarListaHistoricoSimulacoes() {
+      const container = document.getElementById("modalHistoricoCorpoLista");
+      const rodape = document.getElementById("modalHistoricoRodapeInfo");
+      if (!container) return;
+
+      container.innerHTML = `
+        <div class="p-8 text-center text-slate-400 mono text-xs animate-pulse">
+          ⏳ Carregando histórico permanente de simulações...
+        </div>
+      `;
+
+      try {
+        const res = await fetch("/api/simulacao/historico?limit=50");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const lista = data.simulacoes || [];
+
+        const countBadge = document.getElementById("badgeHistoricoSimCount");
+        if (countBadge) countBadge.textContent = data.total || lista.length;
+
+        if (rodape) {
+          rodape.textContent = `Total de ${data.total || lista.length} simulações arquivadas permanentemente no banco`;
+        }
+
+        if (lista.length === 0) {
+          container.innerHTML = `
+            <div class="p-8 text-center text-slate-400 mono text-xs border border-dashed border-slate-800 rounded-xl space-y-2">
+              <span class="text-3xl block">📜</span>
+              <p class="font-bold text-white">Nenhuma simulação encontrada no histórico.</p>
+              <p class="text-[11px] text-slate-500">Execute qualquer simulação paramétrica ou atrelada a uma seção real para arquivar automaticamente o snapshot forense.</p>
+            </div>
+          `;
+          return;
+        }
+
+        container.innerHTML = lista.map(item => {
+          const isSecaoReal = item.tipo_origem === "SECAO_REAL";
+          const dCrt = item.criado_em ? new Date(item.criado_em).toLocaleString("pt-BR") : "-";
+
+          let origemBadge = isSecaoReal
+            ? `<span class="px-2 py-0.5 rounded text-[10px] font-black mono bg-cyan-950 text-cyan-300 border border-cyan-700">🏛️ SEÇÃO REAL: ${item.uf || ''} ${item.municipio || ''} Z:${item.zona} S:${item.secao}</span>`
+            : `<span class="px-2 py-0.5 rounded text-[10px] font-black mono bg-slate-800 text-slate-300 border border-slate-700">⚡ PARAMÉTRICO</span>`;
+
+          let vencColor = "text-slate-300";
+          if (item.vencedor_numero === item.cand1_numero) vencColor = "text-cyan-400";
+          else if (item.vencedor_numero === item.cand2_numero) vencColor = "text-rose-400";
+
+          return `
+            <div class="p-3.5 rounded-xl bg-slate-950 border border-slate-800 hover:border-indigo-500/50 transition space-y-2 text-xs">
+              <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+                <div class="flex items-center gap-2">
+                  <span class="font-black mono text-indigo-400 text-xs">#${item.id}</span>
+                  ${origemBadge}
+                  <span class="text-[10px] text-slate-500 mono">${dCrt}</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onclick="carregarSimulacaoDoHistorico(${item.id})"
+                    class="px-2.5 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-black text-[11px] shadow cursor-pointer flex items-center gap-1"
+                  >
+                    <span>🔄</span>
+                    <span>Restaurar no Painel</span>
+                  </button>
+                  <button
+                    type="button"
+                    onclick="excluirSimulacaoHistorico(${item.id})"
+                    class="px-2 py-1 rounded bg-slate-900 hover:bg-rose-950 text-slate-400 hover:text-rose-300 font-bold text-[11px] border border-slate-800 cursor-pointer"
+                    title="Excluir simulação"
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </div>
+
+              <!-- Placar e Detalhes da Simulação -->
+              <div class="grid grid-cols-12 gap-2 items-center text-[11px] mono">
+                <div class="col-span-12 sm:col-span-5">
+                  <span class="text-[10px] text-slate-500 block">VENCEDOR:</span>
+                  <span class="font-extrabold ${vencColor} text-xs">🏆 ${item.vencedor_nome || 'EMPATE'} (${item.vencedor_pct || 0}%)</span>
+                </div>
+                <div class="col-span-12 sm:col-span-4">
+                  <span class="text-[10px] text-slate-500 block">PLACAR VÁLIDOS:</span>
+                  <span class="text-white font-bold">${item.cand1_nome ? item.cand1_nome.split(" ")[0] : 'C1'}: ${item.cand1_votos}v × ${item.cand2_nome ? item.cand2_nome.split(" ")[0] : 'C2'}: ${item.cand2_votos}v</span>
+                </div>
+                <div class="col-span-12 sm:col-span-3 text-right">
+                  <span class="text-[10px] text-slate-500 block">COMPARECIMENTO:</span>
+                  <span class="text-emerald-400 font-bold">${item.comparecimento}v (${item.eleitores_aptos} aptos)</span>
+                </div>
+              </div>
+
+              ${isSecaoReal ? `
+                <div class="text-[10px] mono text-slate-400 bg-slate-900/60 p-1.5 rounded flex items-center justify-between">
+                  <span>Piso 1ºT: C1 ${item.votos_1t_c1 || 0}v × C2 ${item.votos_1t_c2 || 0}v</span>
+                  <span class="text-cyan-300 font-bold">Novos Votos Efetivos: +${item.novos_votos_efetivos || 0} (Absorção: ${item.pct_absorcao_c1 || 50}% / ${item.pct_absorcao_c2 || 50}%)</span>
+                </div>
+              ` : ''}
+            </div>
+          `;
+        }).join("");
+
+      } catch (err) {
+        console.error("Erro ao listar histórico de simulações:", err);
+        container.innerHTML = `
+          <div class="p-4 text-center text-rose-400 text-xs mono">
+            Falha ao consultar histórico: ${err.message}
+          </div>
+        `;
+      }
+    }
+
+    async function carregarSimulacaoDoHistorico(id) {
+      try {
+        const res = await fetch(`/api/simulacao/historico/${id}`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const payload = data.payload_completo_json || data;
+
+        window.sim2tUltimoResultado = payload;
+
+        // Atualizar papel térmico se houver
+        if (payload.boletim_de_urna && payload.boletim_de_urna.cupom_termico) {
+          const thermalOut = document.getElementById("thermalPrinterOutput");
+          if (thermalOut) thermalOut.textContent = payload.boletim_de_urna.cupom_termico;
+          const modalOut = document.getElementById("modalThermalCupomOutput");
+          if (modalOut) modalOut.textContent = payload.boletim_de_urna.cupom_termico;
+        }
+
+        // Renderizar todos os elementos
+        renderizarResultadosSimulacao2T(payload);
+
+        // Se tiver logs, executa auditoria
+        await executarAuditoriaIndependenteNaBase();
+
+        fecharModalHistoricoSimulacoes();
+
+        // Rolar até os resultados
+        const container = document.getElementById("sim2tResultadosContainer");
+        if (container) {
+          container.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+
+        showSecurityAlert(`Simulação #${id} restaurada com sucesso com todos os gráficos, cards e logs!`, false);
+      } catch (err) {
+        console.error("Erro ao recuperar simulação:", err);
+        showSecurityAlert("Erro ao restaurar simulação do histórico: " + err.message, true);
+      }
+    }
+
+    async function excluirSimulacaoHistorico(id) {
+      if (!confirm(`Deseja realmente excluir a simulação #${id} do histórico?`)) return;
+      try {
+        const res = await fetch(`/api/simulacao/historico/${id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        carregarListaHistoricoSimulacoes();
+        atualizarContadorHistoricoSimulacoes();
+      } catch (err) {
+        showSecurityAlert("Erro ao excluir simulação: " + err.message, true);
+      }
+    }
+
+    async function limparTodoHistoricoSimulacoesFront() {
+      if (!confirm("⚠️ Tem certeza que deseja apagar TODO o histórico de simulações permanentemente?")) return;
+      try {
+        const res = await fetch("/api/simulacao/historico", { method: "DELETE" });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        carregarListaHistoricoSimulacoes();
+        atualizarContadorHistoricoSimulacoes();
+        showSecurityAlert("Histórico de simulações limpo com sucesso.", false);
+      } catch (err) {
+        showSecurityAlert("Erro ao limpar histórico: " + err.message, true);
+      }
+    }
+
+    async function atualizarContadorHistoricoSimulacoes() {
+      try {
+        const res = await fetch("/api/simulacao/historico?limit=1");
+        if (res.ok) {
+          const d = await res.json();
+          const badge = document.getElementById("badgeHistoricoSimCount");
+          if (badge) badge.textContent = d.total || 0;
+        }
+      } catch (e) {}
     }
 
     function toggleCamposAnomalia() {
@@ -18203,6 +19022,7 @@ ${(bu.sha256 || '8F3A1C9E2B4D7065A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F6071
     atualizarBadgeHistoricoUploads();
     atualizarBadgeRelatoriosOficiais();
     atualizarBadgeGedaiLogs();
+    atualizarContadorHistoricoSimulacoes();
     checarVersaoProducao();
     try {
       const modSalvo = localStorage.getItem("urna_modulo_ativo") || "simulador";

@@ -14,6 +14,11 @@ from .database import (
     Candidato,
     RegistroDigitalVoto,
     LogAuditoriaUrna,
+    TseSecao,
+    TseApuracaoBU,
+    TseVotoCandidato,
+    HistoricoSimulacao,
+    garantir_tabelas_custodia_tse,
 )
 from .election_engine import get_cargos_por_turno, seed_default_candidates
 from .thermal_printer import gerar_relatorio_zeresima, apurar_boletim_de_urna
@@ -1042,3 +1047,442 @@ def executar_simulacao_segundo_turno_voto_a_voto(
         "boletim_de_urna": bu,
         "cartucho": cartucho,
     }
+
+
+# ==============================================================================
+# ATRELAMENTO A SEÇÕES REAIS DO TSE (SETUP 1ºT -> 2ºT & NOVOS VOTOS)
+# ==============================================================================
+
+def obter_setup_secao_real(
+    db: Session,
+    uf: str = None,
+    zona: int = None,
+    secao: int = None,
+    secao_id: int = None,
+    chave_secao: str = None,
+) -> dict:
+    """
+    Busca uma seção real no catálogo físico do TSE e extrai:
+      - O resultado oficial do 1º Turno entre os dois concorrentes principais
+      - Os votos nominais de outros concorrentes / terceiras vias no 1º Turno
+      - As condições demográficas efetivas do 2º Turno (aptos, comparecimento, abstenção, brancos, nulos)
+      - O montante de Novos Votos Efetivos em disputa (sem antecipar o vencedor do 2º turno)
+      - O comparativo real do TSE no 2º turno (caso já conste do banco de dados)
+    """
+    garantir_tabelas_custodia_tse()
+    query = db.query(TseSecao)
+    if secao_id:
+        secao_db = query.filter(TseSecao.id == int(secao_id)).first()
+    elif chave_secao:
+        secao_db = query.filter(TseSecao.chave_secao == str(chave_secao).strip()).first()
+    elif uf and zona is not None and secao is not None:
+        secao_db = query.filter(
+            TseSecao.uf == str(uf).strip().upper(),
+            TseSecao.zona == int(zona),
+            TseSecao.secao == int(secao),
+        ).first()
+    else:
+        raise ValueError("Informe UF, Zona e Seção para buscar os dados oficiais.")
+
+    if not secao_db:
+        raise ValueError(f"Seção eleitoral não encontrada na base de dados (UF={uf}, Zona={zona}, Seção={secao}).")
+
+    # 1. Apuração BU 1º Turno e 2º Turno
+    bu_1t = db.query(TseApuracaoBU).filter(TseApuracaoBU.secao_id == secao_db.id, TseApuracaoBU.turno == 1).first()
+    bu_2t = db.query(TseApuracaoBU).filter(TseApuracaoBU.secao_id == secao_db.id, TseApuracaoBU.turno == 2).first()
+
+    # 2. Votação de Candidatos no 1T e 2T (Presidente)
+    votos_1t = db.query(TseVotoCandidato).filter(
+        TseVotoCandidato.secao_id == secao_db.id,
+        TseVotoCandidato.turno == 1,
+        TseVotoCandidato.cargo == "PRESIDENTE",
+    ).order_by(TseVotoCandidato.quantidade_votos.desc()).all()
+
+    votos_2t = db.query(TseVotoCandidato).filter(
+        TseVotoCandidato.secao_id == secao_db.id,
+        TseVotoCandidato.turno == 2,
+        TseVotoCandidato.cargo == "PRESIDENTE",
+    ).order_by(TseVotoCandidato.quantidade_votos.desc()).all()
+
+    # Identificar os 2 concorrentes principais (22 e 13 ou os mais votados)
+    cand1_voto_1t = next((v for v in votos_1t if v.numero_candidato == 22), None)
+    cand2_voto_1t = next((v for v in votos_1t if v.numero_candidato == 13), None)
+
+    if not cand1_voto_1t and len(votos_1t) > 0:
+        cand1_voto_1t = votos_1t[0]
+    if not cand2_voto_1t and len(votos_1t) > 1:
+        cand2_voto_1t = votos_1t[1] if votos_1t[1].id != getattr(cand1_voto_1t, "id", None) else (votos_1t[0] if len(votos_1t) > 0 else None)
+
+    v1_1t = cand1_voto_1t.quantidade_votos if cand1_voto_1t else 0
+    v2_1t = cand2_voto_1t.quantidade_votos if cand2_voto_1t else 0
+    c1_num = str(cand1_voto_1t.numero_candidato if cand1_voto_1t else "22")
+    c1_nome = cand1_voto_1t.nome_candidato if cand1_voto_1t and cand1_voto_1t.nome_candidato else "JAIR BOLSONARO"
+    c1_part = "PL" if c1_num == "22" else "C1"
+
+    c2_num = str(cand2_voto_1t.numero_candidato if cand2_voto_1t else "13")
+    c2_nome = cand2_voto_1t.nome_candidato if cand2_voto_1t and cand2_voto_1t.nome_candidato else "LULA"
+    c2_part = "PT" if c2_num == "13" else "C2"
+
+    v_outros_1t = sum(v.quantidade_votos for v in votos_1t if v.numero_candidato not in (int(c1_num), int(c2_num)))
+
+    # Metadados do 1T
+    aptos_1t = bu_1t.eleitores_aptos if bu_1t and bu_1t.eleitores_aptos else (secao_db.apuracoes[0].eleitores_aptos if secao_db.apuracoes else 350)
+    comp_1t = bu_1t.comparecimento if bu_1t else (v1_1t + v2_1t + v_outros_1t)
+    abst_1t = bu_1t.faltosos if bu_1t else max(0, aptos_1t - comp_1t)
+    brancos_1t = bu_1t.votos_brancos if bu_1t else 0
+    nulos_1t = bu_1t.votos_nulos if bu_1t else 0
+    val_1t = bu_1t.votos_nominais if bu_1t else (v1_1t + v2_1t + v_outros_1t)
+
+    # Condições Efetivas do 2º Turno (Demografia & Fluxo da Urna)
+    tem_dados_2t = bool(bu_2t and bu_2t.comparecimento > 0)
+    if tem_dados_2t:
+        aptos_2t = bu_2t.eleitores_aptos or aptos_1t
+        comp_2t = bu_2t.comparecimento
+        abst_2t = bu_2t.faltosos
+        pct_abst_2t = round((abst_2t / max(1, aptos_2t)) * 100.0, 1)
+        brancos_2t = bu_2t.votos_brancos
+        pct_brancos_2t = round((brancos_2t / max(1, comp_2t)) * 100.0, 1)
+        nulos_2t = bu_2t.votos_nulos
+        pct_nulos_2t = round((nulos_2t / max(1, comp_2t)) * 100.0, 1)
+        val_2t = bu_2t.votos_nominais
+    else:
+        aptos_2t = aptos_1t
+        comp_2t = comp_1t
+        abst_2t = abst_1t
+        pct_abst_2t = round((abst_2t / max(1, aptos_2t)) * 100.0, 1)
+        brancos_2t = brancos_1t
+        pct_brancos_2t = round((brancos_2t / max(1, comp_2t)) * 100.0, 1)
+        nulos_2t = nulos_1t
+        pct_nulos_2t = round((nulos_2t / max(1, comp_2t)) * 100.0, 1)
+        val_2t = max(1, comp_2t - brancos_2t - nulos_2t)
+
+    # Cálculo dos Novos Votos Efetivos em Disputa (sem considerar quem venceu no 2T)
+    piso_base_1t = v1_1t + v2_1t
+    novos_votos_disputa = max(0, val_2t - piso_base_1t)
+    delta_comparecimento = comp_2t - comp_1t
+
+    # Resultado real do 2T se existir no banco (apenas para exibição comparativa posterior!)
+    c1_real_2t = next((v.quantidade_votos for v in votos_2t if v.numero_candidato == int(c1_num)), None)
+    c2_real_2t = next((v.quantidade_votos for v in votos_2t if v.numero_candidato == int(c2_num)), None)
+
+    real_comparativo_2t = None
+    if c1_real_2t is not None and c2_real_2t is not None:
+        tot_real_2t = c1_real_2t + c2_real_2t
+        p_real_c1 = round((c1_real_2t / max(1, tot_real_2t)) * 100.0, 1) if tot_real_2t > 0 else 0.0
+        p_real_c2 = round((c2_real_2t / max(1, tot_real_2t)) * 100.0, 1) if tot_real_2t > 0 else 0.0
+        venc_real = c1_nome if c1_real_2t > c2_real_2t else (c2_nome if c2_real_2t > c1_real_2t else "EMPATE")
+        delta_real_c1 = c1_real_2t - v1_1t
+        delta_real_c2 = c2_real_2t - v2_1t
+
+        real_comparativo_2t = {
+            "votos_cand1": c1_real_2t,
+            "pct_cand1": p_real_c1,
+            "novos_votos_cand1": delta_real_c1,
+            "pct_absorcao_real_cand1": round((delta_real_c1 / max(1, novos_votos_disputa)) * 100.0, 1) if novos_votos_disputa > 0 else 0.0,
+            "votos_cand2": c2_real_2t,
+            "pct_cand2": p_real_c2,
+            "novos_votos_cand2": delta_real_c2,
+            "pct_absorcao_real_cand2": round((delta_real_c2 / max(1, novos_votos_disputa)) * 100.0, 1) if novos_votos_disputa > 0 else 0.0,
+            "vencedor_real": venc_real,
+            "total_validos_real": tot_real_2t,
+        }
+
+    return {
+        "secao_info": {
+            "id": secao_db.id,
+            "chave_secao": secao_db.chave_secao,
+            "uf": secao_db.uf,
+            "municipio_codigo": secao_db.municipio_codigo,
+            "municipio_nome": secao_db.municipio_nome,
+            "zona": secao_db.zona,
+            "secao": secao_db.secao,
+            "local_votacao": secao_db.local_votacao or "Local não informado",
+            "modelo_urna": secao_db.modelo_urna or "UE2020",
+        },
+        "primeiro_turno": {
+            "cand1": {
+                "numero": c1_num,
+                "nome": c1_nome,
+                "partido": c1_part,
+                "votos": v1_1t,
+                "pct_validos": round((v1_1t / max(1, val_1t)) * 100.0, 1) if val_1t > 0 else 0.0,
+            },
+            "cand2": {
+                "numero": c2_num,
+                "nome": c2_nome,
+                "partido": c2_part,
+                "votos": v2_1t,
+                "pct_validos": round((v2_1t / max(1, val_1t)) * 100.0, 1) if val_1t > 0 else 0.0,
+            },
+            "votos_outros_candidatos": v_outros_1t,
+            "votos_validos": val_1t,
+            "brancos": brancos_1t,
+            "pct_brancos": round((brancos_1t / max(1, comp_1t)) * 100.0, 1) if comp_1t > 0 else 0.0,
+            "nulos": nulos_1t,
+            "pct_nulos": round((nulos_1t / max(1, comp_1t)) * 100.0, 1) if comp_1t > 0 else 0.0,
+            "comparecimento": comp_1t,
+            "aptos": aptos_1t,
+            "abstencoes": abst_1t,
+            "pct_abstencao": round((abst_1t / max(1, aptos_1t)) * 100.0, 1) if aptos_1t > 0 else 0.0,
+        },
+        "segundo_turno_condicoes_efetivas": {
+            "aptos": aptos_2t,
+            "comparecimento": comp_2t,
+            "abstencoes": abst_2t,
+            "pct_abstencao": pct_abst_2t,
+            "brancos": brancos_2t,
+            "pct_brancos": pct_brancos_2t,
+            "nulos": nulos_2t,
+            "pct_nulos": pct_nulos_2t,
+            "votos_validos": val_2t,
+            "novos_votos_efetivos_disputa": novos_votos_disputa,
+            "delta_comparecimento": delta_comparecimento,
+            "tem_dados_2t_oficiais": tem_dados_2t,
+        },
+        "resultado_real_2t_tse": real_comparativo_2t,
+    }
+
+
+def buscar_secoes_reais_banco(
+    db: Session,
+    q: str = "",
+    uf: str = "",
+    limit: int = 20,
+) -> list[dict]:
+    """Busca seções eleitorais cadastradas para seleção rápida no simulador."""
+    garantir_tabelas_custodia_tse()
+    query = db.query(TseSecao)
+    if uf and uf.strip() and uf.strip().upper() != "TODAS":
+        query = query.filter(TseSecao.uf == uf.strip().upper())
+    if q and q.strip():
+        termo = f"%{q.strip().upper()}%"
+        if q.strip().isdigit():
+            val = int(q.strip())
+            query = query.filter((TseSecao.zona == val) | (TseSecao.secao == val))
+        else:
+            query = query.filter(
+                (TseSecao.municipio_nome.ilike(termo)) |
+                (TseSecao.chave_secao.ilike(termo)) |
+                (TseSecao.local_votacao.ilike(termo))
+            )
+
+    secoes = query.order_by(
+        TseSecao.uf.asc(),
+        TseSecao.municipio_nome.asc(),
+        TseSecao.zona.asc(),
+        TseSecao.secao.asc()
+    ).limit(max(1, min(50, limit))).all()
+
+    res = []
+    for s in secoes:
+        tem_1t = any(a.turno == 1 for a in s.apuracoes)
+        tem_2t = any(a.turno == 2 for a in s.apuracoes)
+        res.append({
+            "id": s.id,
+            "chave_secao": s.chave_secao,
+            "uf": s.uf,
+            "municipio_nome": s.municipio_nome,
+            "municipio_codigo": s.municipio_codigo,
+            "zona": s.zona,
+            "secao": s.secao,
+            "local_votacao": s.local_votacao or "Local não informado",
+            "tem_1t": tem_1t,
+            "tem_2t": tem_2t,
+        })
+    return res
+
+
+# ==============================================================================
+# GESTÃO PERSISTIDA DO HISTÓRICO DE SIMULAÇÕES
+# ==============================================================================
+
+def salvar_historico_simulacao(
+    db: Session,
+    resultado_simulacao: dict,
+    parametros_extra: dict = None,
+) -> dict:
+    """Salva no banco de dados o snapshot de uma simulação realizada."""
+    garantir_tabelas_custodia_tse()
+    p = resultado_simulacao.get("parametros", {})
+    r = resultado_simulacao.get("resultado_urna", {})
+    extra = parametros_extra or {}
+
+    c1 = r.get("cand1", {})
+    c2 = r.get("cand2", {})
+
+    tipo_origem = extra.get("tipo_origem") or ("SECAO_REAL" if extra.get("secao_chave") or extra.get("secao_id") else "PARAMETRICO")
+    titulo = extra.get("titulo_cenario")
+    if not titulo:
+        if tipo_origem == "SECAO_REAL":
+            mun = extra.get("municipio_nome") or extra.get("municipio") or ""
+            uf_txt = extra.get("uf") or ""
+            titulo = f"Seção {extra.get('secao')} (Z:{extra.get('zona')} • {mun}-{uf_txt})"
+        else:
+            titulo = f"Simulação 2º Turno ({c1.get('pct_validos', 0)}% x {c2.get('pct_validos', 0)}%)"
+
+    entry = HistoricoSimulacao(
+        created_at=datetime.now(timezone.utc),
+        tipo_origem=tipo_origem,
+        titulo_cenario=titulo,
+        secao_chave=extra.get("secao_chave"),
+        uf=extra.get("uf"),
+        municipio_codigo=extra.get("municipio_codigo"),
+        municipio_nome=extra.get("municipio_nome") or extra.get("municipio"),
+        zona=int(extra["zona"]) if extra.get("zona") is not None else None,
+        secao=int(extra["secao"]) if extra.get("secao") is not None else None,
+        local_votacao=extra.get("local_votacao"),
+        perfil_vazao=p.get("perfil_vazao", "PADRAO_REAL_TSE"),
+        modo_anomalia=p.get("modo_anomalia", "NORMAL"),
+        eleitores_aptos=p.get("eleitores_aptos", 0),
+        comparecimento=r.get("comparecimento_total", 0),
+        abstencoes=r.get("abstencao_total", 0),
+        pct_abstencao=r.get("pct_abstencao", 0.0),
+        pct_brancos=r.get("pct_brancos", 0.0),
+        pct_nulos=r.get("pct_nulos", 0.0),
+        votos_brancos=r.get("votos_brancos", 0),
+        votos_nulos=r.get("votos_nulos", 0),
+        votos_validos=r.get("votos_validos", 0),
+        votos_1t_c1=extra.get("votos_1t_c1"),
+        votos_1t_c2=extra.get("votos_1t_c2"),
+        votos_1t_outros=extra.get("votos_1t_outros"),
+        comparecimento_1t=extra.get("comparecimento_1t"),
+        novos_votos_efetivos=extra.get("novos_votos_efetivos"),
+        pct_absorcao_c1=extra.get("pct_absorcao_c1"),
+        pct_absorcao_c2=extra.get("pct_absorcao_c2"),
+        real_2t_c1_votos=extra.get("real_2t_c1_votos"),
+        real_2t_c2_votos=extra.get("real_2t_c2_votos"),
+        real_2t_vencedor=extra.get("real_2t_vencedor"),
+        cand1_numero=c1.get("numero", "22"),
+        cand1_nome=c1.get("nome", "CANDIDATO 1"),
+        cand1_partido=c1.get("partido", "PL"),
+        cand1_pct_pesquisa=c1.get("pct_pesquisa", 50.0),
+        cand1_votos_urna=c1.get("votos", 0),
+        cand1_pct_urna=c1.get("pct_validos", 0.0),
+        cand2_numero=c2.get("numero", "13"),
+        cand2_nome=c2.get("nome", "CANDIDATO 2"),
+        cand2_partido=c2.get("partido", "PT"),
+        cand2_pct_pesquisa=c2.get("pct_pesquisa", 50.0),
+        cand2_votos_urna=c2.get("votos", 0),
+        cand2_pct_urna=c2.get("pct_validos", 0.0),
+        vencedor_numero=r.get("vencedor_numero", "EMPATE"),
+        vencedor_nome=r.get("vencedor_nome", "EMPATE"),
+        margem_amostral_pct=r.get("margem_amostral_secao_pct", 0.0),
+        dentro_margem=r.get("dentro_margem_amostral", True),
+        veredito_forense="APROVADA" if p.get("modo_anomalia") == "NORMAL" else "ANOMALIA DETECTADA",
+        payload_completo_json=json.dumps(resultado_simulacao, ensure_ascii=False),
+    )
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+
+    return {
+        "id": entry.id,
+        "created_at": entry.created_at.isoformat(),
+        "titulo_cenario": entry.titulo_cenario,
+        "tipo_origem": entry.tipo_origem,
+    }
+
+
+def listar_historico_simulacoes(db: Session, limit: int = 30) -> list[dict]:
+    """Lista as simulações arquivadas ordenadas por data descrescente."""
+    garantir_tabelas_custodia_tse()
+    registros = (
+        db.query(HistoricoSimulacao)
+        .order_by(HistoricoSimulacao.id.desc())
+        .limit(max(1, min(100, limit)))
+        .all()
+    )
+    itens = []
+    for h in registros:
+        itens.append({
+            "id": h.id,
+            "created_at": h.created_at.strftime("%d/%m/%Y %H:%M:%S") if h.created_at else "-",
+            "tipo_origem": h.tipo_origem,
+            "titulo_cenario": h.titulo_cenario,
+            "uf": h.uf,
+            "municipio_nome": h.municipio_nome,
+            "zona": h.zona,
+            "secao": h.secao,
+            "local_votacao": h.local_votacao,
+            "comparecimento": h.comparecimento,
+            "eleitores_aptos": h.eleitores_aptos,
+            "cand1": {
+                "numero": h.cand1_numero,
+                "nome": h.cand1_nome,
+                "partido": h.cand1_partido,
+                "votos": h.cand1_votos_urna,
+                "pct": h.cand1_pct_urna,
+            },
+            "cand2": {
+                "numero": h.cand2_numero,
+                "nome": h.cand2_nome,
+                "partido": h.cand2_partido,
+                "votos": h.cand2_votos_urna,
+                "pct": h.cand2_pct_urna,
+            },
+            "vencedor_numero": h.vencedor_numero,
+            "vencedor_nome": h.vencedor_nome,
+            "margem_amostral_pct": h.margem_amostral_pct,
+            "dentro_margem": h.dentro_margem,
+            "veredito_forense": h.veredito_forense,
+            "perfil_vazao": h.perfil_vazao,
+            "modo_anomalia": h.modo_anomalia,
+            "novos_votos_efetivos": h.novos_votos_efetivos,
+            "pct_absorcao_c1": h.pct_absorcao_c1,
+            "pct_absorcao_c2": h.pct_absorcao_c2,
+        })
+    return itens
+
+
+def obter_historico_simulacao(db: Session, simulacao_id: int) -> dict:
+    """Recupera o registro e o payload completo de uma simulação anterior."""
+    garantir_tabelas_custodia_tse()
+    h = db.query(HistoricoSimulacao).filter(HistoricoSimulacao.id == simulacao_id).first()
+    if not h:
+        raise ValueError(f"Simulação #{simulacao_id} não encontrada no histórico.")
+
+    payload = json.loads(h.payload_completo_json) if h.payload_completo_json else {}
+    return {
+        "id": h.id,
+        "created_at": h.created_at.strftime("%d/%m/%Y %H:%M:%S") if h.created_at else "-",
+        "tipo_origem": h.tipo_origem,
+        "titulo_cenario": h.titulo_cenario,
+        "uf": h.uf,
+        "municipio_nome": h.municipio_nome,
+        "zona": h.zona,
+        "secao": h.secao,
+        "local_votacao": h.local_votacao,
+        "secao_chave": h.secao_chave,
+        "dados_transicao_1t_2t": {
+            "votos_1t_c1": h.votos_1t_c1,
+            "votos_1t_c2": h.votos_1t_c2,
+            "votos_1t_outros": h.votos_1t_outros,
+            "comparecimento_1t": h.comparecimento_1t,
+            "novos_votos_efetivos": h.novos_votos_efetivos,
+            "pct_absorcao_c1": h.pct_absorcao_c1,
+            "pct_absorcao_c2": h.pct_absorcao_c2,
+            "real_2t_c1_votos": h.real_2t_c1_votos,
+            "real_2t_c2_votos": h.real_2t_c2_votos,
+            "real_2t_vencedor": h.real_2t_vencedor,
+        },
+        "resultado_simulacao": payload,
+    }
+
+
+def excluir_historico_simulacao(db: Session, simulacao_id: int) -> bool:
+    """Exclui um registro específico do histórico."""
+    garantir_tabelas_custodia_tse()
+    h = db.query(HistoricoSimulacao).filter(HistoricoSimulacao.id == simulacao_id).first()
+    if not h:
+        return False
+    db.delete(h)
+    db.commit()
+    return True
+
+
+def limpar_todo_historico_simulacoes(db: Session) -> int:
+    """Limpa todos os registros do histórico de simulações."""
+    garantir_tabelas_custodia_tse()
+    total = db.query(HistoricoSimulacao).delete()
+    db.commit()
+    return total

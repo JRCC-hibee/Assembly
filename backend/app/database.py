@@ -294,6 +294,87 @@ class TseHistoricoUpload(Base):
     )
 
 
+class HistoricoSimulacao(Base):
+    """
+    Registro histórico persistido das simulações eleitorais executadas.
+    Permite atrelar cenários estocásticos e de absorção de novos votos a seções reais do TSE.
+    """
+    __tablename__ = "historico_simulacoes"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+    tipo_origem = Column(String(30), default="PARAMETRICO", index=True)  # "SECAO_REAL" ou "PARAMETRICO"
+    titulo_cenario = Column(String(160), nullable=False)
+
+    # Identificação da Seção Real (se atrelado)
+    secao_chave = Column(String(40), nullable=True, index=True)  # Ex: "PR_75353_0026_0128"
+    uf = Column(String(2), nullable=True, index=True)
+    municipio_codigo = Column(String(10), nullable=True)
+    municipio_nome = Column(String(80), nullable=True)
+    zona = Column(Integer, nullable=True)
+    secao = Column(Integer, nullable=True)
+    local_votacao = Column(String(160), nullable=True)
+
+    perfil_vazao = Column(String(40), default="PADRAO_REAL_TSE")
+    modo_anomalia = Column(String(40), default="NORMAL")
+
+    # Condições de Contorno da Urna
+    eleitores_aptos = Column(Integer, default=0)
+    comparecimento = Column(Integer, default=0)
+    abstencoes = Column(Integer, default=0)
+    pct_abstencao = Column(Float, default=0.0)
+    pct_brancos = Column(Float, default=0.0)
+    pct_nulos = Column(Float, default=0.0)
+    votos_brancos = Column(Integer, default=0)
+    votos_nulos = Column(Integer, default=0)
+    votos_validos = Column(Integer, default=0)
+
+    # Dados Históricos do 1º Turno e Absorção de Novos Votos
+    votos_1t_c1 = Column(Integer, nullable=True)
+    votos_1t_c2 = Column(Integer, nullable=True)
+    votos_1t_outros = Column(Integer, nullable=True)
+    comparecimento_1t = Column(Integer, nullable=True)
+    novos_votos_efetivos = Column(Integer, nullable=True)
+    pct_absorcao_c1 = Column(Float, nullable=True)
+    pct_absorcao_c2 = Column(Float, nullable=True)
+
+    # Dados Reais do 2º Turno (para comparativo de acurácia, se existirem)
+    real_2t_c1_votos = Column(Integer, nullable=True)
+    real_2t_c2_votos = Column(Integer, nullable=True)
+    real_2t_vencedor = Column(String(80), nullable=True)
+
+    # Candidatos
+    cand1_numero = Column(String(10), nullable=False)
+    cand1_nome = Column(String(80), nullable=False)
+    cand1_partido = Column(String(20), nullable=False)
+    cand1_pct_pesquisa = Column(Float, default=50.0)
+    cand1_votos_urna = Column(Integer, default=0)
+    cand1_pct_urna = Column(Float, default=0.0)
+
+    cand2_numero = Column(String(10), nullable=False)
+    cand2_nome = Column(String(80), nullable=False)
+    cand2_partido = Column(String(20), nullable=False)
+    cand2_pct_pesquisa = Column(Float, default=50.0)
+    cand2_votos_urna = Column(Integer, default=0)
+    cand2_pct_urna = Column(Float, default=0.0)
+
+    # Resultados e Auditoria
+    vencedor_numero = Column(String(10), nullable=False)
+    vencedor_nome = Column(String(80), nullable=False)
+    margem_amostral_pct = Column(Float, default=0.0)
+    dentro_margem = Column(Boolean, default=True)
+    veredito_forense = Column(String(120), default="APROVADA")
+
+    # Snapshot Completo JSON (para restauração 100% fiel com 1 clique)
+    payload_completo_json = Column(Text, nullable=True)
+
+    __table_args__ = (
+        Index("idx_historico_simulacao_data", "created_at"),
+        Index("idx_historico_simulacao_secao", "uf", "zona", "secao"),
+    )
+
+
 class TseDossieSecao(Base):
     """
     Armazena o dossiê detalhado oficial da seção no PostgreSQL:
@@ -1640,6 +1721,7 @@ def garantir_tabelas_custodia_tse():
             TseGedaiCorrespondencia.__table__,
             TseCorrespArquivo.__table__,
             TseCorrespRegistro.__table__,
+            HistoricoSimulacao.__table__,
         ):
             try:
                 tbl.create(bind=engine, checkfirst=True)

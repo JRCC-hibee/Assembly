@@ -49,6 +49,13 @@ from .simulator_audit import (
     executar_simulacao_cadencia_seccao,
     executar_simulacao_segundo_turno_voto_a_voto,
     auditar_logs_independente,
+    obter_setup_secao_real,
+    buscar_secoes_reais_banco,
+    salvar_historico_simulacao,
+    listar_historico_simulacoes,
+    obter_historico_simulacao,
+    excluir_historico_simulacao,
+    limpar_todo_historico_simulacoes,
 )
 from .tse_reverse_analyzer import (
     analisar_pacote_seccao_tse,
@@ -326,6 +333,30 @@ class SimulacaoSegundoTurnoSchema(BaseModel):
     modo_anomalia: str = "NORMAL"
     qtd_votos_anomalia: int = 0
     candidato_alvo_anomalia: Optional[str] = ""
+
+    # Atrelamento opcional a Seção Real do TSE
+    tipo_origem: Optional[str] = "PARAMETRICO"
+    secao_id: Optional[int] = None
+    secao_chave: Optional[str] = None
+    uf: Optional[str] = None
+    municipio: Optional[str] = None
+    municipio_codigo: Optional[str] = None
+    zona: Optional[int] = None
+    secao: Optional[int] = None
+    local_votacao: Optional[str] = None
+    titulo_cenario: Optional[str] = None
+
+    # Parâmetros de Transição 1T -> 2T
+    votos_1t_c1: Optional[int] = None
+    votos_1t_c2: Optional[int] = None
+    votos_1t_outros: Optional[int] = None
+    comparecimento_1t: Optional[int] = None
+    novos_votos_efetivos: Optional[int] = None
+    pct_absorcao_c1: Optional[float] = None
+    pct_absorcao_c2: Optional[float] = None
+    real_2t_c1_votos: Optional[int] = None
+    real_2t_c2_votos: Optional[int] = None
+    real_2t_vencedor: Optional[str] = None
 
 
 class AuditoriaExternaLogsSchema(BaseModel):
@@ -950,6 +981,7 @@ def api_simular_segundo_turno(payload: SimulacaoSegundoTurnoSchema, db: Session 
     Simulador de Alta Fidelidade: 2º Turno Voto a Voto e Hora a Hora.
     Gera em poucos segundos a dinâmica de um dia inteiro de votação com cadência realista,
     comparativo de pesquisa x urna, curva de vazão horária (08h..16h) e logs assinados com Merkle SHA-256.
+    Salva automaticamente no histórico persistido de simulações.
     """
     config = get_or_create_seccao(db)
     try:
@@ -974,11 +1006,124 @@ def api_simular_segundo_turno(payload: SimulacaoSegundoTurnoSchema, db: Session 
             qtd_votos_anomalia=payload.qtd_votos_anomalia,
             candidato_alvo_anomalia=(payload.candidato_alvo_anomalia or "").strip(),
         )
+
+        # Anexar dados de transição 1T -> 2T se fornecidos
+        if payload.tipo_origem == "SECAO_REAL":
+            resultado["dados_secao_real"] = {
+                "uf": payload.uf,
+                "municipio": payload.municipio,
+                "zona": payload.zona,
+                "secao": payload.secao,
+                "local_votacao": payload.local_votacao,
+                "votos_1t_c1": payload.votos_1t_c1,
+                "votos_1t_c2": payload.votos_1t_c2,
+                "votos_1t_outros": payload.votos_1t_outros,
+                "comparecimento_1t": payload.comparecimento_1t,
+                "novos_votos_efetivos": payload.novos_votos_efetivos,
+                "pct_absorcao_c1": payload.pct_absorcao_c1,
+                "pct_absorcao_c2": payload.pct_absorcao_c2,
+                "real_2t_c1_votos": payload.real_2t_c1_votos,
+                "real_2t_c2_votos": payload.real_2t_c2_votos,
+                "real_2t_vencedor": payload.real_2t_vencedor,
+            }
+
+        # Arquiva automaticamente a simulação no Histórico Persistido
+        try:
+            hist = salvar_historico_simulacao(db, resultado, payload.dict())
+            resultado["historico_id"] = hist["id"]
+            resultado["historico_info"] = hist
+        except Exception as e_hist:
+            print(f"[HISTORICO-SIMULACAO] Aviso ao arquivar simulação: {e_hist}")
+
         return resultado
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Erro interno no processamento do 2º Turno: {str(exc)}")
+
+
+@app.get("/api/simulacao/buscar-secoes")
+def api_simulacao_buscar_secoes(q: str = "", uf: str = "", limit: int = 20, db: Session = Depends(get_db)):
+    """Busca seções eleitorais cadastradas para sugestão/autocomplete no simulador."""
+    try:
+        return buscar_secoes_reais_banco(db, q=q, uf=uf, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Erro ao buscar seções: {str(exc)}")
+
+
+@app.get("/api/simulacao/dados-secao-real")
+def api_simulacao_dados_secao_real(
+    uf: Optional[str] = None,
+    zona: Optional[int] = None,
+    secao: Optional[int] = None,
+    secao_id: Optional[int] = None,
+    chave_secao: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    """
+    Extrai o setup completo da seção real:
+    - Piso de votação 1T (C1 x C2 x Outros)
+    - Demografia e Condições Efetivas do 2T (Aptos, Comparecimento, Abstenção, Brancos e Nulos)
+    - Novos Votos Efetivos em disputa para simulação
+    - Resultado Oficial Histórico do 2T (se disponível)
+    """
+    try:
+        return obter_setup_secao_real(
+            db,
+            uf=uf,
+            zona=zona,
+            secao=secao,
+            secao_id=secao_id,
+            chave_secao=chave_secao,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao carregar setup da seção: {str(exc)}")
+
+
+@app.get("/api/simulacao/historico")
+def api_simulacao_listar_historico(limit: int = 30, db: Session = Depends(get_db)):
+    """Lista as simulações eleitorais arquivadas no histórico."""
+    try:
+        return listar_historico_simulacoes(db, limit=limit)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao listar histórico de simulações: {str(exc)}")
+
+
+@app.get("/api/simulacao/historico/{simulacao_id}")
+def api_simulacao_obter_historico(simulacao_id: int, db: Session = Depends(get_db)):
+    """Obtém o snapshot completo de uma simulação anterior para restauração no painel."""
+    try:
+        return obter_historico_simulacao(db, simulacao_id=simulacao_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao recuperar simulação: {str(exc)}")
+
+
+@app.delete("/api/simulacao/historico/{simulacao_id}")
+def api_simulacao_excluir_historico(simulacao_id: int, db: Session = Depends(get_db)):
+    """Exclui um registro específico do histórico de simulações."""
+    try:
+        ok = excluir_historico_simulacao(db, simulacao_id=simulacao_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="Simulação não encontrada.")
+        return {"ok": True, "mensagem": f"Simulação #{simulacao_id} removida com sucesso."}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao excluir simulação: {str(exc)}")
+
+
+@app.delete("/api/simulacao/historico")
+def api_simulacao_limpar_historico(db: Session = Depends(get_db)):
+    """Limpa todo o histórico de simulações."""
+    try:
+        total = limpar_todo_historico_simulacoes(db)
+        return {"ok": True, "total_removidos": total}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao limpar histórico: {str(exc)}")
 
 
 @app.post("/api/auditoria/analisar-logs")
