@@ -540,3 +540,503 @@ def auditar_logs_independente(logs_list: list[dict]) -> dict:
         "anomalias": anomalias,
         "serie_temporal_ciclos": ciclos_extraidos,
     }
+
+
+def executar_simulacao_segundo_turno_voto_a_voto(
+    db: Session,
+    config: SeccaoConfig,
+    *,
+    cand1_numero: str = "22",
+    cand1_nome: str = "FLÁVIO BOLSONARO",
+    cand1_partido: str = "PL",
+    cand1_pct_pesquisa: float = 52.0,
+    cand2_numero: str = "13",
+    cand2_nome: str = "LUIZ INÁCIO LULA",
+    cand2_partido: str = "PT",
+    cand2_pct_pesquisa: float = 48.0,
+    eleitores_aptos: int = 350,
+    comparecimento: int = None,
+    abstencoes: int = None,
+    pct_brancos: float = 2.5,
+    pct_nulos: float = 3.5,
+    perfil_vazao: str = "PADRAO_REAL_TSE",
+    modo_anomalia: str = "NORMAL",
+    qtd_votos_anomalia: int = 0,
+    candidato_alvo_anomalia: str = "",
+) -> dict:
+    """
+    Rotina de Alta Fidelidade: Simulação de Votação Voto a Voto e Hora a Hora (2º Turno).
+    
+    Reproduz fielmente o dia de votação (08h00 às 17h00) em poucos segundos:
+      - 2 Candidatos Presidenciais configuráveis com números, nomes e % de pesquisa
+      - Vazão horária realista distribuída nas 9 horas de expediente (08h..16h)
+      - Cadência humana física de 2º turno (biometria AFIS, caminhada e cabine rápida de 1 cargo)
+      - Gravação criptográfica no RDV (shuffle_key) e Merkle chain nos Logs de Auditoria
+      - Emissão de Zerésima, Boletim de Urna (BU térmico) e Cartucho Digital de Mídia
+      - Apuração comparativa Pesquisa x Urna com margem de erro amostral da seção
+    """
+    c1_num = str(cand1_numero or "22").strip()
+    c2_num = str(cand2_numero or "13").strip()
+    c1_nome = str(cand1_nome or "FLÁVIO BOLSONARO").strip().upper()
+    c2_nome = str(cand2_nome or "LUIZ INÁCIO LULA").strip().upper()
+    c1_sigla = str(cand1_partido or "PL").strip().upper()
+    c2_sigla = str(cand2_partido or "PT").strip().upper()
+
+    p1_pesq = float(cand1_pct_pesquisa or 50.0)
+    p2_pesq = float(cand2_pct_pesquisa or 50.0)
+    soma_pesq = max(0.01, p1_pesq + p2_pesq)
+    p1_norm = (p1_pesq / soma_pesq) * 100.0
+    p2_norm = (p2_pesq / soma_pesq) * 100.0
+
+    aptos = max(10, int(eleitores_aptos or 350))
+    if comparecimento is not None and int(comparecimento) > 0:
+        comp_real = min(int(comparecimento), aptos)
+        abst_real = max(0, aptos - comp_real)
+    elif abstencoes is not None:
+        abst_real = min(int(abstencoes), aptos)
+        comp_real = max(0, aptos - abst_real)
+    else:
+        comp_real = max(1, int(round(aptos * 0.81)))
+        abst_real = max(0, aptos - comp_real)
+
+    if comp_real < 1:
+        comp_real = 1
+        abst_real = max(0, aptos - 1)
+
+    p_brancos = max(0.0, float(pct_brancos or 0.0))
+    p_nulos = max(0.0, float(pct_nulos or 0.0))
+
+    # 1. Configura Candidatos e Partidos do 2º Turno no Banco de Dados
+    db.query(Candidato).filter(Candidato.turno == 2).delete()
+
+    for n_p, s_p in [(c1_num[:2], c1_sigla), (c2_num[:2], c2_sigla)]:
+        part_row = db.query(Partido).filter(Partido.numero == n_p).first()
+        if not part_row:
+            db.add(Partido(numero=n_p, sigla=s_p, nome=f"Partido {s_p}"))
+        else:
+            part_row.sigla = s_p
+
+    db.add(Candidato(
+        cargo="PRESIDENTE",
+        numero=c1_num,
+        nome_urna=c1_nome,
+        nome_completo=c1_nome.title(),
+        sigla_partido=c1_sigla,
+        numero_partido=c1_num[:2],
+        turno=2,
+        vice_ou_suplente1="Vice Pres. " + c1_nome.title(),
+    ))
+    db.add(Candidato(
+        cargo="PRESIDENTE",
+        numero=c2_num,
+        nome_urna=c2_nome,
+        nome_completo=c2_nome.title(),
+        sigla_partido=c2_sigla,
+        numero_partido=c2_num[:2],
+        turno=2,
+        vice_ou_suplente1="Vice Pres. " + c2_nome.title(),
+    ))
+    db.flush()
+
+    # 2. Limpeza e Inicialização da Seção Eleitoral
+    db.query(RegistroDigitalVoto).filter(RegistroDigitalVoto.turno == 2).delete()
+    db.query(LogAuditoriaUrna).delete()
+
+    tz_brt = timezone(timedelta(hours=-3))
+    dia_eleicao = datetime(2026, 10, 25, 7, 50, 0, tzinfo=tz_brt)
+
+    config.turno = 2
+    config.eleitores_aptos = aptos
+    config.eleitores_compareceram = 0
+    config.status = "NAO_INICIALIZADA"
+    config.terminal_eleitor_liberado = False
+    config.eleitor_habilitado_titulo = None
+    config.ultimo_hash_log = "0" * 64
+    db.commit()
+
+    # 3. Boot da Urna e Emissão da Zerésima
+    relogio = dia_eleicao
+    _append_simulated_log(
+        db,
+        config,
+        relogio,
+        "BOOT_URNA",
+        f"Urna eletrônica 2º Turno energizada na seção {config.secao} (Zona {config.zona}).",
+        {"fase": "BOOT", "turno": 2, "cargo": "PRESIDENTE"},
+    )
+
+    relogio = dia_eleicao.replace(hour=7, minute=55, second=10)
+    zeresima_info = gerar_relatorio_zeresima(db, config)
+    config.zeresima_timestamp = relogio
+    config.abertura_timestamp = dia_eleicao.replace(hour=8, minute=0, second=0)
+
+    _append_simulated_log(
+        db,
+        config,
+        relogio,
+        "EMISSAO_ZERESIMA_E_ABERTURA",
+        f"Zerésima emitida 2º Turno (SHA256={zeresima_info['hash_sha256'][:16]}...). Seção aberta para início às 08:00.",
+        {"hash_zeresima": zeresima_info["hash_sha256"][:24]},
+    )
+
+    # 4. Distribuição da Vazão Horária (08h às 16h / encerramento 17h)
+    horas = [8, 9, 10, 11, 12, 13, 14, 15, 16]
+    perfis_pesos = {
+        "PADRAO_REAL_TSE": [0.11, 0.15, 0.16, 0.13, 0.07, 0.09, 0.12, 0.11, 0.06],
+        "UNIFORME": [1.0 / 9.0] * 9,
+        "PICO_MATUTINO": [0.14, 0.22, 0.22, 0.15, 0.07, 0.06, 0.05, 0.05, 0.04],
+        "PICO_VESPERTINO": [0.06, 0.08, 0.09, 0.10, 0.10, 0.15, 0.18, 0.14, 0.10],
+        "DINAMICA_VIRADA": [0.11, 0.15, 0.16, 0.13, 0.07, 0.09, 0.12, 0.11, 0.06],
+    }
+    pesos = perfis_pesos.get(perfil_vazao, perfis_pesos["PADRAO_REAL_TSE"])
+
+    exact_alloc = [w * comp_real for w in pesos]
+    int_alloc = [int(x) for x in exact_alloc]
+    sobra = comp_real - sum(int_alloc)
+    diffs = sorted(enumerate([x - int(x) for x in exact_alloc]), key=lambda t: t[1], reverse=True)
+    for k in range(sobra):
+        int_alloc[diffs[k][0]] += 1
+
+    # 5. Execução Voto a Voto
+    todos_ciclos = []
+    ponto_anomalia = int(comp_real * 0.52)
+    seq_votante = 0
+
+    for idx_h, h in enumerate(horas):
+        n_eleitores_hora = int_alloc[idx_h]
+        if n_eleitores_hora <= 0:
+            continue
+
+        # Distribui os segundos de chegada ordenados na janela de 58 minutos
+        offsets = sorted(random.uniform(10.0, 3500.0) for _ in range(n_eleitores_hora))
+
+        for j in range(n_eleitores_hora):
+            seq_votante += 1
+            t_chegada = dia_eleicao.replace(hour=h, minute=0, second=0) + timedelta(seconds=offsets[j])
+
+            # Verifica se é voto sob anomalia (para estudo forense)
+            is_anomalia_voto = False
+            if modo_anomalia != "NORMAL" and qtd_votos_anomalia > 0:
+                if seq_votante >= ponto_anomalia and seq_votante < (ponto_anomalia + qtd_votos_anomalia):
+                    is_anomalia_voto = True
+
+            # Sorteio do Voto
+            if is_anomalia_voto and candidato_alvo_anomalia:
+                tipo_voto = "NOMINAL"
+                num_voto = candidato_alvo_anomalia
+                part_voto = c1_sigla if num_voto == c1_num else (c2_sigla if num_voto == c2_num else "LEG")
+                rotulo_voto = c1_nome if num_voto == c1_num else (c2_nome if num_voto == c2_num else f"CAND {num_voto}")
+            else:
+                roll_branco_nulo = random.uniform(0.0, 100.0)
+                if roll_branco_nulo < p_brancos:
+                    tipo_voto = "BRANCO"
+                    num_voto = None
+                    part_voto = None
+                    rotulo_voto = "VOTO EM BRANCO"
+                elif roll_branco_nulo < (p_brancos + p_nulos):
+                    tipo_voto = "NULO"
+                    num_voto = "99"
+                    part_voto = None
+                    rotulo_voto = "VOTO NULO"
+                else:
+                    tipo_voto = "NOMINAL"
+                    # Ajuste dinâmico se perfil for DINAMICA_VIRADA
+                    if perfil_vazao == "DINAMICA_VIRADA":
+                        if h <= 11:
+                            prob_c1 = min(0.95, max(0.05, (p1_norm + 4.5) / 100.0))
+                        elif h <= 13:
+                            prob_c1 = p1_norm / 100.0
+                        else:
+                            prob_c1 = min(0.95, max(0.05, (p1_norm - 5.5) / 100.0))
+                    else:
+                        prob_c1 = p1_norm / 100.0
+
+                    if random.random() < prob_c1:
+                        num_voto = c1_num
+                        part_voto = c1_sigla
+                        rotulo_voto = c1_nome
+                    else:
+                        num_voto = c2_num
+                        part_voto = c2_sigla
+                        rotulo_voto = c2_nome
+
+            # Cadência Temporal do Ciclo
+            if not is_anomalia_voto:
+                t_busca = round(random.uniform(4.5, 9.0), 2)
+                usa_bio = random.random() < 0.94
+                tentativas_bio = 1 if (usa_bio and random.random() < 0.88) else (2 if usa_bio else 0)
+                t_bio = round(random.uniform(2.8, 6.0) * (1.0 if tentativas_bio == 1 else 1.8), 2) if usa_bio else round(random.uniform(6.0, 11.0), 2)
+                t_caminhada = round(random.uniform(2.5, 5.0), 2)
+                # 2º Turno: apenas 1 cargo (Presidente, 2 dígitos)
+                if tipo_voto == "NOMINAL":
+                    t_cabine = round(random.uniform(5.5, 11.0), 2)
+                    teclas = [d for d in (num_voto or "")] + ["CONFIRMA"]
+                elif tipo_voto == "BRANCO":
+                    t_cabine = round(random.uniform(3.0, 5.5), 2)
+                    teclas = ["BRANCO", "CONFIRMA"]
+                else:
+                    t_cabine = round(random.uniform(4.0, 7.5), 2)
+                    teclas = ["9", "9", "CONFIRMA"]
+            else:
+                # Anomalia forçada
+                t_busca = round(random.uniform(0.15, 0.40), 2)
+                usa_bio = False
+                tentativas_bio = 0
+                t_bio = round(random.uniform(0.10, 0.25), 2)
+                t_caminhada = round(random.uniform(0.10, 0.25), 2)
+                t_cabine = round(random.uniform(0.40, 1.20), 2)
+                teclas = [d for d in (num_voto or "22")] + ["CONFIRMA"]
+
+            t_mesario_total = round(t_busca + t_bio, 2)
+            t_ciclo_total = round(t_mesario_total + t_caminhada + t_cabine, 2)
+            relogio_hab = t_chegada + timedelta(seconds=t_mesario_total)
+            relogio_fim_voto = relogio_hab + timedelta(seconds=t_caminhada + t_cabine)
+
+            # Gravação no Registro Digital do Voto (RDV)
+            shuffle_key = secrets.token_hex(32)
+            integrity_payload = f"{shuffle_key}|2|PRESIDENTE|{tipo_voto}|{num_voto}|{part_voto}"
+            voto_hash = hashlib.sha256(integrity_payload.encode("utf-8")).hexdigest()
+
+            db.add(
+                RegistroDigitalVoto(
+                    shuffle_key=shuffle_key,
+                    turno=2,
+                    cargo="PRESIDENTE",
+                    tipo_voto=tipo_voto,
+                    numero_digitado=num_voto,
+                    partido_legenda=part_voto,
+                    hash_integridade=voto_hash,
+                )
+            )
+
+            # Gravação encadeada no Log de Auditoria
+            metodo_hab = "AFIS_BIOMETRIA_OK" if usa_bio else "SEM_BIO_DOC_OFICIAL"
+            _append_simulated_log(
+                db,
+                config,
+                relogio_hab,
+                "TERMINAL_MESARIO_HABILITOU_ELEITOR",
+                f"Terminal liberado pelo Mesário (Seq #{seq_votante} | Auth={metodo_hab}).",
+                {
+                    "seq_comparecimento": seq_votante,
+                    "hora_brt": relogio_hab.strftime("%H:%M:%S"),
+                    "tempo_busca_s": t_busca,
+                    "tempo_biometria_s": t_bio,
+                    "biometria_afis": usa_bio,
+                },
+            )
+
+            config.eleitores_compareceram = seq_votante
+
+            _append_simulated_log(
+                db,
+                config,
+                relogio_fim_voto,
+                "VOTO_COMPUTADO_RDV",
+                f"Comparecimento #{seq_votante} concluiu votação para Presidente no 2º Turno (RDV gravado).",
+                {
+                    "seq_comparecimento": seq_votante,
+                    "hora_brt": relogio_fim_voto.strftime("%H:%M:%S"),
+                    "duracao_cabine_s": t_cabine,
+                    "duracao_ciclo_completo_s": t_ciclo_total,
+                    "teclas_pressionadas": len(teclas),
+                    "biometria_afis": usa_bio,
+                    "anomalia_injetada": is_anomalia_voto,
+                },
+            )
+
+            todos_ciclos.append({
+                "seq": seq_votante,
+                "hora_faixa": f"{h:02d}h",
+                "hora_int": h,
+                "timestamp_chegada": t_chegada.strftime("%d/%m/%Y %H:%M:%S"),
+                "timestamp_conclusao": relogio_fim_voto.strftime("%d/%m/%Y %H:%M:%S"),
+                "hora_brt": relogio_fim_voto.strftime("%H:%M:%S"),
+                "tempo_mesario_s": t_mesario_total,
+                "tempo_cabine_s": t_cabine,
+                "tempo_ciclo_total_s": t_ciclo_total,
+                "biometria_afis": usa_bio,
+                "tentativas_bio": tentativas_bio,
+                "tipo_voto": tipo_voto,
+                "numero_digitado": num_voto,
+                "rotulo_candidato": rotulo_voto,
+                "teclas": teclas,
+                "anomalia": is_anomalia_voto,
+            })
+
+    # 6. Agregação e Estatísticas Hora a Hora (08h às 16h)
+    vazao_horaria = []
+    acum_vot = 0
+    acum_c1 = 0
+    acum_c2 = 0
+    acum_br = 0
+    acum_nu = 0
+
+    for h in horas:
+        ciclos_da_hora = [c for c in todos_ciclos if c["hora_int"] == h]
+        n_hora = len(ciclos_da_hora)
+        c1_hora = sum(1 for c in ciclos_da_hora if c["tipo_voto"] == "NOMINAL" and c["numero_digitado"] == c1_num)
+        c2_hora = sum(1 for c in ciclos_da_hora if c["tipo_voto"] == "NOMINAL" and c["numero_digitado"] == c2_num)
+        br_hora = sum(1 for c in ciclos_da_hora if c["tipo_voto"] == "BRANCO")
+        nu_hora = sum(1 for c in ciclos_da_hora if c["tipo_voto"] == "NULO")
+        val_hora = c1_hora + c2_hora
+
+        pct_c1_h = round((c1_hora / max(1, val_hora)) * 100.0, 1) if val_hora > 0 else 0.0
+        pct_c2_h = round((c2_hora / max(1, val_hora)) * 100.0, 1) if val_hora > 0 else 0.0
+
+        acum_vot += n_hora
+        acum_c1 += c1_hora
+        acum_c2 += c2_hora
+        acum_br += br_hora
+        acum_nu += nu_hora
+        acum_val = acum_c1 + acum_c2
+
+        pct_acum_c1 = round((acum_c1 / max(1, acum_val)) * 100.0, 1) if acum_val > 0 else 0.0
+        pct_acum_c2 = round((acum_c2 / max(1, acum_val)) * 100.0, 1) if acum_val > 0 else 0.0
+
+        venc_hora = c1_num if c1_hora > c2_hora else (c2_num if c2_hora > c1_hora else "EMPATE")
+        tempos_cab_h = [c["tempo_cabine_s"] for c in ciclos_da_hora]
+        media_cab_h = round(sum(tempos_cab_h) / max(1, len(tempos_cab_h)), 1) if tempos_cab_h else 0.0
+
+        vazao_horaria.append({
+            "hora": f"{h:02d}h",
+            "faixa": f"{h:02d}:00 às {h:02d}:59",
+            "votantes_hora": n_hora,
+            "pct_do_dia": round((n_hora / max(1, comp_real)) * 100.0, 1),
+            "votos_cand1": c1_hora,
+            "pct_cand1": pct_c1_h,
+            "votos_cand2": c2_hora,
+            "pct_cand2": pct_c2_h,
+            "brancos": br_hora,
+            "nulos": nu_hora,
+            "validos": val_hora,
+            "acumulado_votantes": acum_vot,
+            "acumulado_cand1": acum_c1,
+            "pct_acumulado_cand1": pct_acum_c1,
+            "acumulado_cand2": acum_c2,
+            "pct_acumulado_cand2": pct_acum_c2,
+            "vencedor_hora": venc_hora,
+            "tempo_medio_cabine_s": media_cab_h,
+        })
+
+    # 7. Encerramento Oficial da Seção às 17:00:15
+    relogio_fim_oficial = dia_eleicao.replace(hour=17, minute=0, second=15)
+    config.status = "ENCERRADA"
+    config.encerramento_timestamp = relogio_fim_oficial
+    db.commit()
+
+    bu = apurar_boletim_de_urna(db, config)
+    cartucho = gerar_cartucho_midia_resultado(db, config)
+
+    _append_simulated_log(
+        db,
+        config,
+        relogio_fim_oficial,
+        "ENCERRAMENTO_BU_E_CARTUCHO",
+        f"Seção encerrada oficialmente às 17h. BU SHA256={bu['hash_bu_sha256'][:16]}... Cartucho={cartucho['arquivo']}.",
+        {
+            "turno": 2,
+            "cargo": "PRESIDENTE",
+            "eleitores_aptos": aptos,
+            "comparecimento_total": config.eleitores_compareceram,
+            "hash_bu": bu["hash_bu_sha256"][:24],
+        },
+    )
+    db.commit()
+
+    # 8. Análise Estatística Final: Pesquisa x Resultado Apurado na Urna
+    tot_validos_urna = acum_c1 + acum_c2
+    pct_real_c1 = round((acum_c1 / max(1, tot_validos_urna)) * 100.0, 2) if tot_validos_urna > 0 else 0.0
+    pct_real_c2 = round((acum_c2 / max(1, tot_validos_urna)) * 100.0, 2) if tot_validos_urna > 0 else 0.0
+
+    delta_pesq_c1 = round(pct_real_c1 - p1_pesq, 2)
+    delta_pesq_c2 = round(pct_real_c2 - p2_pesq, 2)
+
+    # Margem de Erro Amostral Estocástica Esperada da Seção (95% confiança)
+    p_est = (p1_pesq / 100.0)
+    margem_amostral_pct = round(1.96 * math.sqrt(max(0.0001, (p_est * (1.0 - p_est)) / max(1, tot_validos_urna))) * 100.0, 2)
+    dentro_margem = bool(abs(delta_pesq_c1) <= margem_amostral_pct)
+
+    vencedor_final = c1_num if acum_c1 > acum_c2 else (c2_num if acum_c2 > acum_c1 else "EMPATE")
+    vencedor_nome = c1_nome if acum_c1 > acum_c2 else (c2_nome if acum_c2 > acum_c1 else "EMPATE")
+
+    tempos_normais = [c["tempo_ciclo_total_s"] for c in todos_ciclos if not c["anomalia"]]
+    tempos_cabine = [c["tempo_cabine_s"] for c in todos_ciclos if not c["anomalia"]]
+
+    return {
+        "ok": True,
+        "parametros": {
+            "turno": 2,
+            "cargo": "PRESIDENTE",
+            "cand1": {
+                "numero": c1_num,
+                "nome": c1_nome,
+                "partido": c1_sigla,
+                "pct_pesquisa": p1_pesq,
+            },
+            "cand2": {
+                "numero": c2_num,
+                "nome": c2_nome,
+                "partido": c2_sigla,
+                "pct_pesquisa": p2_pesq,
+            },
+            "eleitores_aptos": aptos,
+            "comparecimento": comp_real,
+            "abstencoes": abst_real,
+            "pct_abstencao": round((abst_real / aptos) * 100.0, 1),
+            "pct_brancos": p_brancos,
+            "pct_nulos": p_nulos,
+            "perfil_vazao": perfil_vazao,
+            "modo_anomalia": modo_anomalia,
+        },
+        "resultado_urna": {
+            "cand1": {
+                "numero": c1_num,
+                "nome": c1_nome,
+                "partido": c1_sigla,
+                "votos": acum_c1,
+                "pct_validos": pct_real_c1,
+                "pct_pesquisa": p1_pesq,
+                "delta_pesquisa": delta_pesq_c1,
+            },
+            "cand2": {
+                "numero": c2_num,
+                "nome": c2_nome,
+                "partido": c2_sigla,
+                "votos": acum_c2,
+                "pct_validos": pct_real_c2,
+                "pct_pesquisa": p2_pesq,
+                "delta_pesquisa": delta_pesq_c2,
+            },
+            "votos_validos": tot_validos_urna,
+            "votos_brancos": acum_br,
+            "pct_brancos": round((acum_br / max(1, comp_real)) * 100.0, 1),
+            "votos_nulos": acum_nu,
+            "pct_nulos": round((acum_nu / max(1, comp_real)) * 100.0, 1),
+            "comparecimento_total": comp_real,
+            "pct_comparecimento": round((comp_real / aptos) * 100.0, 1),
+            "abstencao_total": abst_real,
+            "pct_abstencao": round((abst_real / aptos) * 100.0, 1),
+            "vencedor_numero": vencedor_final,
+            "vencedor_nome": vencedor_nome,
+            "margem_amostral_secao_pct": margem_amostral_pct,
+            "dentro_margem_amostral": dentro_margem,
+            "diagnostico_pesquisa_vs_urna": (
+                f"✅ Votação perfeitamente aderente à pesquisa: variação de {delta_pesq_c1:+.1f}% para {c1_nome} "
+                f"está contida na margem de erro estatística da seção (±{margem_amostral_pct}% com 95% de confiança)."
+                if dentro_margem else
+                f"⚠️ Dispersão estatística superior à margem prevista: oscilação de {delta_pesq_c1:+.1f}% "
+                f"ultrapassou a margem amostral esperada da urna (±{margem_amostral_pct}%)."
+            ),
+        },
+        "cadencia_operacional": {
+            "tempo_medio_cabine_s": round(sum(tempos_cabine) / max(1, len(tempos_cabine)), 1) if tempos_cabine else 0.0,
+            "tempo_medio_ciclo_s": round(sum(tempos_normais) / max(1, len(tempos_normais)), 1) if tempos_normais else 0.0,
+            "tempo_minimo_cabine_s": round(min(tempos_cabine), 1) if tempos_cabine else 0.0,
+            "taxa_biometria_afis_pct": round(sum(1 for c in todos_ciclos if c["biometria_afis"]) / max(1, len(todos_ciclos)) * 100.0, 1),
+        },
+        "vazao_horaria": vazao_horaria,
+        "feed_voto_a_voto": todos_ciclos,
+        "boletim_de_urna": bu,
+        "cartucho": cartucho,
+    }

@@ -45,7 +45,11 @@ from .election_engine import (
 from .thermal_printer import gerar_relatorio_zeresima, apurar_boletim_de_urna
 from .cartridge import gerar_cartucho_midia_resultado
 from .esp32_protocol import decode_esp32_vote_frame
-from .simulator_audit import executar_simulacao_cadencia_seccao, auditar_logs_independente
+from .simulator_audit import (
+    executar_simulacao_cadencia_seccao,
+    executar_simulacao_segundo_turno_voto_a_voto,
+    auditar_logs_independente,
+)
 from .tse_reverse_analyzer import (
     analisar_pacote_seccao_tse,
     processar_lote_arquivos_tse,
@@ -296,6 +300,30 @@ class SimulacaoSeccaoSchema(BaseModel):
     pct_nulos: float = 3.0
     pct_legenda: float = 5.0
     modo_anomalia: str = "NORMAL"  # NORMAL, RAJADA_ROBO, SEM_BIOMETRIA_EM_MASSA, FORA_DE_JANELA_HORARIA
+    qtd_votos_anomalia: int = 0
+    candidato_alvo_anomalia: Optional[str] = ""
+
+
+class SimulacaoSegundoTurnoSchema(BaseModel):
+    cand1_numero: str = "22"
+    cand1_nome: str = "FLÁVIO BOLSONARO"
+    cand1_partido: str = "PL"
+    cand1_pct_pesquisa: float = 52.0
+
+    cand2_numero: str = "13"
+    cand2_nome: str = "LUIZ INÁCIO LULA"
+    cand2_partido: str = "PT"
+    cand2_pct_pesquisa: float = 48.0
+
+    eleitores_aptos: int = 350
+    comparecimento: Optional[int] = 290
+    abstencoes: Optional[int] = None
+
+    pct_brancos: float = 2.5
+    pct_nulos: float = 3.5
+
+    perfil_vazao: str = "PADRAO_REAL_TSE"  # PADRAO_REAL_TSE, UNIFORME, PICO_MATUTINO, PICO_VESPERTINO, DINAMICA_VIRADA
+    modo_anomalia: str = "NORMAL"
     qtd_votos_anomalia: int = 0
     candidato_alvo_anomalia: Optional[str] = ""
 
@@ -905,6 +933,41 @@ def api_executar_simulacao(payload: SimulacaoSeccaoSchema, db: Session = Depends
             pct_brancos=payload.pct_brancos,
             pct_nulos=payload.pct_nulos,
             pct_legenda=payload.pct_legenda,
+            modo_anomalia=payload.modo_anomalia,
+            qtd_votos_anomalia=payload.qtd_votos_anomalia,
+            candidato_alvo_anomalia=(payload.candidato_alvo_anomalia or "").strip(),
+        )
+        return resultado
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/simulacao/segundo-turno")
+def api_simular_segundo_turno(payload: SimulacaoSegundoTurnoSchema, db: Session = Depends(get_db)):
+    """
+    Simulador de Alta Fidelidade: 2º Turno Voto a Voto e Hora a Hora.
+    Gera em poucos segundos a dinâmica de um dia inteiro de votação com cadência realista,
+    comparativo de pesquisa x urna, curva de vazão horária (08h..16h) e logs assinados com Merkle SHA-256.
+    """
+    config = get_or_create_seccao(db)
+    try:
+        resultado = executar_simulacao_segundo_turno_voto_a_voto(
+            db,
+            config,
+            cand1_numero=payload.cand1_numero,
+            cand1_nome=payload.cand1_nome,
+            cand1_partido=payload.cand1_partido,
+            cand1_pct_pesquisa=payload.cand1_pct_pesquisa,
+            cand2_numero=payload.cand2_numero,
+            cand2_nome=payload.cand2_nome,
+            cand2_partido=payload.cand2_partido,
+            cand2_pct_pesquisa=payload.cand2_pct_pesquisa,
+            eleitores_aptos=payload.eleitores_aptos,
+            comparecimento=payload.comparecimento,
+            abstencoes=payload.abstencoes,
+            pct_brancos=payload.pct_brancos,
+            pct_nulos=payload.pct_nulos,
+            perfil_vazao=payload.perfil_vazao,
             modo_anomalia=payload.modo_anomalia,
             qtd_votos_anomalia=payload.qtd_votos_anomalia,
             candidato_alvo_anomalia=(payload.candidato_alvo_anomalia or "").strip(),

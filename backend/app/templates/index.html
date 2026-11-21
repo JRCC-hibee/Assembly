@@ -935,113 +935,666 @@ o Boletim de Urna (apos encerramento da votacao).
 
     <!-- TAB 5: SIMULADOR DE CADÊNCIA & SISTEMA PARALELO DE AUDITORIA FORENSE DE LOGS -->
     <section id="tab-simulacao" class="hidden space-y-6">
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <!-- Coluna Esquerda (5 cols): Gerador de Simulação de Seção Eleitoral -->
-        <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-          <div>
-            <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-emerald-950 text-emerald-300 border border-emerald-700 mono">
-              Módulo 1 — Gerador de Tráfego Eleitoral Realista
-            </span>
-            <h2 class="text-base font-bold text-white mt-1">Simulador de Cadência de Votação (08h00 às 17h00)</h2>
-            <p class="text-xs text-slate-400 mt-0.5">
-              Simula toda a fila da seção: tempo de digitação do mesário, coleta biométrica AFIS, caminhada até a cabine, digitação por cargo e distribuição estatística de votos. Permite injetar anomalias para testar o rastreamento de fraudes pelos logs.
-            </p>
+
+      <!-- Seletor Superior de Modo da Simulação: 2º Turno (Foco Principal) vs 1º Turno (5 Cargos) -->
+      <div class="bg-slate-900/90 border border-slate-800 rounded-2xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            id="btnSubTabSim2T"
+            onclick="alternarSubAbaSimulador('2t')"
+            class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition bg-gradient-to-r from-emerald-600 to-teal-500 text-slate-950 shadow-md shadow-emerald-950/40 border border-emerald-400"
+          >
+            <span>⚡</span>
+            <span>Simulador 2º Turno (Pesquisas, Voto a Voto & Horário)</span>
+          </button>
+          <button
+            type="button"
+            id="btnSubTabSim1T"
+            onclick="alternarSubAbaSimulador('1t')"
+            class="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700"
+          >
+            <span>🔄</span>
+            <span>Modo Genérico / 1º Turno (5 Cargos)</span>
+          </button>
+        </div>
+        <div class="flex items-center gap-2 text-xs mono text-slate-300">
+          <span class="text-slate-400">Motor de Simulação:</span>
+          <span class="text-emerald-400 font-bold">Voto a Voto • 08h às 17h em ~1s</span>
+        </div>
+      </div>
+
+      <!-- ============================================================== -->
+      <!-- MODO PRINCIPAL: SIMULADOR DE 2º TURNO (VOTO A VOTO & HORA A HORA) -->
+      <!-- ============================================================== -->
+      <div id="boxSimulador2Turno" class="space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+          <!-- Coluna Esquerda (5 cols): Formulário de Parâmetros do 2º Turno -->
+          <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <div>
+              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-emerald-950 text-emerald-300 border border-emerald-700 mono">
+                Eleição Presidencial • 2º Turno
+              </span>
+              <h2 class="text-base font-bold text-white mt-1">Simulador Voto a Voto e Hora a Hora</h2>
+              <p class="text-xs text-slate-400 mt-0.5">
+                Simula um dia inteiro de votação da urna (08h00 às 17h00) em segundos: insira os percentuais de pesquisa, eleitores, candidatos e curva de vazão horária.
+              </p>
+            </div>
+
+            <!-- Presets Rápidos com 1 Clique -->
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800 space-y-1.5">
+              <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">⚡ Presets Rápidos de Cenário:</span>
+              <div class="grid grid-cols-2 gap-1.5 text-[11px] mono">
+                <button
+                  type="button"
+                  onclick="aplicarPresetSimulacao2T('ELEICAO_2022_2026')"
+                  class="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-cyan-300 font-bold text-left transition"
+                  title="22 Flávio Bolsonaro (52%) x 13 Lula (48%) • 290 votantes"
+                >
+                  🗳️ Eleição 52% x 48%
+                </button>
+                <button
+                  type="button"
+                  onclick="aplicarPresetSimulacao2T('EMPATE_50')"
+                  class="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-amber-300 font-bold text-left transition"
+                  title="50% x 50% Empatado • 260 votantes"
+                >
+                  ⚖️ Empate 50% x 50%
+                </button>
+                <button
+                  type="button"
+                  onclick="aplicarPresetSimulacao2T('ONDA_ELEITORAL')"
+                  class="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-emerald-300 font-bold text-left transition"
+                  title="62% x 38% com pico matutino • 310 votantes"
+                >
+                  📈 Vantagem 62% x 38%
+                </button>
+                <button
+                  type="button"
+                  onclick="aplicarPresetSimulacao2T('URNA_LOTADA')"
+                  class="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-purple-300 font-bold text-left transition"
+                  title="Urna demandada com 400 votantes no dia"
+                >
+                  ⚡ Urna Lotada (400v)
+                </button>
+              </div>
+            </div>
+
+            <form onsubmit="executarSimulacaoSegundoTurno(event)" class="space-y-3 text-xs">
+
+              <!-- Grid dos 2 Candidatos com Percentuais de Pesquisa -->
+              <div class="space-y-2">
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">👥 Candidatos & % de Pesquisa:</span>
+                
+                <!-- Candidato 1 -->
+                <div class="p-2.5 rounded-xl bg-slate-950 border border-cyan-500/40 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="font-bold text-cyan-400 flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-cyan-400"></span>
+                      <span>Candidato 1</span>
+                    </span>
+                    <span class="text-[10px] font-bold text-slate-400 mono">Número / Partido</span>
+                  </div>
+                  <div class="grid grid-cols-12 gap-1.5">
+                    <div class="col-span-3">
+                      <input id="sim2tCand1Num" type="text" value="22" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-center text-cyan-300 font-black mono" placeholder="Nº" />
+                    </div>
+                    <div class="col-span-6">
+                      <input id="sim2tCand1Nome" type="text" value="FLÁVIO BOLSONARO" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" placeholder="Nome na Urna" />
+                    </div>
+                    <div class="col-span-3">
+                      <input id="sim2tCand1Partido" type="text" value="PL" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-center text-slate-300 font-bold mono" placeholder="Sigla" />
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-between pt-1 border-t border-slate-800">
+                    <label class="text-slate-300 font-semibold">% Intenção Pesquisa (Válidos):</label>
+                    <div class="flex items-center gap-1">
+                      <input id="sim2tCand1Pesquisa" type="number" step="0.1" min="0" max="100" value="52.0" required oninput="recalcularPesquisa2T(1)" class="w-20 bg-slate-900 border border-cyan-500/60 rounded-lg px-2 py-1 text-right text-cyan-300 font-black mono text-xs" />
+                      <span class="text-cyan-400 font-bold">%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Candidato 2 -->
+                <div class="p-2.5 rounded-xl bg-slate-950 border border-rose-500/40 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="font-bold text-rose-400 flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full bg-rose-400"></span>
+                      <span>Candidato 2</span>
+                    </span>
+                    <span class="text-[10px] font-bold text-slate-400 mono">Número / Partido</span>
+                  </div>
+                  <div class="grid grid-cols-12 gap-1.5">
+                    <div class="col-span-3">
+                      <input id="sim2tCand2Num" type="text" value="13" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-center text-rose-300 font-black mono" placeholder="Nº" />
+                    </div>
+                    <div class="col-span-6">
+                      <input id="sim2tCand2Nome" type="text" value="LUIZ INÁCIO LULA" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-white font-bold" placeholder="Nome na Urna" />
+                    </div>
+                    <div class="col-span-3">
+                      <input id="sim2tCand2Partido" type="text" value="PT" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-center text-slate-300 font-bold mono" placeholder="Sigla" />
+                    </div>
+                  </div>
+                  <div class="flex items-center justify-between pt-1 border-t border-slate-800">
+                    <label class="text-slate-300 font-semibold">% Intenção Pesquisa (Válidos):</label>
+                    <div class="flex items-center gap-1">
+                      <input id="sim2tCand2Pesquisa" type="number" step="0.1" min="0" max="100" value="48.0" required oninput="recalcularPesquisa2T(2)" class="w-20 bg-slate-900 border border-rose-500/60 rounded-lg px-2 py-1 text-right text-rose-300 font-black mono text-xs" />
+                      <span class="text-rose-400 font-bold">%</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Eleitorado da Urna: Aptos, Comparecimento e Abstenção -->
+              <div class="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">Eleitores Aptos</label>
+                  <input id="sim2tAptos" type="number" min="10" max="1000" value="350" required oninput="atualizarAbstencaoCalculada2T()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono font-bold" />
+                </div>
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">Votantes (Comparecimento)</label>
+                  <input id="sim2tComparecimento" type="number" min="1" max="1000" value="290" required oninput="atualizarAbstencaoCalculada2T()" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-emerald-300 mono font-bold" />
+                </div>
+              </div>
+
+              <!-- Badge de Abstenção Calculada -->
+              <div id="sim2tAbstencaoBadge" class="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-[11px] mono text-slate-300 flex items-center justify-between">
+                <span>Comparecimento: <strong class="text-emerald-400">290 (82.9%)</strong></span>
+                <span>Abstenção: <strong class="text-amber-300">60 faltosos (17.1%)</strong></span>
+              </div>
+
+              <!-- Votos Não Nominais: Brancos e Nulos -->
+              <div class="grid grid-cols-2 gap-2.5">
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">% Votos Brancos</label>
+                  <input id="sim2tBrancos" type="number" step="0.1" min="0" max="30" value="2.0" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+                </div>
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">% Votos Nulos</label>
+                  <input id="sim2tNulos" type="number" step="0.1" min="0" max="30" value="3.0" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+                </div>
+              </div>
+
+              <!-- Curva de Vazão Horária (08h00 às 17h00) -->
+              <div>
+                <label class="block text-slate-300 font-semibold mb-1">Perfil de Vazão Horária (08h às 17h)</label>
+                <select id="sim2tPerfilVazao" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-cyan-300 font-bold">
+                  <option value="PADRAO_REAL_TSE" selected>📊 Padrão Oficial TSE (Pico 09h-11h, Almoço 12h-13h, Tarde 13h-15h, Reta 16h)</option>
+                  <option value="UNIFORME">⚖️ Fluxo Constante / Uniforme (11.1% por hora)</option>
+                  <option value="PICO_MATUTINO">🌅 Concentração Matutina (60% antes das 12h)</option>
+                  <option value="PICO_VESPERTINO">🌇 Concentração Vespertina (maior fluxo à tarde)</option>
+                  <option value="DINAMICA_VIRADA">🔄 Dinâmica Sociológica com Virada Horária (Manhã C1 vs Tarde C2)</option>
+                </select>
+              </div>
+
+              <!-- Injeção de Distorção / Fraude para Teste Forense (Colapsável) -->
+              <div class="bg-slate-950 border border-amber-500/30 rounded-xl p-3 space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="font-bold text-amber-400 uppercase mono text-[11px]">⚠️ Teste Forense de Anomalia (Opcional):</span>
+                  <select id="sim2tModoAnomalia" onchange="toggleCamposAnomalia2T()" class="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-amber-300 text-[11px] font-semibold">
+                    <option value="NORMAL">✅ Normal (Sem Fraude)</option>
+                    <option value="RAJADA_ROBO">🚨 Rajada Robô (&lt;2s / voto)</option>
+                    <option value="SEM_BIOMETRIA_EM_MASSA">⚠️ Lote sem Biometria</option>
+                  </select>
+                </div>
+                <div id="boxParametrosAnomalia2T" class="hidden grid grid-cols-2 gap-2 pt-1 border-t border-slate-800">
+                  <div>
+                    <label class="block text-slate-400 text-[10px] mb-0.5">Qtd Votos Anomalia</label>
+                    <input id="sim2tQtdAnomalia" type="number" min="1" max="200" value="25" class="w-full bg-slate-900 border border-rose-500/60 rounded px-2 py-1 text-rose-300 mono text-xs font-bold" />
+                  </div>
+                  <div>
+                    <label class="block text-slate-400 text-[10px] mb-0.5">Alvo da Injeção (Nº)</label>
+                    <input id="sim2tAlvoAnomalia" type="text" value="22" class="w-full bg-slate-900 border border-rose-500/60 rounded px-2 py-1 text-rose-300 mono text-xs font-bold" />
+                  </div>
+                </div>
+              </div>
+
+              <button
+                id="btnExecutarSimulacao2T"
+                type="submit"
+                class="w-full py-3.5 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white font-black rounded-xl shadow-lg shadow-emerald-950/50 transition uppercase tracking-wider text-xs flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>⚡</span>
+                <span>Simular Votação Voto a Voto (08h00 às 17h00)</span>
+              </button>
+            </form>
           </div>
 
-          <form onsubmit="executarSimulacaoCompleta(event)" class="space-y-3 text-xs">
-            <div class="grid grid-cols-3 gap-2.5">
+          <!-- Coluna Direita (7 cols): Sistema Paralelo Independente de Auditoria Forense -->
+          <div class="lg:col-span-7 bg-slate-900 border-2 border-indigo-500/40 rounded-xl p-5 space-y-4">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
               <div>
-                <label class="block text-slate-300 font-semibold mb-1">Turno</label>
-                <select id="simTurno" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2 text-white">
-                  <option value="1">1º Turno (5 Cargos)</option>
-                  <option value="2">2º Turno (2 Cargos)</option>
-                </select>
+                <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-indigo-950 text-indigo-300 border border-indigo-700 mono">
+                  Módulo 2 — Sistema Paralelo Independente de Auditoria Forense
+                </span>
+                <h2 class="text-base font-bold text-white mt-1">Leitor Independente de Logs & Detector de Cadência</h2>
               </div>
-              <div>
-                <label class="block text-slate-300 font-semibold mb-1">Eleitores Aptos</label>
-                <input id="simAptos" type="number" min="10" max="1000" value="200" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
-              </div>
-              <div>
-                <label class="block text-slate-300 font-semibold mb-1">Abstenções</label>
-                <input id="simAbstencoes" type="number" min="0" max="900" value="40" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+              <div class="flex gap-2">
+                <button
+                  type="button"
+                  onclick="executarAuditoriaIndependenteNaBase()"
+                  class="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-lg shadow cursor-pointer"
+                >
+                  🔍 Auditar Logs da Urna
+                </button>
               </div>
             </div>
 
-            <div class="grid grid-cols-3 gap-2.5">
-              <div>
-                <label class="block text-slate-300 font-semibold mb-1">% Votos Brancos</label>
-                <input id="simBrancos" type="number" step="0.5" min="0" max="50" value="4.5" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
-              </div>
-              <div>
-                <label class="block text-slate-300 font-semibold mb-1">% Votos Nulos</label>
-                <input id="simNulos" type="number" step="0.5" min="0" max="50" value="3.5" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
-              </div>
-              <div>
-                <label class="block text-slate-300 font-semibold mb-1">% Voto Legenda</label>
-                <input id="simLegenda" type="number" step="0.5" min="0" max="50" value="6.0" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+            <!-- Painel de Veredito Forense -->
+            <div id="auditVereditoBanner" class="bg-slate-950 border border-slate-800 rounded-xl p-4 text-xs">
+              <div class="text-slate-400">
+                Execute a simulação à esquerda para inspecionar automaticamente a cadeia criptográfica SHA-256 e o espectrograma de cadência temporal de cada eleitor da urna.
               </div>
             </div>
 
-            <!-- Injeção de Distorção / Fraude para Teste Forense -->
-            <div class="bg-slate-950 border border-amber-500/40 rounded-xl p-3.5 space-y-2.5">
-              <div class="font-bold text-amber-400 uppercase mono text-[11px]">
-                ⚠️ Cenário de Distorção / Injeção Suspeita nos Logs
+            <!-- Cartões de Métricas Auditadas -->
+            <div id="auditMetricsCards" class="hidden grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs mono">
+              <div class="bg-slate-950 border border-slate-800 p-3 rounded-lg">
+                <div class="text-[10px] text-slate-400">CADEIA SHA-256</div>
+                <div id="audHashStatus" class="text-sm font-extrabold mt-0.5">-</div>
               </div>
-              <div>
-                <label class="block text-slate-300 font-semibold mb-1">Modo de Cadência / Anomalia</label>
-                <select id="simModoAnomalia" onchange="toggleCamposAnomalia()" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-amber-300 font-semibold">
-                  <option value="NORMAL">✅ 100% Cadência Humana Normal (35s a 95s / eleitor c/ Biometria)</option>
-                  <option value="RAJADA_ROBO">🚨 Injeção de Rajada Robótica / Script (&lt; 2s por eleitor s/ Biometria)</option>
-                  <option value="SEM_BIOMETRIA_EM_MASSA">⚠️ Lote Sequencial sem Leitura Biométrica AFIS (Mesário Suspeito)</option>
-                  <option value="FORA_DE_JANELA_HORARIA">🕒 Inserção de Votos Fora do Horário Legal (Antes das 08h00)</option>
-                </select>
+              <div class="bg-slate-950 border border-slate-800 p-3 rounded-lg">
+                <div class="text-[10px] text-slate-400">TEMPO MÉDIO CABINE</div>
+                <div id="audTempoMedio" class="text-sm font-extrabold text-emerald-400 mt-0.5">-</div>
               </div>
-
-              <div id="boxParametrosAnomalia" class="hidden grid grid-cols-2 gap-2.5 pt-1">
-                <div>
-                  <label class="block text-slate-400 font-semibold mb-1">Qtd. Votos Fraudulentos</label>
-                  <input id="simQtdAnomalia" type="number" min="1" max="300" value="25" class="w-full bg-slate-900 border border-rose-600/60 rounded-lg px-3 py-1.5 text-rose-300 mono font-bold" />
-                </div>
-                <div>
-                  <label class="block text-slate-400 font-semibold mb-1">Nº/Partido Alvo (Opcional)</label>
-                  <input id="simAlvoAnomalia" type="text" placeholder="Ex: 13 ou 22" class="w-full bg-slate-900 border border-rose-600/60 rounded-lg px-3 py-1.5 text-rose-300 mono" />
-                </div>
+              <div class="bg-slate-950 border border-slate-800 p-3 rounded-lg">
+                <div class="text-[10px] text-slate-400">MENOR TEMPO (MÍN.)</div>
+                <div id="audTempoMin" class="text-sm font-extrabold mt-0.5">-</div>
+              </div>
+              <div class="bg-slate-950 border border-slate-800 p-3 rounded-lg">
+                <div class="text-[10px] text-slate-400">ANOMALIAS FORENSES</div>
+                <div id="audTotalAnomalias" class="text-sm font-extrabold mt-0.5">-</div>
               </div>
             </div>
 
-            <button
-              id="btnExecutarSimulacao"
-              type="submit"
-              class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl shadow-lg transition uppercase tracking-wide"
-            >
-              ⚡ Gerar Simulação Completa, BU, Cartucho e Logs
-            </button>
-          </form>
+            <!-- Gráfico Visual de Cadência por Eleitor -->
+            <div id="auditChartBox" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2">
+              <div class="flex items-center justify-between text-xs">
+                <span class="font-bold text-slate-200 mono">📈 Espectrograma de Cadência por Eleitor (Tempo Total em Segundos)</span>
+                <span class="text-[10px] mono text-slate-400">Verde=Humano • Vermelho=Robô</span>
+              </div>
+              <div id="auditCadenceBars" class="h-32 flex items-end gap-0.5 overflow-x-auto pt-4 pb-1 px-2 border-b border-slate-800 relative"></div>
+            </div>
 
-          <!-- Resumo da Última Simulação Gerada -->
-          <div id="simResumoBox" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2 text-xs">
-            <div class="font-bold text-emerald-400 mono">Resumo da Simulação Concluída</div>
-            <div id="simResumoStats" class="grid grid-cols-2 gap-2 text-slate-300 mono text-[11px]"></div>
-            <div class="pt-2 flex flex-wrap gap-2">
-              <a
-                href="/api/seccao/logs/export"
-                download="logs_seccao_urna.json"
-                class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-[11px]"
-              >
-                ⬇️ Baixar Pacote de Logs (.JSON)
-              </a>
-              <button
-                onclick="executarAuditoriaIndependenteNaBase()"
-                class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold rounded-lg text-[11px]"
-              >
-                🔍 Auditar Logs Agora no Sistema Paralelo →
-              </button>
+            <!-- Lista de Anomalias Detectadas -->
+            <div id="auditAnomaliasContainer" class="hidden space-y-2">
+              <div class="flex items-center justify-between text-xs mono">
+                <span class="font-bold text-rose-400">🚨 Ocorrências Forenses Registradas nos Logs:</span>
+                <span id="auditAnomaliasCountBadge" class="text-[10px] bg-rose-950 text-rose-300 px-2 py-0.5 rounded border border-rose-800">0 alertas</span>
+              </div>
+              <div id="auditAnomaliasList" class="space-y-1.5 max-h-48 overflow-y-auto text-xs mono"></div>
             </div>
           </div>
         </div>
 
-        <!-- Coluna Direita (7 cols): Sistema Paralelo Independente de Auditoria Forense -->
-        <div class="lg:col-span-7 bg-slate-900 border-2 border-indigo-500/40 rounded-xl p-5 space-y-4">
+        <!-- ============================================================== -->
+        <!-- PAINEL CONSOLIDADO DE RESULTADOS DO 2º TURNO (APÓS A SIMULAÇÃO) -->
+        <!-- ============================================================== -->
+        <div id="sim2tResultadosContainer" class="hidden space-y-6 pt-2">
+
+          <!-- Card 1: Comparativo Executivo Pesquisa x Resultado Apurado na Urna -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-2xl">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div class="flex items-center gap-2.5">
+                <span class="text-2xl">🗳️</span>
+                <div>
+                  <h3 class="text-base font-extrabold text-white">Resultado Oficial Apurado na Urna Eletrônica (2º Turno)</h3>
+                  <p class="text-xs text-slate-400">Cruzamento estocástico voto a voto entre a intenção de pesquisa e a votação real registrada no RDV/BU</p>
+                </div>
+              </div>
+              <div id="sim2tVencedorBadge" class="px-3 py-1 rounded-full text-xs font-black mono uppercase"></div>
+            </div>
+
+            <!-- Grid de Placar Lado a Lado dos Candidatos -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <!-- Card Cand 1 -->
+              <div id="sim2tCardCand1" class="p-4 rounded-xl bg-slate-950 border border-cyan-500/50 space-y-3">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <span id="sim2tNomeCand1" class="text-sm font-black text-white block"></span>
+                    <span id="sim2tPartCand1" class="text-[11px] text-cyan-300 mono font-bold"></span>
+                  </div>
+                  <span id="sim2tNumCand1" class="text-2xl font-black text-cyan-400 mono"></span>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center pt-1 border-t border-slate-800">
+                  <div class="p-2 rounded-lg bg-slate-900/80">
+                    <span class="text-[9px] text-slate-400 uppercase font-bold block">Votação Real</span>
+                    <span id="sim2tVotosCand1" class="text-base font-black text-white"></span>
+                    <span id="sim2tPctRealCand1" class="text-xs font-extrabold text-cyan-300 block"></span>
+                  </div>
+                  <div class="p-2 rounded-lg bg-slate-900/80">
+                    <span class="text-[9px] text-slate-400 uppercase font-bold block">Pesquisa</span>
+                    <span id="sim2tPesqCand1" class="text-base font-black text-slate-300 mt-1 block"></span>
+                  </div>
+                  <div class="p-2 rounded-lg bg-slate-900/80">
+                    <span class="text-[9px] text-slate-400 uppercase font-bold block">Variação (Δ)</span>
+                    <span id="sim2tDeltaCand1" class="text-base font-black mt-1 block"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Card Cand 2 -->
+              <div id="sim2tCardCand2" class="p-4 rounded-xl bg-slate-950 border border-rose-500/50 space-y-3">
+                <div class="flex items-start justify-between">
+                  <div>
+                    <span id="sim2tNomeCand2" class="text-sm font-black text-white block"></span>
+                    <span id="sim2tPartCand2" class="text-[11px] text-rose-300 mono font-bold"></span>
+                  </div>
+                  <span id="sim2tNumCand2" class="text-2xl font-black text-rose-400 mono"></span>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-center pt-1 border-t border-slate-800">
+                  <div class="p-2 rounded-lg bg-slate-900/80">
+                    <span class="text-[9px] text-slate-400 uppercase font-bold block">Votação Real</span>
+                    <span id="sim2tVotosCand2" class="text-base font-black text-white"></span>
+                    <span id="sim2tPctRealCand2" class="text-xs font-extrabold text-rose-300 block"></span>
+                  </div>
+                  <div class="p-2 rounded-lg bg-slate-900/80">
+                    <span class="text-[9px] text-slate-400 uppercase font-bold block">Pesquisa</span>
+                    <span id="sim2tPesqCand2" class="text-base font-black text-slate-300 mt-1 block"></span>
+                  </div>
+                  <div class="p-2 rounded-lg bg-slate-900/80">
+                    <span class="text-[9px] text-slate-400 uppercase font-bold block">Variação (Δ)</span>
+                    <span id="sim2tDeltaCand2" class="text-base font-black mt-1 block"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Barra Proporcional de Apuração do 2º Turno -->
+            <div class="space-y-1.5">
+              <div class="flex items-center justify-between text-xs font-bold mono">
+                <span id="sim2tBarLabelCand1" class="text-cyan-400"></span>
+                <span id="sim2tBarLabelCand2" class="text-rose-400"></span>
+              </div>
+              <div class="w-full bg-slate-950 rounded-full h-3.5 overflow-hidden flex border border-slate-800">
+                <div id="sim2tProgressBar1" class="bg-gradient-to-r from-cyan-500 to-teal-400 h-full transition-all duration-700"></div>
+                <div id="sim2tProgressBar2" class="bg-gradient-to-r from-rose-500 to-red-600 h-full transition-all duration-700"></div>
+              </div>
+            </div>
+
+            <!-- Diagnóstico de Margem de Erro Amostral Estocástica -->
+            <div id="sim2tMargemErroBox" class="p-3 rounded-xl border text-xs leading-relaxed flex items-center justify-between gap-3"></div>
+
+            <!-- Grid de KPIs Operacionais e Totais -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 text-center text-xs mono">
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[9px] text-slate-400 block uppercase font-bold">Votos Válidos</span>
+                <span id="sim2tKpiValidos" class="text-sm font-black text-white"></span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[9px] text-slate-400 block uppercase font-bold">Votos Brancos</span>
+                <span id="sim2tKpiBrancos" class="text-sm font-black text-slate-300"></span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[9px] text-slate-400 block uppercase font-bold">Votos Nulos</span>
+                <span id="sim2tKpiNulos" class="text-sm font-black text-slate-300"></span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[9px] text-slate-400 block uppercase font-bold">Comparecimento</span>
+                <span id="sim2tKpiComparecimento" class="text-sm font-black text-emerald-400"></span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[9px] text-slate-400 block uppercase font-bold">Abstenção</span>
+                <span id="sim2tKpiAbstencao" class="text-sm font-black text-amber-300"></span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[9px] text-slate-400 block uppercase font-bold">Tempo Cabine</span>
+                <span id="sim2tKpiTempoCabine" class="text-sm font-black text-cyan-300"></span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[9px] text-slate-400 block uppercase font-bold">Tempo Ciclo</span>
+                <span id="sim2tKpiTempoCiclo" class="text-sm font-black text-slate-200"></span>
+              </div>
+              <div class="p-2 rounded-lg bg-slate-950 border border-slate-800">
+                <span class="text-[9px] text-slate-400 block uppercase font-bold">Biometria AFIS</span>
+                <span id="sim2tKpiBiometria" class="text-sm font-black text-indigo-300"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 2: Vazão Horária Gráfica & Tabela das 9 Horas (08h às 16h) -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div class="flex items-center gap-2">
+                <span class="text-xl">📊</span>
+                <div>
+                  <h3 class="text-sm font-black text-white uppercase tracking-wider">Curva de Vazão Horária & Evolução da Votação (`08h` às `16h`)</h3>
+                  <p class="text-xs text-slate-400">Distribuição voto a voto ao longo das 9 horas regulamentares com apuração acumulada progressiva</p>
+                </div>
+              </div>
+              <div class="flex items-center gap-3 text-xs mono">
+                <span class="flex items-center gap-1.5 text-cyan-300 font-bold"><span class="w-2.5 h-2.5 rounded bg-cyan-400"></span><span id="sim2tLegendC1"></span></span>
+                <span class="flex items-center gap-1.5 text-rose-300 font-bold"><span class="w-2.5 h-2.5 rounded bg-rose-500"></span><span id="sim2tLegendC2"></span></span>
+              </div>
+            </div>
+
+            <!-- Gráfico Interativo de Vazão e Apuração Acumulada Hora a Hora -->
+            <div class="h-44 w-full bg-slate-950 p-3 rounded-xl border border-slate-800">
+              <canvas id="sim2tGraficoHorario"></canvas>
+            </div>
+
+            <!-- Tabela Hora a Hora Detalhada -->
+            <div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
+              <table class="w-full text-left text-xs mono">
+                <thead class="bg-slate-900/90 text-slate-400 text-[10px] uppercase font-bold border-b border-slate-800">
+                  <tr>
+                    <th class="p-2.5">Faixa Horária</th>
+                    <th class="p-2.5 text-center">Votantes na Hora</th>
+                    <th class="p-2.5 text-center">% do Dia</th>
+                    <th class="p-2.5">Distribuição Proporcional na Hora</th>
+                    <th class="p-2.5 text-center">Vencedor Hora</th>
+                    <th class="p-2.5 text-right">Placar Acumulado (Urna)</th>
+                  </tr>
+                </thead>
+                <tbody id="sim2tTabelaHorariaTbody" class="divide-y divide-slate-800/60"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Card 3: Feed Voto a Voto da Urna (Inspeção Detalhada com Filtros) -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-5 space-y-4 shadow-xl">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div class="flex items-center gap-2">
+                <span class="text-xl">🗳️</span>
+                <div>
+                  <h3 class="text-sm font-black text-white uppercase tracking-wider">Feed Voto a Voto da Urna Eletrônica (Ciclos Completos)</h3>
+                  <p class="text-xs text-slate-400">Registro cronológico de cada comparecimento com biometria, tempo de cabine e gravação no RDV</p>
+                </div>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <!-- Filtro por Hora -->
+                <select id="sim2tFiltroHoraFeed" onchange="filtrarFeedVotoAVoto2T()" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 mono">
+                  <option value="TODAS">⏰ Todas as Horas (08h–16h)</option>
+                  <option value="08h">08h (08:00 - 08:59)</option>
+                  <option value="09h">09h (09:00 - 09:59)</option>
+                  <option value="10h">10h (10:00 - 10:59)</option>
+                  <option value="11h">11h (11:00 - 11:59)</option>
+                  <option value="12h">12h (12:00 - 12:59)</option>
+                  <option value="13h">13h (13:00 - 13:59)</option>
+                  <option value="14h">14h (14:00 - 14:59)</option>
+                  <option value="15h">15h (15:00 - 15:59)</option>
+                  <option value="16h">16h (16:00 - 16:59)</option>
+                </select>
+
+                <!-- Filtro por Tipo de Voto -->
+                <select id="sim2tFiltroTipoFeed" onchange="filtrarFeedVotoAVoto2T()" class="bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-slate-300 mono">
+                  <option value="TODOS">🗳️ Todos os Votos</option>
+                  <option value="NOMINAL">Nominais</option>
+                  <option value="BRANCO">Brancos</option>
+                  <option value="NULO">Nulos</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Tabela Voto a Voto com Scroll -->
+            <div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950 max-h-80 overflow-y-auto">
+              <table class="w-full text-left text-xs mono">
+                <thead class="bg-slate-900/90 text-slate-400 text-[10px] uppercase font-bold border-b border-slate-800 sticky top-0 z-10">
+                  <tr>
+                    <th class="p-2.5">Seq.</th>
+                    <th class="p-2.5">Horário BRT</th>
+                    <th class="p-2.5">Autenticação Mesário</th>
+                    <th class="p-2.5 text-center">Tempo Mesário</th>
+                    <th class="p-2.5 text-center">Tempo Cabine</th>
+                    <th class="p-2.5 text-center">Ciclo Total</th>
+                    <th class="p-2.5">Teclas Pressionadas</th>
+                    <th class="p-2.5">Voto Registrado no RDV</th>
+                  </tr>
+                </thead>
+                <tbody id="sim2tFeedTbody" class="divide-y divide-slate-800/60"></tbody>
+              </table>
+            </div>
+            <div id="sim2tFeedFooter" class="text-[11px] text-slate-400 mono flex items-center justify-between"></div>
+          </div>
+
+          <!-- Card 4: Barra de Ações Rápidas & Artefatos da Urna -->
+          <div class="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-wrap items-center justify-between gap-3 shadow-xl">
+            <div class="flex items-center gap-2 text-xs mono text-slate-300">
+              <span class="text-base">🔐</span>
+              <span>Arquivos oficiais gerados: <strong class="text-white">BU Térmico</strong>, <strong class="text-white">RDV.json</strong>, <strong class="text-white">LogUrna.json</strong> e <strong class="text-white">Cartucho (.ZIP)</strong></span>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onclick="abrirModalCupomTermicoSimulador()"
+                class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 border border-amber-500/50 text-amber-300 font-bold text-xs rounded-xl shadow transition inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>🧾</span>
+                <span>Ver Bobina Térmica do BU</span>
+              </button>
+              <a
+                href="/api/seccao/logs/export"
+                download="logs_seccao_urna.json"
+                class="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-xl shadow transition inline-flex items-center gap-1.5"
+              >
+                <span>⬇️</span>
+                <span>Baixar Logs (.JSON)</span>
+              </a>
+              <button
+                type="button"
+                onclick="executarAuditoriaIndependenteNaBase()"
+                class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow transition inline-flex items-center gap-1.5 cursor-pointer"
+              >
+                <span>🔍</span>
+                <span>Reauditar no Módulo 2</span>
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ============================================================== -->
+      <!-- MODO SECUNDÁRIO: SIMULADOR GENÉRICO / 1º TURNO (5 CARGOS)       -->
+      <!-- ============================================================== -->
+      <div id="boxSimulador1Turno" class="hidden space-y-6">
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          <div class="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <div>
+              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-indigo-950 text-indigo-300 border border-indigo-700 mono">
+                Modo Genérico / 1º Turno (5 Cargos)
+              </span>
+              <h2 class="text-base font-bold text-white mt-1">Simulador Multi-Cargo</h2>
+              <p class="text-xs text-slate-400 mt-0.5">
+                Simula votação para 5 cargos (Dep. Federal, Dep. Estadual, Senador, Governador e Presidente) com tempo de cabine prolongado (~45s a 70s).
+              </p>
+            </div>
+
+            <form onsubmit="executarSimulacaoCompleta(event)" class="space-y-3 text-xs">
+              <div class="grid grid-cols-3 gap-2.5">
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">Turno</label>
+                  <select id="simTurno" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-2 text-white">
+                    <option value="1" selected>1º Turno (5 Cargos)</option>
+                    <option value="2">2º Turno (2 Cargos)</option>
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">Eleitores Aptos</label>
+                  <input id="simAptos" type="number" min="10" max="1000" value="200" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+                </div>
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">Abstenções</label>
+                  <input id="simAbstencoes" type="number" min="0" max="900" value="40" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+                </div>
+              </div>
+
+              <div class="grid grid-cols-3 gap-2.5">
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">% Votos Brancos</label>
+                  <input id="simBrancos" type="number" step="0.5" min="0" max="50" value="4.5" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+                </div>
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">% Votos Nulos</label>
+                  <input id="simNulos" type="number" step="0.5" min="0" max="50" value="3.5" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+                </div>
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">% Voto Legenda</label>
+                  <input id="simLegenda" type="number" step="0.5" min="0" max="50" value="6.0" required class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white mono" />
+                </div>
+              </div>
+
+              <!-- Injeção de Distorção / Fraude para Teste Forense -->
+              <div class="bg-slate-950 border border-amber-500/40 rounded-xl p-3.5 space-y-2.5">
+                <div class="font-bold text-amber-400 uppercase mono text-[11px]">
+                  ⚠️ Cenário de Distorção / Injeção Suspeita nos Logs
+                </div>
+                <div>
+                  <label class="block text-slate-300 font-semibold mb-1">Modo de Cadência / Anomalia</label>
+                  <select id="simModoAnomalia" onchange="toggleCamposAnomalia()" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-amber-300 font-semibold">
+                    <option value="NORMAL">✅ 100% Cadência Humana Normal (35s a 95s / eleitor c/ Biometria)</option>
+                    <option value="RAJADA_ROBO">🚨 Injeção de Rajada Robótica / Script (&lt; 2s por eleitor s/ Biometria)</option>
+                    <option value="SEM_BIOMETRIA_EM_MASSA">⚠️ Lote Sequencial sem Leitura Biométrica AFIS (Mesário Suspeito)</option>
+                    <option value="FORA_DE_JANELA_HORARIA">🕒 Inserção de Votos Fora do Horário Legal (Antes das 08h00)</option>
+                  </select>
+                </div>
+
+                <div id="boxParametrosAnomalia" class="hidden grid grid-cols-2 gap-2.5 pt-1">
+                  <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Qtd. Votos Fraudulentos</label>
+                    <input id="simQtdAnomalia" type="number" min="1" max="300" value="25" class="w-full bg-slate-900 border border-rose-600/60 rounded-lg px-3 py-1.5 text-rose-300 mono font-bold" />
+                  </div>
+                  <div>
+                    <label class="block text-slate-400 font-semibold mb-1">Nº/Partido Alvo (Opcional)</label>
+                    <input id="simAlvoAnomalia" type="text" placeholder="Ex: 13 ou 22" class="w-full bg-slate-900 border border-rose-600/60 rounded-lg px-3 py-1.5 text-rose-300 mono" />
+                  </div>
+                </div>
+              </div>
+
+              <button
+                id="btnExecutarSimulacao"
+                type="submit"
+                class="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl shadow-lg transition uppercase tracking-wide cursor-pointer"
+              >
+                ⚡ Gerar Simulação Completa (1º Turno)
+              </button>
+            </form>
+
+            <div id="simResumoBox" class="hidden bg-slate-950 border border-slate-800 rounded-xl p-4 space-y-2 text-xs">
+              <div class="font-bold text-emerald-400 mono">Resumo da Simulação Concluída</div>
+              <div id="simResumoStats" class="grid grid-cols-2 gap-2 text-slate-300 mono text-[11px]"></div>
+              <div class="pt-2 flex flex-wrap gap-2">
+                <a
+                  href="/api/seccao/logs/export"
+                  download="logs_seccao_urna.json"
+                  class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-bold rounded-lg text-[11px]"
+                >
+                  ⬇️ Baixar Pacote de Logs (.JSON)
+                </a>
+                <button
+                  type="button"
+                  onclick="executarAuditoriaIndependenteNaBase()"
+                  class="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold rounded-lg text-[11px] cursor-pointer"
+                >
+                  🔍 Auditar Logs Agora no Sistema Paralelo →
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Coluna Direita (7 cols): Sistema Paralelo Independente de Auditoria Forense -->
+          <div class="lg:col-span-7 bg-slate-900 border-2 border-indigo-500/40 rounded-xl p-5 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
             <div>
               <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-indigo-950 text-indigo-300 border border-indigo-700 mono">
@@ -3932,6 +4485,48 @@ o Boletim de Urna (apos encerramento da votacao).
         </div>
       </div>
     </div>
+
+    <!-- MODAL POPUP BOBINA TÉRMICA DO SIMULADOR (BU / ZERÉSIMA) -->
+    <div id="modalCupomTermicoSimulador" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4" onclick="fecharModalCupomTermicoSimulador(event)">
+      <div class="bg-slate-900 border-2 border-amber-500/60 rounded-2xl max-w-xl w-full p-5 space-y-4 shadow-2xl" onclick="event.stopPropagation()">
+        <div class="flex items-start justify-between border-b border-slate-800 pb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl">🧾</span>
+            <div>
+              <h3 class="text-base font-black text-white">Bobina Térmica Oficial • Boletim de Urna (BU)</h3>
+              <p class="text-xs text-slate-400 mono">Fita impressa simulada da Urna Eletrônica (Norma JE / TSE)</p>
+            </div>
+          </div>
+          <button onclick="fecharModalCupomTermicoSimulador()" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs cursor-pointer">
+            ✕ Fechar
+          </button>
+        </div>
+
+        <div class="bg-slate-950 p-4 rounded-xl border border-slate-800 flex justify-center max-h-[65vh] overflow-y-auto">
+          <pre id="modalThermalCupomOutput" class="thermal-paper mono text-[11px] leading-snug p-4 w-full max-w-md overflow-x-auto whitespace-pre bg-[#fdfbf7] text-[#1a1a1a] shadow-inner rounded"></pre>
+        </div>
+
+        <div class="flex items-center justify-between pt-1 border-t border-slate-800 text-xs">
+          <span class="text-slate-400 mono text-[11px]">Assinado com SHA-256 e Merkle Root</span>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              onclick="imprimirCupomTermicoSimulador()"
+              class="px-3.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition flex items-center gap-1.5 cursor-pointer shadow"
+            >
+              <span>🖨️ Imprimir Bobina</span>
+            </button>
+            <button
+              type="button"
+              onclick="fecharModalCupomTermicoSimulador()"
+              class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold transition cursor-pointer"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
         </div>
       </div>
     </div>
@@ -4811,6 +5406,583 @@ o Boletim de Urna (apos encerramento da votacao).
           <div class="text-[10px] text-slate-500 mt-1 truncate">SHA256: ${l.hash_atual}</div>
         </div>
       `).join("");
+    }
+
+    // ==============================================================
+    // SIMULADOR ELEITORAL 2º TURNO (PESQUISAS, VAZÃO & VOTO A VOTO)
+    // ==============================================================
+    window.sim2tUltimoResultado = null;
+    window.chartSim2tHorario = null;
+
+    function alternarSubAbaSimulador(modo) {
+      const box2t = document.getElementById("boxSimulador2Turno");
+      const box1t = document.getElementById("boxSimulador1Turno");
+      const btn2t = document.getElementById("btnSubTabSim2T");
+      const btn1t = document.getElementById("btnSubTabSim1T");
+      if (!box2t || !box1t || !btn2t || !btn1t) return;
+
+      if (modo === "2t") {
+        box2t.classList.remove("hidden");
+        box1t.classList.add("hidden");
+        btn2t.className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition bg-gradient-to-r from-emerald-600 to-teal-500 text-slate-950 shadow-md shadow-emerald-950/40 border border-emerald-400";
+        btn1t.className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700";
+      } else {
+        box2t.classList.add("hidden");
+        box1t.classList.remove("hidden");
+        btn1t.className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black transition bg-gradient-to-r from-indigo-600 to-blue-500 text-white shadow-md shadow-indigo-950/40 border border-indigo-400";
+        btn2t.className = "flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 border border-slate-700";
+      }
+    }
+
+    function toggleCamposAnomalia2T() {
+      const modo = document.getElementById("sim2tModoAnomalia").value;
+      const box = document.getElementById("boxParametrosAnomalia2T");
+      if (box) {
+        if (modo === "NORMAL") box.classList.add("hidden");
+        else box.classList.remove("hidden");
+      }
+    }
+
+    function recalcularPesquisa2T(origem) {
+      const inC1 = document.getElementById("sim2tCand1Pesquisa");
+      const inC2 = document.getElementById("sim2tCand2Pesquisa");
+      if (!inC1 || !inC2) return;
+
+      if (origem === 1) {
+        let v1 = parseFloat(inC1.value) || 0;
+        v1 = Math.max(0, Math.min(100, v1));
+        inC2.value = (100.0 - v1).toFixed(1);
+      } else {
+        let v2 = parseFloat(inC2.value) || 0;
+        v2 = Math.max(0, Math.min(100, v2));
+        inC1.value = (100.0 - v2).toFixed(1);
+      }
+    }
+
+    function atualizarAbstencaoCalculada2T() {
+      const inAptos = document.getElementById("sim2tAptos");
+      const inComp = document.getElementById("sim2tComparecimento");
+      const badge = document.getElementById("sim2tAbstencaoBadge");
+      if (!inAptos || !inComp || !badge) return;
+
+      const aptos = Math.max(1, parseInt(inAptos.value, 10) || 350);
+      let comp = parseInt(inComp.value, 10) || 290;
+      if (comp > aptos) {
+        comp = aptos;
+        inComp.value = aptos;
+      }
+      const abst = Math.max(0, aptos - comp);
+      const pctComp = ((comp / aptos) * 100).toFixed(1);
+      const pctAbst = ((abst / aptos) * 100).toFixed(1);
+
+      badge.innerHTML = `
+        <span>Comparecimento: <strong class="text-emerald-400">${comp} (${pctComp}%)</strong></span>
+        <span>Abstenção: <strong class="text-amber-300">${abst} faltosos (${pctAbst}%)</strong></span>
+      `;
+    }
+
+    function aplicarPresetSimulacao2T(tipo) {
+      if (tipo === "ELEICAO_2022_2026") {
+        document.getElementById("sim2tCand1Num").value = "22";
+        document.getElementById("sim2tCand1Nome").value = "FLÁVIO BOLSONARO";
+        document.getElementById("sim2tCand1Partido").value = "PL";
+        document.getElementById("sim2tCand1Pesquisa").value = "52.0";
+
+        document.getElementById("sim2tCand2Num").value = "13";
+        document.getElementById("sim2tCand2Nome").value = "LUIZ INÁCIO LULA";
+        document.getElementById("sim2tCand2Partido").value = "PT";
+        document.getElementById("sim2tCand2Pesquisa").value = "48.0";
+
+        document.getElementById("sim2tAptos").value = "350";
+        document.getElementById("sim2tComparecimento").value = "290";
+        document.getElementById("sim2tBrancos").value = "2.0";
+        document.getElementById("sim2tNulos").value = "3.0";
+        document.getElementById("sim2tPerfilVazao").value = "PADRAO_REAL_TSE";
+      } else if (tipo === "EMPATE_50") {
+        document.getElementById("sim2tCand1Num").value = "22";
+        document.getElementById("sim2tCand1Nome").value = "FLÁVIO BOLSONARO";
+        document.getElementById("sim2tCand1Partido").value = "PL";
+        document.getElementById("sim2tCand1Pesquisa").value = "50.0";
+
+        document.getElementById("sim2tCand2Num").value = "13";
+        document.getElementById("sim2tCand2Nome").value = "LUIZ INÁCIO LULA";
+        document.getElementById("sim2tCand2Partido").value = "PT";
+        document.getElementById("sim2tCand2Pesquisa").value = "50.0";
+
+        document.getElementById("sim2tAptos").value = "320";
+        document.getElementById("sim2tComparecimento").value = "260";
+        document.getElementById("sim2tBrancos").value = "2.5";
+        document.getElementById("sim2tNulos").value = "2.5";
+        document.getElementById("sim2tPerfilVazao").value = "PADRAO_REAL_TSE";
+      } else if (tipo === "ONDA_ELEITORAL") {
+        document.getElementById("sim2tCand1Num").value = "22";
+        document.getElementById("sim2tCand1Nome").value = "FLÁVIO BOLSONARO";
+        document.getElementById("sim2tCand1Partido").value = "PL";
+        document.getElementById("sim2tCand1Pesquisa").value = "62.0";
+
+        document.getElementById("sim2tCand2Num").value = "13";
+        document.getElementById("sim2tCand2Nome").value = "LUIZ INÁCIO LULA";
+        document.getElementById("sim2tCand2Partido").value = "PT";
+        document.getElementById("sim2tCand2Pesquisa").value = "38.0";
+
+        document.getElementById("sim2tAptos").value = "360";
+        document.getElementById("sim2tComparecimento").value = "310";
+        document.getElementById("sim2tBrancos").value = "1.5";
+        document.getElementById("sim2tNulos").value = "2.5";
+        document.getElementById("sim2tPerfilVazao").value = "PICO_MATUTINO";
+      } else if (tipo === "URNA_LOTADA") {
+        document.getElementById("sim2tCand1Num").value = "22";
+        document.getElementById("sim2tCand1Nome").value = "FLÁVIO BOLSONARO";
+        document.getElementById("sim2tCand1Partido").value = "PL";
+        document.getElementById("sim2tCand1Pesquisa").value = "51.5";
+
+        document.getElementById("sim2tCand2Num").value = "13";
+        document.getElementById("sim2tCand2Nome").value = "LUIZ INÁCIO LULA";
+        document.getElementById("sim2tCand2Partido").value = "PT";
+        document.getElementById("sim2tCand2Pesquisa").value = "48.5";
+
+        document.getElementById("sim2tAptos").value = "450";
+        document.getElementById("sim2tComparecimento").value = "400";
+        document.getElementById("sim2tBrancos").value = "2.0";
+        document.getElementById("sim2tNulos").value = "3.0";
+        document.getElementById("sim2tPerfilVazao").value = "PADRAO_REAL_TSE";
+      }
+      atualizarAbstencaoCalculada2T();
+    }
+
+    async function executarSimulacaoSegundoTurno(e) {
+      if (e) e.preventDefault();
+      const btn = document.getElementById("btnExecutarSimulacao2T");
+      const textoOriginal = btn.innerHTML;
+      btn.disabled = true;
+      btn.innerHTML = `<span>⏳</span><span>Simulando 08h00 às 17h00 Voto a Voto (~1s)...</span>`;
+
+      try {
+        const payload = {
+          cand1_numero: document.getElementById("sim2tCand1Num").value.trim(),
+          cand1_nome: document.getElementById("sim2tCand1Nome").value.trim(),
+          cand1_partido: document.getElementById("sim2tCand1Partido").value.trim(),
+          cand1_pct_pesquisa: parseFloat(document.getElementById("sim2tCand1Pesquisa").value) || 50.0,
+          cand2_numero: document.getElementById("sim2tCand2Num").value.trim(),
+          cand2_nome: document.getElementById("sim2tCand2Nome").value.trim(),
+          cand2_partido: document.getElementById("sim2tCand2Partido").value.trim(),
+          cand2_pct_pesquisa: parseFloat(document.getElementById("sim2tCand2Pesquisa").value) || 50.0,
+          eleitores_aptos: parseInt(document.getElementById("sim2tAptos").value, 10),
+          comparecimento: parseInt(document.getElementById("sim2tComparecimento").value, 10),
+          pct_brancos: parseFloat(document.getElementById("sim2tBrancos").value),
+          pct_nulos: parseFloat(document.getElementById("sim2tNulos").value),
+          perfil_vazao: document.getElementById("sim2tPerfilVazao").value,
+          modo_anomalia: document.getElementById("sim2tModoAnomalia").value,
+          qtd_votos_anomalia: document.getElementById("sim2tModoAnomalia").value === "NORMAL" ? 0 : parseInt(document.getElementById("sim2tQtdAnomalia").value || "0", 10),
+          candidato_alvo_anomalia: document.getElementById("sim2tAlvoAnomalia").value.trim()
+        };
+
+        const res = await fetch("/api/simulacao/segundo-turno", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          showSecurityAlert(data.detail || "Falha ao processar simulação do 2º Turno.", true);
+          return;
+        }
+
+        window.sim2tUltimoResultado = data;
+
+        // Atualizar papel térmico global e modal
+        if (data.boletim_de_urna && data.boletim_de_urna.cupom_termico) {
+          const thermalOut = document.getElementById("thermalPrinterOutput");
+          if (thermalOut) thermalOut.textContent = data.boletim_de_urna.cupom_termico;
+          const modalOut = document.getElementById("modalThermalCupomOutput");
+          if (modalOut) modalOut.textContent = data.boletim_de_urna.cupom_termico;
+        }
+
+        // Tocar som de término da urna
+        try { playSomFimUrna(); } catch(err) {}
+
+        // Renderizar todos os cards de resultado do 2T
+        renderizarResultadosSimulacao2T(data);
+
+        // Disparar auditoria forense independente no Módulo 2
+        await executarAuditoriaIndependenteNaBase();
+
+        // Rolar suavemente até o container de resultados
+        const container = document.getElementById("sim2tResultadosContainer");
+        if (container) {
+          container.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      } catch (err) {
+        console.error("Erro na simulação do 2º Turno:", err);
+        showSecurityAlert("Erro de rede ao executar simulação: " + err.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = textoOriginal;
+      }
+    }
+
+    function renderizarResultadosSimulacao2T(data) {
+      const container = document.getElementById("sim2tResultadosContainer");
+      if (!container) return;
+      container.classList.remove("hidden");
+
+      const p = data.parametros;
+      const r = data.resultado_urna;
+      const c1 = r.cand1;
+      const c2 = r.cand2;
+
+      // 1. Vencedor Badge
+      const vBadge = document.getElementById("sim2tVencedorBadge");
+      if (r.vencedor_numero === "EMPATE") {
+        vBadge.className = "px-3 py-1 rounded-full text-xs font-black mono uppercase bg-amber-950 text-amber-300 border border-amber-700";
+        vBadge.textContent = "⚖️ Empate Exato";
+      } else if (r.vencedor_numero === c1.numero) {
+        vBadge.className = "px-3 py-1 rounded-full text-xs font-black mono uppercase bg-cyan-950 text-cyan-300 border border-cyan-500 shadow-md";
+        vBadge.textContent = `🏆 Vencedor: ${c1.nome} (${c1.pct_validos}%)`;
+      } else {
+        vBadge.className = "px-3 py-1 rounded-full text-xs font-black mono uppercase bg-rose-950 text-rose-300 border border-rose-500 shadow-md";
+        vBadge.textContent = `🏆 Vencedor: ${c2.nome} (${c2.pct_validos}%)`;
+      }
+
+      // 2. Card Candidato 1
+      document.getElementById("sim2tNomeCand1").textContent = c1.nome;
+      document.getElementById("sim2tPartCand1").textContent = `${c1.partido} • Nº ${c1.numero}`;
+      document.getElementById("sim2tNumCand1").textContent = c1.numero;
+      document.getElementById("sim2tVotosCand1").textContent = `${c1.votos}v`;
+      document.getElementById("sim2tPctRealCand1").textContent = `${c1.pct_validos}%`;
+      document.getElementById("sim2tPesqCand1").textContent = `${c1.pct_pesquisa}%`;
+      const d1El = document.getElementById("sim2tDeltaCand1");
+      const d1Sign = c1.delta_pesquisa >= 0 ? "+" : "";
+      d1El.textContent = `${d1Sign}${c1.delta_pesquisa}%`;
+      d1El.className = `text-base font-black mt-1 block ${c1.delta_pesquisa >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+
+      // 3. Card Candidato 2
+      document.getElementById("sim2tNomeCand2").textContent = c2.nome;
+      document.getElementById("sim2tPartCand2").textContent = `${c2.partido} • Nº ${c2.numero}`;
+      document.getElementById("sim2tNumCand2").textContent = c2.numero;
+      document.getElementById("sim2tVotosCand2").textContent = `${c2.votos}v`;
+      document.getElementById("sim2tPctRealCand2").textContent = `${c2.pct_validos}%`;
+      document.getElementById("sim2tPesqCand2").textContent = `${c2.pct_pesquisa}%`;
+      const d2El = document.getElementById("sim2tDeltaCand2");
+      const d2Sign = c2.delta_pesquisa >= 0 ? "+" : "";
+      d2El.textContent = `${d2Sign}${c2.delta_pesquisa}%`;
+      d2El.className = `text-base font-black mt-1 block ${c2.delta_pesquisa >= 0 ? 'text-emerald-400' : 'text-rose-400'}`;
+
+      // 4. Barra Proporcional de Apuração
+      document.getElementById("sim2tBarLabelCand1").textContent = `${c1.nome} • ${c1.votos}v (${c1.pct_validos}%)`;
+      document.getElementById("sim2tBarLabelCand2").textContent = `${c2.nome} • ${c2.votos}v (${c2.pct_validos}%)`;
+      document.getElementById("sim2tProgressBar1").style.width = `${c1.pct_validos}%`;
+      document.getElementById("sim2tProgressBar2").style.width = `${c2.pct_validos}%`;
+
+      // 5. Diagnóstico de Margem de Erro
+      const meBox = document.getElementById("sim2tMargemErroBox");
+      if (r.dentro_margem_amostral) {
+        meBox.className = "p-3 rounded-xl border text-xs leading-relaxed flex items-center justify-between gap-3 bg-emerald-950/40 border-emerald-500/50 text-emerald-300";
+        meBox.innerHTML = `
+          <div class="flex items-center gap-2">
+            <span class="text-xl">✅</span>
+            <div>
+              <strong>Conformidade Estatística Amostral Atestada:</strong>
+              <div class="text-[11px] text-slate-300 mt-0.5">${r.diagnostico_pesquisa_vs_urna}</div>
+            </div>
+          </div>
+          <div class="text-right shrink-0 font-bold mono">
+            <span class="text-[10px] text-slate-400 block uppercase">Margem Amostral (95%)</span>
+            <span class="text-sm text-emerald-400 font-black">±${r.margem_amostral_secao_pct}%</span>
+          </div>
+        `;
+      } else {
+        meBox.className = "p-3 rounded-xl border text-xs leading-relaxed flex items-center justify-between gap-3 bg-amber-950/40 border-amber-500/50 text-amber-300";
+        meBox.innerHTML = `
+          <div class="flex items-center gap-2">
+            <span class="text-xl">⚠️</span>
+            <div>
+              <strong>Dispersão Estatística Excedente à Margem Teórica:</strong>
+              <div class="text-[11px] text-slate-300 mt-0.5">${r.diagnostico_pesquisa_vs_urna}</div>
+            </div>
+          </div>
+          <div class="text-right shrink-0 font-bold mono">
+            <span class="text-[10px] text-slate-400 block uppercase">Margem Amostral (95%)</span>
+            <span class="text-sm text-amber-400 font-black">±${r.margem_amostral_secao_pct}%</span>
+          </div>
+        `;
+      }
+
+      // 6. KPIs Operacionais e Totais
+      document.getElementById("sim2tKpiValidos").textContent = `${r.votos_validos}v`;
+      document.getElementById("sim2tKpiBrancos").textContent = `${r.votos_brancos}v (${r.pct_brancos}%)`;
+      document.getElementById("sim2tKpiNulos").textContent = `${r.votos_nulos}v (${r.pct_nulos}%)`;
+      document.getElementById("sim2tKpiComparecimento").textContent = `${r.comparecimento_total} (${r.pct_comparecimento}%)`;
+      document.getElementById("sim2tKpiAbstencao").textContent = `${r.abstencao_total} (${r.pct_abstencao}%)`;
+      document.getElementById("sim2tKpiTempoCabine").textContent = `${data.cadencia_operacional.tempo_medio_cabine_s}s`;
+      document.getElementById("sim2tKpiTempoCiclo").textContent = `${data.cadencia_operacional.tempo_medio_ciclo_s}s`;
+      document.getElementById("sim2tKpiBiometria").textContent = `${data.cadencia_operacional.taxa_biometria_afis_pct}%`;
+
+      // 7. Legendas da Curva de Vazão
+      document.getElementById("sim2tLegendC1").textContent = `${c1.numero} ${c1.nome}`;
+      document.getElementById("sim2tLegendC2").textContent = `${c2.numero} ${c2.nome}`;
+
+      // 8. Gráfico de Vazão Horária (Chart.js)
+      renderizarGraficoVazaoHoraria2T(data);
+
+      // 9. Tabela Hora a Hora Detalhada (08h às 16h)
+      renderizarTabelaHoraria2T(data);
+
+      // 10. Feed Voto a Voto com Filtros
+      filtrarFeedVotoAVoto2T();
+    }
+
+    function renderizarGraficoVazaoHoraria2T(data) {
+      const canvas = document.getElementById("sim2tGraficoHorario");
+      if (!canvas) return;
+
+      if (window.chartSim2tHorario) {
+        window.chartSim2tHorario.destroy();
+        window.chartSim2tHorario = null;
+      }
+
+      const labels = data.vazao_horaria.map(h => h.hora);
+      const c1 = data.resultado_urna.cand1;
+      const c2 = data.resultado_urna.cand2;
+      const dadosC1 = data.vazao_horaria.map(h => h.votos_cand1);
+      const dadosC2 = data.vazao_horaria.map(h => h.votos_cand2);
+      const dadosTotal = data.vazao_horaria.map(h => h.votantes_hora);
+
+      const ctx = canvas.getContext("2d");
+      window.chartSim2tHorario = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: `${c1.numero} ${c1.nome}`,
+              data: dadosC1,
+              backgroundColor: "rgba(34, 211, 238, 0.85)",
+              borderColor: "rgba(34, 211, 238, 1)",
+              borderWidth: 1,
+              borderRadius: 4
+            },
+            {
+              label: `${c2.numero} ${c2.nome}`,
+              data: dadosC2,
+              backgroundColor: "rgba(244, 63, 94, 0.85)",
+              borderColor: "rgba(244, 63, 94, 1)",
+              borderWidth: 1,
+              borderRadius: 4
+            },
+            {
+              label: "Votantes na Hora (Total)",
+              data: dadosTotal,
+              type: "line",
+              borderColor: "rgba(16, 185, 129, 0.9)",
+              backgroundColor: "rgba(16, 185, 129, 0.15)",
+              borderWidth: 2,
+              pointRadius: 3,
+              pointBackgroundColor: "#10b981",
+              tension: 0.3,
+              fill: false
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: false
+            },
+            tooltip: {
+              mode: "index",
+              intersect: false,
+              backgroundColor: "#0f172a",
+              titleColor: "#f8fafc",
+              bodyColor: "#94a3b8",
+              borderColor: "#334155",
+              borderWidth: 1
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: "rgba(51, 65, 85, 0.3)" },
+              ticks: { color: "#94a3b8", font: { size: 10, family: "JetBrains Mono" } }
+            },
+            y: {
+              grid: { color: "rgba(51, 65, 85, 0.3)" },
+              ticks: { color: "#94a3b8", font: { size: 10, family: "JetBrains Mono" }, stepSize: 5 },
+              beginAtZero: true
+            }
+          }
+        }
+      });
+    }
+
+    function renderizarTabelaHoraria2T(data) {
+      const tbody = document.getElementById("sim2tTabelaHorariaTbody");
+      if (!tbody) return;
+
+      const c1 = data.resultado_urna.cand1;
+      const c2 = data.resultado_urna.cand2;
+
+      tbody.innerHTML = data.vazao_horaria.map(h => {
+        let badgeVenc = `<span class="px-2 py-0.5 rounded text-[10px] font-bold mono bg-slate-800 text-slate-300">Empate</span>`;
+        if (h.vencedor_hora === c1.numero) {
+          badgeVenc = `<span class="px-2 py-0.5 rounded text-[10px] font-bold mono bg-cyan-950 text-cyan-300 border border-cyan-800">${c1.numero} (${c1.partido})</span>`;
+        } else if (h.vencedor_hora === c2.numero) {
+          badgeVenc = `<span class="px-2 py-0.5 rounded text-[10px] font-bold mono bg-rose-950 text-rose-300 border border-rose-800">${c2.numero} (${c2.partido})</span>`;
+        }
+
+        return `
+          <tr class="hover:bg-slate-900/60 transition">
+            <td class="p-2.5 font-bold text-white flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full ${h.votantes_hora > 35 ? 'bg-amber-400' : 'bg-emerald-400'}"></span>
+              <span>${h.hora} (${h.faixa})</span>
+            </td>
+            <td class="p-2.5 text-center font-black text-cyan-300">${h.votantes_hora}v</td>
+            <td class="p-2.5 text-center text-slate-400 font-bold">${h.pct_do_dia}%</td>
+            <td class="p-2.5">
+              <div class="space-y-1">
+                <div class="flex items-center justify-between text-[10px] mono">
+                  <span class="text-cyan-400 font-bold">${c1.numero}: ${h.votos_cand1}v (${h.pct_cand1}%)</span>
+                  <span class="text-rose-400 font-bold">${c2.numero}: ${h.votos_cand2}v (${h.pct_cand2}%)</span>
+                </div>
+                <div class="w-full bg-slate-900 rounded-full h-2 overflow-hidden flex border border-slate-800">
+                  <div style="width: ${h.pct_cand1}%" class="bg-cyan-400 h-full"></div>
+                  <div style="width: ${h.pct_cand2}%" class="bg-rose-500 h-full"></div>
+                </div>
+              </div>
+            </td>
+            <td class="p-2.5 text-center">${badgeVenc}</td>
+            <td class="p-2.5 text-right font-black mono text-slate-300">
+              <span class="text-cyan-400">${h.acumulado_cand1}v</span>
+              <span class="text-slate-500">×</span>
+              <span class="text-rose-400">${h.acumulado_cand2}v</span>
+              <span class="text-[10px] text-slate-400 block font-normal">(${h.acumulado_votantes}v acum.)</span>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function filtrarFeedVotoAVoto2T() {
+      if (!window.sim2tUltimoResultado || !window.sim2tUltimoResultado.feed_voto_a_voto) return;
+      const filtroHora = document.getElementById("sim2tFiltroHoraFeed").value;
+      const filtroTipo = document.getElementById("sim2tFiltroTipoFeed").value;
+      const todos = window.sim2tUltimoResultado.feed_voto_a_voto;
+
+      const filtrados = todos.filter(c => {
+        if (filtroHora !== "TODAS" && c.hora_faixa !== filtroHora) return false;
+        if (filtroTipo === "NOMINAL" && c.tipo_voto !== "NOMINAL") return false;
+        if (filtroTipo === "BRANCO" && c.tipo_voto !== "BRANCO") return false;
+        if (filtroTipo === "NULO" && c.tipo_voto !== "NULO") return false;
+        return true;
+      });
+
+      renderizarFeedVotoAVoto2T(filtrados, todos.length);
+    }
+
+    function renderizarFeedVotoAVoto2T(lista, totalGeral) {
+      const tbody = document.getElementById("sim2tFeedTbody");
+      const footer = document.getElementById("sim2tFeedFooter");
+      if (!tbody) return;
+
+      tbody.innerHTML = lista.map(c => {
+        let authBadge = c.biometria_afis
+          ? `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-950 text-indigo-300 border border-indigo-700">✓ Biometria AFIS (${c.tentativas_bio || 1}ª)</span>`
+          : `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-700">⚠️ Mesário (Sem Bio)</span>`;
+
+        let votoBadge = "";
+        if (c.tipo_voto === "BRANCO") {
+          votoBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-800 text-slate-300 border border-slate-700">⚪ Voto em Branco</span>`;
+        } else if (c.tipo_voto === "NULO") {
+          votoBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800">⚠️ Voto Nulo</span>`;
+        } else {
+          const isC1 = c.numero_digitado === (window.sim2tUltimoResultado.resultado_urna.cand1.numero);
+          votoBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-black ${isC1 ? 'bg-cyan-950 text-cyan-300 border border-cyan-800' : 'bg-rose-950 text-rose-300 border border-rose-800'}">✓ Nº ${c.numero_digitado} (${c.rotulo_candidato})</span>`;
+        }
+
+        let alertaRobo = c.anomalia
+          ? `<span class="px-1.5 py-0.2 rounded text-[9px] font-black bg-rose-600 text-white ml-1">ROBÔ</span>`
+          : "";
+
+        return `
+          <tr class="hover:bg-slate-900/60 transition ${c.anomalia ? 'bg-rose-950/20' : ''}">
+            <td class="p-2.5 font-bold text-slate-400">#${c.seq}${alertaRobo}</td>
+            <td class="p-2.5 text-white font-bold">${c.hora_brt}</td>
+            <td class="p-2.5">${authBadge}</td>
+            <td class="p-2.5 text-center text-slate-300">${c.tempo_mesario_s}s</td>
+            <td class="p-2.5 text-center font-bold ${c.tempo_cabine_s < 4 ? 'text-rose-400' : 'text-cyan-300'}">${c.tempo_cabine_s}s</td>
+            <td class="p-2.5 text-center font-black ${c.tempo_ciclo_total_s < 10 ? 'text-rose-400' : 'text-emerald-400'}">${c.tempo_ciclo_total_s}s</td>
+            <td class="p-2.5 text-[11px] text-slate-400 mono">${c.teclas ? c.teclas.join(" ") : "-"}</td>
+            <td class="p-2.5">${votoBadge}</td>
+          </tr>
+        `;
+      }).join("");
+
+      if (footer) {
+        footer.innerHTML = `
+          <span>Exibindo <strong>${lista.length}</strong> de <strong>${totalGeral}</strong> votos simulados</span>
+          <span>Cadência física real: tempo de cabine 2º turno (~5s a 11s) • 1 cargo maioritário</span>
+        `;
+      }
+    }
+
+    // ==============================================================
+    // MODAL DE CUPOM TÉRMICO (BOBINA BU / ZERÉSIMA)
+    // ==============================================================
+    function abrirModalCupomTermicoSimulador() {
+      const modal = document.getElementById("modalCupomTermicoSimulador");
+      const out = document.getElementById("modalThermalCupomOutput");
+      if (!modal || !out) return;
+
+      if (window.sim2tUltimoResultado && window.sim2tUltimoResultado.boletim_de_urna) {
+        out.textContent = window.sim2tUltimoResultado.boletim_de_urna.cupom_termico;
+      } else {
+        const thermalGlobal = document.getElementById("thermalPrinterOutput");
+        if (thermalGlobal && thermalGlobal.textContent.trim()) {
+          out.textContent = thermalGlobal.textContent;
+        }
+      }
+      modal.classList.remove("hidden");
+    }
+
+    function fecharModalCupomTermicoSimulador(e) {
+      if (e && e.target && e.target.id !== "modalCupomTermicoSimulador" && !e.target.closest("button")) {
+        return;
+      }
+      const modal = document.getElementById("modalCupomTermicoSimulador");
+      if (modal) modal.classList.add("hidden");
+    }
+
+    function imprimirCupomTermicoSimulador() {
+      const out = document.getElementById("modalThermalCupomOutput");
+      if (!out || !out.textContent.trim()) return;
+
+      const printWindow = window.open("", "_blank", "width=420,height=600");
+      if (!printWindow) {
+        window.print();
+        return;
+      }
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Boletim de Urna - Impressão Térmica</title>
+          <style>
+            @page { margin: 5mm; }
+            body { font-family: 'Courier New', monospace; font-size: 11px; line-height: 1.25; background: #fff; color: #000; padding: 10px; margin: 0; }
+            pre { margin: 0; white-space: pre-wrap; word-wrap: break-word; }
+          </style>
+        </head>
+        <body>
+          <pre>${out.textContent}</pre>
+          <script>
+            window.onload = function() { window.print(); window.close(); };
+          <\/script>
+        </body>
+        </html>
+      `);
+      printWindow.document.close();
     }
 
     function toggleCamposAnomalia() {

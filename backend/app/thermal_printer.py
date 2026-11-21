@@ -14,13 +14,16 @@ def gerar_relatorio_zeresima(db: Session, config: SeccaoConfig) -> dict:
     if total_votos > 0:
         raise ValueError("Violação de Zerésima: A urna já possui votos registrados neste turno!")
 
-    cargos = get_cargos_por_turno(config.turno)
+    cargos_base = get_cargos_por_turno(config.turno)
     candidatos = (
         db.query(Candidato)
         .filter(Candidato.turno == config.turno)
         .order_by(Candidato.cargo, Candidato.numero)
         .all()
     )
+    cargos = [c for c in cargos_base if any(cand.cargo == c["codigo"] for cand in candidatos)]
+    if not cargos:
+        cargos = cargos_base
 
     now = datetime.now(timezone.utc)
     config.zeresima_timestamp = now
@@ -78,7 +81,7 @@ def apurar_boletim_de_urna(db: Session, config: SeccaoConfig) -> dict:
     Calcula a totalização completa da Seção e formata o Boletim de Urna (BU)
     em estilo bobina térmica de 48 colunas + estrutura JSON para o Cartucho.
     """
-    cargos = get_cargos_por_turno(config.turno)
+    cargos_base = get_cargos_por_turno(config.turno)
     votos = db.query(RegistroDigitalVoto).filter(RegistroDigitalVoto.turno == config.turno).all()
     candidatos = (
         db.query(Candidato)
@@ -86,6 +89,13 @@ def apurar_boletim_de_urna(db: Session, config: SeccaoConfig) -> dict:
         .order_by(Candidato.numero)
         .all()
     )
+    # Filtra apenas cargos efetivamente disputados neste turno (evita blocos vazios)
+    cargos = [
+        c for c in cargos_base
+        if any(cand.cargo == c["codigo"] for cand in candidatos) or any(v.cargo == c["codigo"] for v in votos)
+    ]
+    if not cargos:
+        cargos = cargos_base
     partidos = db.query(Partido).order_by(Partido.numero).all()
 
     now = config.encerramento_timestamp or datetime.now(timezone.utc)
