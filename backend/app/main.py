@@ -940,6 +940,8 @@ def api_executar_simulacao(payload: SimulacaoSeccaoSchema, db: Session = Depends
         return resultado
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro interno no processamento do 2º Turno: {str(exc)}")
 
 
 @app.post("/api/simulacao/segundo-turno")
@@ -975,6 +977,8 @@ def api_simular_segundo_turno(payload: SimulacaoSegundoTurnoSchema, db: Session 
         return resultado
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro interno no processamento do 2º Turno: {str(exc)}")
 
 
 @app.post("/api/auditoria/analisar-logs")

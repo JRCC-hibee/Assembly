@@ -1,5 +1,6 @@
 import os
 import json
+import math
 import random
 import secrets
 import hashlib
@@ -794,7 +795,8 @@ def executar_simulacao_segundo_turno_voto_a_voto(
 
             # Gravação no Registro Digital do Voto (RDV)
             shuffle_key = secrets.token_hex(32)
-            integrity_payload = f"{shuffle_key}|2|PRESIDENTE|{tipo_voto}|{num_voto}|{part_voto}"
+            part_legenda = (num_voto[:2] if num_voto else None)
+            integrity_payload = f"{shuffle_key}|2|PRESIDENTE|{tipo_voto}|{num_voto}|{part_legenda}"
             voto_hash = hashlib.sha256(integrity_payload.encode("utf-8")).hexdigest()
 
             db.add(
@@ -804,7 +806,7 @@ def executar_simulacao_segundo_turno_voto_a_voto(
                     cargo="PRESIDENTE",
                     tipo_voto=tipo_voto,
                     numero_digitado=num_voto,
-                    partido_legenda=part_voto,
+                    partido_legenda=part_legenda,
                     hash_integridade=voto_hash,
                 )
             )

@@ -5582,7 +5582,15 @@ o Boletim de Urna (apos encerramento da votacao).
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload)
         });
-        const data = await res.json();
+
+        const rawText = await res.text();
+        let data = {};
+        try {
+          data = JSON.parse(rawText);
+        } catch (e) {
+          showSecurityAlert(`Erro no servidor (${res.status}): ${rawText.slice(0, 150)}`, true);
+          return;
+        }
 
         if (!res.ok) {
           showSecurityAlert(data.detail || "Falha ao processar simulação do 2º Turno.", true);
