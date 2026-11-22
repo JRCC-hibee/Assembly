@@ -10815,14 +10815,16 @@ def consolidar_secoes_tse(
     }
 
 
-def obter_auditoria_secoes_faltantes_2t(db=None) -> dict:
+def obter_auditoria_secoes_faltantes_2t(uf: str | None = None, db=None) -> dict:
     """
-    Audita a integridade da carga do 2º Turno em comparação com o 1º Turno.
-    Identifica exatamente quais zonas eleitorais e municípios possuem seções do 1º Turno
-    que não têm apuração (BU) do 2º Turno gravada no PostgreSQL.
+    Audita a integridade da carga do 2º Turno em comparação com o 1º Turno e o Catálogo Oficial do TSE.
+    Identifica exatamente quais UFs, zonas eleitorais e municípios possuem seções do 1º Turno
+    ou do catálogo que não têm apuração (BU) do 2º Turno gravada no PostgreSQL.
+    Suporta escopo nacional completo (todas as UFs) ou filtrado por UF específica.
     """
     from .database import SessionLocal, TseSecao, TseApuracaoBU, TseVotoCandidato
-    from sqlalchemy import func, case
+    from sqlalchemy import func, case, and_
+    from sqlalchemy.orm import aliased
 
     close_db = False
     if db is None:
@@ -10830,61 +10832,157 @@ def obter_auditoria_secoes_faltantes_2t(db=None) -> dict:
         close_db = True
 
     try:
-        # 1. Total de seções físicas no banco
-        total_secoes = db.query(func.count(TseSecao.id)).scalar() or 0
-        total_1t = db.query(func.count(TseApuracaoBU.id)).filter(TseApuracaoBU.turno == 1).scalar() or 0
-        total_2t = db.query(func.count(TseApuracaoBU.id)).filter(TseApuracaoBU.turno == 2).scalar() or 0
-        faltantes_total = max(0, total_1t - total_2t)
+        uf_filtro = uf.strip().upper() if (uf and uf.strip().upper() not in ("TODAS", "ALL", "BR", "BRASIL")) else None
 
-        # 2. Votos de Presidente computados em cada turno
-        votos_1t_cands = dict(
+        bu_1t_alias = aliased(TseApuracaoBU, name="bu_1t")
+        bu_2t_alias = aliased(TseApuracaoBU, name="bu_2t")
+
+        # 1. Resumo por UF (todas as 28 UFs cadastradas na base)
+        q_uf = (
+            db.query(
+                TseSecao.uf,
+                func.count(TseSecao.id).label("total_catalogo"),
+                func.count(bu_1t_alias.id).label("total_1t"),
+                func.count(bu_2t_alias.id).label("total_2t"),
+                func.count(case((and_(bu_1t_alias.id.isnot(None), bu_2t_alias.id.is_(None)), 1), else_=None)).label("faltantes_1t"),
+                func.count(case((bu_2t_alias.id.is_(None), 1), else_=None)).label("faltantes_catalogo"),
+            )
+            .outerjoin(bu_1t_alias, (bu_1t_alias.secao_id == TseSecao.id) & (bu_1t_alias.turno == 1))
+            .outerjoin(bu_2t_alias, (bu_2t_alias.secao_id == TseSecao.id) & (bu_2t_alias.turno == 2))
+            .group_by(TseSecao.uf)
+            .order_by(TseSecao.uf)
+        )
+        rows_uf = q_uf.all()
+
+        resumo_todas_ufs = []
+        ufs_com_pendencia = []
+
+        for r in rows_uf:
+            sigla = (r.uf or "").strip().upper()
+            info_est = ESTADOS_E_REGIOES_BR.get(sigla, {"nome": sigla, "regiao": "OUTRO"})
+            tot_cat = int(r.total_catalogo or 0)
+            tot_1t = int(r.total_1t or 0)
+            tot_2t = int(r.total_2t or 0)
+            f_1t = int(r.faltantes_1t or 0)
+            f_cat = int(r.faltantes_catalogo or 0)
+
+            # Se o 1T possui dados, o batimento de faltantes compara seções do 1T sem 2T
+            urnas_faltam = f_1t if tot_1t > 0 else f_cat
+            if tot_2t >= tot_cat and tot_cat > 0:
+                urnas_faltam = 0
+
+            denominador = tot_1t if tot_1t > 0 else tot_cat
+            pct = round((tot_2t / max(denominador, 1)) * 100.0, 2)
+            if pct > 100.0:
+                pct = 100.0
+
+            item_uf = {
+                "uf": sigla,
+                "nome": info_est["nome"],
+                "regiao": info_est["regiao"],
+                "total_catalogo": tot_cat,
+                "total_1t": tot_1t,
+                "total_2t": tot_2t,
+                "urnas_faltantes": urnas_faltam,
+                "pct_completude": pct,
+                "status": "COMPLETO" if urnas_faltam == 0 else "PENDENTE",
+                "pacote_zip_sugerido": f"bu_imgbu_logjez_rdv_vscmr_2026_2t_{sigla}.zip",
+                "pacote_bweb_sugerido": f"bweb_2t_{sigla}_*.zip",
+            }
+            resumo_todas_ufs.append(item_uf)
+            if urnas_faltam > 0:
+                ufs_com_pendencia.append(item_uf)
+
+        # Ordenar: UFs com pendências primeiro, depois ordem alfabética
+        resumo_todas_ufs.sort(key=lambda x: (0 if x["urnas_faltantes"] > 0 else 1, -x["urnas_faltantes"], x["uf"]))
+
+        # Determinar escopo
+        if uf_filtro:
+            ufs_do_escopo = [u for u in resumo_todas_ufs if u["uf"] == uf_filtro]
+            nome_escopo = ESTADOS_E_REGIOES_BR.get(uf_filtro, {}).get("nome", uf_filtro)
+            titulo_escopo = f"{nome_escopo} ({uf_filtro})"
+        else:
+            ufs_do_escopo = resumo_todas_ufs
+            titulo_escopo = "Brasil Completo (Todas as UFs)"
+
+        tot_cat_escopo = sum(u["total_catalogo"] for u in ufs_do_escopo)
+        tot_1t_escopo = sum(u["total_1t"] for u in ufs_do_escopo)
+        tot_2t_escopo = sum(u["total_2t"] for u in ufs_do_escopo)
+        urnas_faltantes_escopo = sum(u["urnas_faltantes"] for u in ufs_do_escopo)
+
+        den_escopo = tot_1t_escopo if tot_1t_escopo > 0 else tot_cat_escopo
+        pct_escopo = round((tot_2t_escopo / max(den_escopo, 1)) * 100.0, 2)
+        if pct_escopo > 100.0:
+            pct_escopo = 100.0
+
+        # 2. Votos computados de Presidente no escopo selecionado
+        q_v1 = (
             db.query(TseVotoCandidato.numero_candidato, func.sum(TseVotoCandidato.quantidade_votos))
             .filter(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.turno == 1)
-            .group_by(TseVotoCandidato.numero_candidato)
-            .all()
         )
-        votos_2t_cands = dict(
+        q_v2 = (
             db.query(TseVotoCandidato.numero_candidato, func.sum(TseVotoCandidato.quantidade_votos))
             .filter(TseVotoCandidato.cargo == "PRESIDENTE", TseVotoCandidato.turno == 2)
-            .group_by(TseVotoCandidato.numero_candidato)
-            .all()
         )
+        if uf_filtro:
+            q_v1 = q_v1.join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id).filter(TseSecao.uf == uf_filtro)
+            q_v2 = q_v2.join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id).filter(TseSecao.uf == uf_filtro)
 
-        # 3. Seções faltantes no 2º Turno agrupadas por município e zona
-        bu_2t_subq = db.query(TseApuracaoBU.secao_id).filter(TseApuracaoBU.turno == 2).subquery()
+        votos_1t_cands = dict(q_v1.group_by(TseVotoCandidato.numero_candidato).all())
+        votos_2t_cands = dict(q_v2.group_by(TseVotoCandidato.numero_candidato).all())
 
-        rows = (
+        # 3. Zonas e Municípios com Seções Faltantes no Escopo
+        q_det = (
             db.query(
                 TseSecao.uf,
                 TseSecao.municipio_codigo,
                 TseSecao.municipio_nome,
                 TseSecao.zona,
-                func.count(TseSecao.id).label("total_1t"),
-                func.count(case((bu_2t_subq.c.secao_id.isnot(None), 1), else_=None)).label("total_2t"),
-                func.count(case((bu_2t_subq.c.secao_id.is_(None), 1), else_=None)).label("faltantes_2t"),
+                func.count(TseSecao.id).label("total_catalogo"),
+                func.count(bu_1t_alias.id).label("total_1t"),
+                func.count(bu_2t_alias.id).label("total_2t"),
+                func.count(case((and_(bu_1t_alias.id.isnot(None), bu_2t_alias.id.is_(None)), 1), else_=None)).label("faltantes_1t"),
+                func.count(case((bu_2t_alias.id.is_(None), 1), else_=None)).label("faltantes_catalogo"),
             )
-            .outerjoin(bu_2t_subq, bu_2t_subq.c.secao_id == TseSecao.id)
-            .group_by(TseSecao.uf, TseSecao.municipio_codigo, TseSecao.municipio_nome, TseSecao.zona)
-            .having(func.count(case((bu_2t_subq.c.secao_id.is_(None), 1), else_=None)) > 0)
-            .order_by(func.count(case((bu_2t_subq.c.secao_id.is_(None), 1), else_=None)).desc())
+            .outerjoin(bu_1t_alias, (bu_1t_alias.secao_id == TseSecao.id) & (bu_1t_alias.turno == 1))
+            .outerjoin(bu_2t_alias, (bu_2t_alias.secao_id == TseSecao.id) & (bu_2t_alias.turno == 2))
+            .filter(bu_2t_alias.id.is_(None))
+        )
+        if uf_filtro:
+            q_det = q_det.filter(TseSecao.uf == uf_filtro)
+
+        rows_det = (
+            q_det.group_by(TseSecao.uf, TseSecao.municipio_codigo, TseSecao.municipio_nome, TseSecao.zona)
+            .order_by(
+                func.count(case((and_(bu_1t_alias.id.isnot(None), bu_2t_alias.id.is_(None)), 1), else_=None)).desc(),
+                func.count(case((bu_2t_alias.id.is_(None), 1), else_=None)).desc(),
+                TseSecao.uf, TseSecao.municipio_nome, TseSecao.zona
+            )
             .all()
         )
 
-        detalhe_municipios = [
-            {
-                "uf": r.uf,
-                "municipio_codigo": r.municipio_codigo,
-                "municipio_nome": r.municipio_nome,
-                "zona": f"{int(r.zona):04d}",
-                "total_urnas_1t": int(r.total_1t),
-                "total_urnas_2t": int(r.total_2t),
-                "urnas_faltantes_2t": int(r.faltantes_2t),
-            }
-            for r in rows
-        ]
+        detalhe_municipios = []
+        for r in rows_det:
+            t1 = int(r.total_1t or 0)
+            t2 = int(r.total_2t or 0)
+            f1 = int(r.faltantes_1t or 0)
+            f_cat = int(r.faltantes_catalogo or 0)
+            f_efetiva = f1 if t1 > 0 else f_cat
+            if f_efetiva > 0:
+                detalhe_municipios.append({
+                    "uf": r.uf,
+                    "municipio_codigo": str(r.municipio_codigo or "").strip().zfill(5),
+                    "municipio_nome": r.municipio_nome or "MUNICÍPIO",
+                    "zona": f"{int(r.zona):04d}",
+                    "total_urnas_catalogo": int(r.total_catalogo or 0),
+                    "total_urnas_1t": t1,
+                    "total_urnas_2t": t2,
+                    "urnas_faltantes_2t": f_efetiva,
+                    "pacote_sugerido": f"bu_imgbu_logjez_rdv_vscmr_2026_2t_{r.uf}.zip",
+                })
 
-        # Amostra das primeiras 100 seções individuais que faltam
-        secoes_amostra = (
+        # 4. Amostra detalhada das seções exatas que faltam (com prefixo e nome de arquivo .bu.dat)
+        q_sec = (
             db.query(
                 TseSecao.uf,
                 TseSecao.municipio_codigo,
@@ -10892,45 +10990,92 @@ def obter_auditoria_secoes_faltantes_2t(db=None) -> dict:
                 TseSecao.zona,
                 TseSecao.secao,
                 TseSecao.chave_secao,
+                bu_1t_alias.id.label("tem_1t"),
             )
-            .outerjoin(bu_2t_subq, bu_2t_subq.c.secao_id == TseSecao.id)
-            .filter(bu_2t_subq.c.secao_id.is_(None))
-            .order_by(TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao)
-            .limit(100)
+            .outerjoin(bu_1t_alias, (bu_1t_alias.secao_id == TseSecao.id) & (bu_1t_alias.turno == 1))
+            .outerjoin(bu_2t_alias, (bu_2t_alias.secao_id == TseSecao.id) & (bu_2t_alias.turno == 2))
+            .filter(bu_2t_alias.id.is_(None))
+        )
+        if uf_filtro:
+            q_sec = q_sec.filter(TseSecao.uf == uf_filtro)
+
+        secoes_faltantes_rows = (
+            q_sec.order_by(
+                case((bu_1t_alias.id.isnot(None), 0), else_=1),
+                TseSecao.uf, TseSecao.municipio_nome, TseSecao.zona, TseSecao.secao
+            )
+            .limit(1000)
             .all()
         )
 
-        lista_secoes = [
-            {
-                "uf": s.uf,
-                "municipio_codigo": s.municipio_codigo,
-                "municipio_nome": s.municipio_nome,
-                "zona": f"{int(s.zona):04d}",
-                "secao": f"{int(s.secao):04d}",
-                "chave_secao": s.chave_secao,
-            }
-            for s in secoes_amostra
-        ]
+        lista_secoes = []
+        arquivos_bu_lista = []
+        for s in secoes_faltantes_rows:
+            m_cod = str(s.municipio_codigo or "").strip().zfill(5)
+            z_num = int(s.zona or 0)
+            s_num = int(s.secao or 0)
+            uf_lower = (s.uf or "").strip().lower()
+            uf_upper = (s.uf or "").strip().upper()
+            prefixo = f"o03221{uf_lower}{m_cod}{z_num:04d}{s_num:04d}"
+            arq_bu = f"{prefixo}-bu.dat"
+            arquivos_bu_lista.append(arq_bu)
 
-        v2_22 = int(votos_2t_cands.get(22, 0))
-        v2_13 = int(votos_2t_cands.get(13, 0))
+            lista_secoes.append({
+                "uf": uf_upper,
+                "municipio_codigo": m_cod,
+                "municipio_nome": s.municipio_nome,
+                "zona": f"{z_num:04d}",
+                "secao": f"{s_num:04d}",
+                "chave_secao": s.chave_secao,
+                "tem_1t": s.tem_1t is not None,
+                "prefixo": prefixo,
+                "arquivo_bu": arq_bu,
+                "arquivo_log": f"{prefixo}-log.jez",
+                "arquivo_rdv": f"{prefixo}-rdv.dat",
+                "pacote_sugerido": f"bu_imgbu_logjez_rdv_vscmr_2026_2t_{uf_upper}.zip",
+            })
+
+        # Diagnóstico descritivo inteligente
+        if urnas_faltantes_escopo == 0:
+            diag_txt = (
+                f"🎉 PARABÉNS: 100% das urnas do escopo [{titulo_escopo}] estão carregadas e auditadas no 2º Turno! "
+                f"Nenhuma pendência de apuração identificada no PostgreSQL."
+            )
+        else:
+            pacotes_pendentes = sorted(list(dict.fromkeys(u["pacote_zip_sugerido"] for u in ufs_com_pendencia)))
+            pacotes_str = " • ".join(pacotes_pendentes[:6])
+            if uf_filtro:
+                diag_txt = (
+                    f"Identificamos {urnas_faltantes_escopo} urna(s) faltante(s) no 2º Turno para {titulo_escopo}. "
+                    f"Para totalizar 100%, faça o upload do arquivo oficial '{ufs_do_escopo[0]['pacote_zip_sugerido']}' "
+                    f"na pasta /root/tse_import da VPS."
+                )
+            else:
+                diag_txt = (
+                    f"Na base nacional, existem {urnas_faltantes_escopo} urna(s) com pendência no 2º Turno distribuídas em "
+                    f"{len(ufs_com_pendencia)} UF(s) ({', '.join(u['uf'] for u in ufs_com_pendencia)}). "
+                    f"Pacotes do TSE recomendados para upload na VPS: {pacotes_str}."
+                )
 
         return {
             "ok": True,
-            "total_urnas_cadastradas": total_secoes,
-            "total_urnas_1t": total_1t,
-            "total_urnas_2t": total_2t,
-            "urnas_faltantes_2t": faltantes_total,
-            "pct_completude_2t": round((total_2t / max(total_1t, 1)) * 100.0, 2),
-            "votos_1t_presidente": {str(k): int(v) for k, v in votos_1t_cands.items()},
-            "votos_2t_presidente": {str(k): int(v) for k, v in votos_2t_cands.items()},
-            "oficial_tse_sc_cand22": 3220071,
-            "oficial_tse_sc_cand13": 1418314,
-            "diferenca_cand22": 3220071 - v2_22,
-            "diferenca_cand13": 1418314 - v2_13,
+            "uf_filtro": uf_filtro,
+            "titulo_escopo": titulo_escopo,
+            "total_urnas_cadastradas": tot_cat_escopo,
+            "total_urnas_1t": tot_1t_escopo,
+            "total_urnas_2t": tot_2t_escopo,
+            "urnas_faltantes_2t": urnas_faltantes_escopo,
+            "pct_completude_2t": pct_escopo,
+            "total_ufs_com_pendencia": len(ufs_com_pendencia),
+            "ufs_com_pendencia": [u["uf"] for u in ufs_com_pendencia],
+            "resumo_por_uf": resumo_todas_ufs,
             "total_municipios_zonas_afetados": len(detalhe_municipios),
             "detalhe_por_zona_municipio": detalhe_municipios,
             "amostra_secoes_faltantes": lista_secoes,
+            "lista_arquivos_bu_esperados": arquivos_bu_lista,
+            "votos_1t_presidente": {str(k): int(v) for k, v in votos_1t_cands.items()},
+            "votos_2t_presidente": {str(k): int(v) for k, v in votos_2t_cands.items()},
+            "diagnostico_texto": diag_txt,
         }
     finally:
         if close_db:

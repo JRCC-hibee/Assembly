@@ -3621,8 +3621,9 @@ o Boletim de Urna (apos encerramento da votacao).
     </div>
 
     <!-- MODAL DE AUDITORIA DE CARGA: URNAS FALTANTES NO 2º TURNO -->
-    <div id="modalAuditoriaCargaFaltantes2T" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-4" onclick="fecharModalAuditoriaCargaFaltantes2T(event)">
-      <div class="bg-slate-900 border-2 border-amber-500/70 rounded-2xl max-w-4xl w-full p-6 space-y-4 shadow-2xl relative max-h-[90vh] flex flex-col" onclick="event.stopPropagation()">
+    <div id="modalAuditoriaCargaFaltantes2T" class="fixed inset-0 bg-black/85 backdrop-blur-md z-50 hidden flex items-center justify-center p-3 sm:p-4" onclick="fecharModalAuditoriaCargaFaltantes2T(event)">
+      <div class="bg-slate-900 border-2 border-amber-500/70 rounded-2xl max-w-5xl w-full p-5 sm:p-6 space-y-4 shadow-2xl relative max-h-[92vh] flex flex-col" onclick="event.stopPropagation()">
+        
         <!-- Topo -->
         <div class="flex items-start justify-between border-b border-slate-800 pb-3 flex-shrink-0">
           <div class="flex items-center gap-3">
@@ -3630,11 +3631,16 @@ o Boletim de Urna (apos encerramento da votacao).
               🔍
             </div>
             <div>
-              <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-amber-950 text-amber-300 border border-amber-700 mono">
-                AUDITORIA DE CARGA FORENSE • BATIMENTO 1ºT × 2ºT
-              </span>
-              <h3 class="text-base font-extrabold text-white mt-0.5">
-                Diagnóstico de Integridade da Carga do 2º Turno (Santa Catarina)
+              <div class="flex items-center gap-2">
+                <span class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-amber-950 text-amber-300 border border-amber-700 mono">
+                  AUDITORIA DE CARGA FORENSE • BATIMENTO 1ºT × 2ºT
+                </span>
+                <span id="auditModalBadgeEscopo" class="px-2 py-0.5 text-[10px] font-extrabold uppercase rounded bg-indigo-950 text-indigo-300 border border-indigo-700 mono">
+                  BRASIL (GERAL)
+                </span>
+              </div>
+              <h3 class="text-base sm:text-lg font-extrabold text-white mt-0.5" id="auditModalTituloEscopo">
+                Diagnóstico de Integridade da Carga do 2º Turno
               </h3>
             </div>
           </div>
@@ -3643,62 +3649,181 @@ o Boletim de Urna (apos encerramento da votacao).
           </button>
         </div>
 
+        <!-- Seletor Rápido de Escopo / Chips de UFs -->
+        <div class="flex flex-wrap items-center justify-between gap-2 p-2 bg-slate-950 border border-slate-800/80 rounded-xl flex-shrink-0">
+          <div class="flex items-center gap-1.5 flex-wrap" id="auditModalUfChips">
+            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Filtrar Escopo:</span>
+            <button
+              type="button"
+              onclick="selecionarUfAuditoria('ALL')"
+              id="chipUf_ALL"
+              class="px-2.5 py-1 rounded-lg text-xs font-bold transition border border-emerald-500 bg-emerald-500/20 text-emerald-300"
+            >
+              🇧🇷 Brasil Completo
+            </button>
+          </div>
+          <div class="flex items-center gap-2">
+            <label for="auditModalSelectUf" class="text-[11px] font-bold text-slate-400">UF:</label>
+            <select
+              id="auditModalSelectUf"
+              onchange="selecionarUfAuditoria(this.value)"
+              class="bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg px-2.5 py-1 font-bold focus:ring-1 focus:ring-amber-500"
+            >
+              <option value="ALL">🇧🇷 Todas as 28 UFs (Nacional)</option>
+            </select>
+          </div>
+        </div>
+
         <!-- 3 Cards de Resumo -->
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 flex-shrink-0">
           <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
-            <div class="text-[10px] text-slate-400 font-bold">1º TURNO (100% AUDITADO)</div>
-            <div class="text-lg font-black text-emerald-400 font-mono" id="auditModalUrnas1T">17.326 Urnas</div>
-            <div class="text-[11px] text-slate-300 leading-tight">
-              Flávio: <strong class="text-emerald-300">3.000.020</strong> (100% oficial)<br>
-              Lula: <strong class="text-indigo-300">1.127.168</strong> (100% oficial)
+            <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">1º TURNO (ESCORADO)</div>
+            <div class="text-lg font-black text-emerald-400 font-mono" id="auditModalUrnas1T">--</div>
+            <div class="text-[11px] text-slate-300 leading-tight" id="auditModalVotos1T">
+              Flávio: <strong class="text-emerald-300">--</strong> | Lula: <strong class="text-indigo-300">--</strong>
             </div>
           </div>
           <div class="bg-slate-950 border border-slate-800 rounded-xl p-3 space-y-1">
-            <div class="text-[10px] text-slate-400 font-bold">2º TURNO NO BANCO (94,66%)</div>
-            <div class="text-lg font-black text-cyan-400 font-mono" id="auditModalUrnas2T">16.402 Urnas</div>
-            <div class="text-[11px] text-slate-300 leading-tight">
-              Flávio: <strong class="text-cyan-300">3.058.179</strong> (69,45%)<br>
-              Lula: <strong class="text-indigo-300">1.345.030</strong> (30,55%)
+            <div class="text-[10px] text-slate-400 font-bold uppercase tracking-wider">2º TURNO NO BANCO</div>
+            <div class="text-lg font-black text-cyan-400 font-mono" id="auditModalUrnas2T">--</div>
+            <div class="text-[11px] text-slate-300 leading-tight" id="auditModalVotos2T">
+              Flávio: <strong class="text-cyan-300">--</strong> | Lula: <strong class="text-indigo-300">--</strong>
             </div>
           </div>
           <div class="bg-slate-950 border border-amber-500/40 rounded-xl p-3 space-y-1">
-            <div class="text-[10px] text-amber-400 font-bold">URNAS FALTANTES NO 2ºT</div>
-            <div class="text-lg font-black text-amber-300 font-mono" id="auditModalUrnasFaltam">924 Urnas (5,34%)</div>
-            <div class="text-[11px] text-amber-200/90 leading-tight">
-              Δ Flávio: <strong class="text-amber-300">-161.892 votos</strong><br>
-              Δ Lula: <strong class="text-amber-300">-73.284 votos</strong>
+            <div class="text-[10px] text-amber-400 font-bold uppercase tracking-wider">URNAS FALTANTES NO 2ºT</div>
+            <div class="text-lg font-black text-amber-300 font-mono" id="auditModalUrnasFaltam">--</div>
+            <div class="text-[11px] text-amber-200/90 leading-tight" id="auditModalStatusFaltam">
+              Status da carga
             </div>
           </div>
         </div>
 
-        <!-- Explicação Clara -->
-        <div class="p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-xl text-xs space-y-1 flex-shrink-0">
+        <!-- Diagnóstico Inteligente & Sugestão de Pacotes -->
+        <div id="auditModalBannerExplicativo" class="p-3 bg-indigo-950/40 border border-indigo-500/30 rounded-xl text-xs space-y-1 flex-shrink-0">
           <div class="font-bold text-indigo-300 flex items-center gap-1.5">
-            <span>💡</span> <span>Por que os números do 2º Turno estão abaixo do oficial (G1/TSE)?</span>
+            <span>💡</span> <span id="auditModalBannerTitulo">Diagnóstico da Base de Dados</span>
           </div>
-          <p class="text-slate-300 text-[11px] leading-relaxed">
-            O total oficial de Santa Catarina (100% apurado) é de <strong>3.220.071 votos</strong> para Flávio Bolsonaro em <strong>17.326 seções</strong>. Como a base de dados do 2º Turno atualmente contém <strong>16.402 seções</strong>, o resultado de <strong>3.058.179 votos</strong> está rigorosamente correto para as urnas carregadas. Faltam ser ingeridas apenas as <strong>924 seções</strong> restantes listadas abaixo para totalizar 100% do estado.
+          <p id="auditModalBannerTexto" class="text-slate-300 text-[11px] leading-relaxed">
+            Consultando PostgreSQL em tempo real...
           </p>
         </div>
 
-        <!-- Tabela com Scroll das Cidades e Zonas Afetadas -->
-        <div class="flex-1 overflow-y-auto border border-slate-800 rounded-xl bg-slate-950 p-2 space-y-2 min-h-[160px]">
+        <!-- Abas de Navegação -->
+        <div class="flex items-center gap-2 border-b border-slate-800 flex-shrink-0 pt-1">
+          <button
+            type="button"
+            id="auditTabBtnUfs"
+            onclick="alternarAbaAuditoria('ufs')"
+            class="px-3.5 py-1.5 text-xs font-bold border-b-2 border-amber-400 text-amber-300 transition flex items-center gap-1.5"
+          >
+            <span>📊</span> <span>Resumo por UF (28 UFs)</span>
+          </button>
+          <button
+            type="button"
+            id="auditTabBtnCidades"
+            onclick="alternarAbaAuditoria('cidades')"
+            class="px-3.5 py-1.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5"
+          >
+            <span>🏙️</span> <span>Municípios & Zonas Afetadas</span>
+          </button>
+          <button
+            type="button"
+            id="auditTabBtnSecoes"
+            onclick="alternarAbaAuditoria('secoes')"
+            class="px-3.5 py-1.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5"
+          >
+            <span>🗳️</span> <span>Seções Faltantes & Arquivos Esperados</span>
+          </button>
+        </div>
+
+        <!-- Conteúdo da Aba 1: Resumo por UF -->
+        <div id="auditTabContentUfs" class="flex-1 overflow-y-auto border border-slate-800 rounded-xl bg-slate-950 p-2 space-y-2 min-h-[180px]">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-2 py-1">
+            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              Balanço de Carga das 28 Unidades Federativas:
+            </span>
+            <label class="inline-flex items-center gap-1.5 text-xs text-slate-400 cursor-pointer">
+              <input type="checkbox" id="auditApenasPendentesChk" onchange="filtrarTabelaUfsAuditoria()" class="rounded bg-slate-900 border-slate-700 text-amber-500">
+              <span class="text-amber-300 font-semibold">Exibir apenas UFs com pendências</span>
+            </label>
+          </div>
+          <table class="w-full text-xs text-left">
+            <thead class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-950">
+              <tr>
+                <th class="py-1.5 px-2">UF / Estado</th>
+                <th class="py-1.5 px-2 text-center">Região</th>
+                <th class="py-1.5 px-2 text-center">Urnas Catálogo</th>
+                <th class="py-1.5 px-2 text-center">1º Turno</th>
+                <th class="py-1.5 px-2 text-center">2º Turno</th>
+                <th class="py-1.5 px-2 text-center text-amber-300">Faltantes</th>
+                <th class="py-1.5 px-2 text-center">Conclusão</th>
+                <th class="py-1.5 px-2 text-center">Status</th>
+                <th class="py-1.5 px-2 text-center">Pacote Sugerido (TSE)</th>
+                <th class="py-1.5 px-2 text-right">Ação</th>
+              </tr>
+            </thead>
+            <tbody id="auditModalTableUfsBody" class="divide-y divide-slate-900 mono">
+              <tr>
+                <td colspan="10" class="py-4 text-center text-slate-500">Carregando diagnóstico por UF...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Conteúdo da Aba 2: Cidades e Zonas -->
+        <div id="auditTabContentCidades" class="hidden flex-1 overflow-y-auto border border-slate-800 rounded-xl bg-slate-950 p-2 space-y-2 min-h-[180px]">
           <div class="text-[11px] font-bold text-slate-400 uppercase tracking-wider px-2">
             Zonas e Municípios com Seções Faltantes no 2º Turno:
           </div>
           <table class="w-full text-xs text-left">
             <thead class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-950">
               <tr>
-                <th class="py-1 px-2">Município</th>
-                <th class="py-1 px-2 text-center">Zona</th>
-                <th class="py-1 px-2 text-center">Urnas 1ºT</th>
-                <th class="py-1 px-2 text-center">Urnas 2ºT Carregadas</th>
-                <th class="py-1 px-2 text-right text-amber-300">Urnas Faltantes</th>
+                <th class="py-1.5 px-2">UF</th>
+                <th class="py-1.5 px-2">Município</th>
+                <th class="py-1.5 px-2 text-center">Zona</th>
+                <th class="py-1.5 px-2 text-center">Urnas 1ºT</th>
+                <th class="py-1.5 px-2 text-center">Urnas 2ºT</th>
+                <th class="py-1.5 px-2 text-right text-amber-300">Urnas Faltantes</th>
+                <th class="py-1.5 px-2 text-center">Pacote Sugerido</th>
               </tr>
             </thead>
-            <tbody id="auditModalTableBody" class="divide-y divide-slate-900 mono">
+            <tbody id="auditModalTableCidadesBody" class="divide-y divide-slate-900 mono">
               <tr>
-                <td colspan="5" class="py-4 text-center text-slate-500">Carregando diagnóstico do banco...</td>
+                <td colspan="7" class="py-4 text-center text-slate-500">Carregando dados...</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Conteúdo da Aba 3: Seções Exatas e Arquivos Faltantes -->
+        <div id="auditTabContentSecoes" class="hidden flex-1 overflow-y-auto border border-slate-800 rounded-xl bg-slate-950 p-2 space-y-2 min-h-[180px]">
+          <div class="flex flex-wrap items-center justify-between gap-2 px-2 py-1">
+            <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider" id="auditSecoesContadorLabel">
+              Amostra de Seções e Nomes de Arquivos BU Faltantes:
+            </span>
+            <button
+              type="button"
+              onclick="copiarListaArquivosFaltantes()"
+              class="px-2.5 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-200 border border-indigo-500/50 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer"
+            >
+              <span>📋</span> <span id="auditBtnCopiarArquivosTexto">Copiar Lista de Arquivos BU</span>
+            </button>
+          </div>
+          <table class="w-full text-xs text-left">
+            <thead class="text-[10px] uppercase font-bold text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-950">
+              <tr>
+                <th class="py-1.5 px-2">UF</th>
+                <th class="py-1.5 px-2">Município</th>
+                <th class="py-1.5 px-2 text-center">Zona</th>
+                <th class="py-1.5 px-2 text-center">Seção</th>
+                <th class="py-1.5 px-2 font-mono">Arquivo BU Esperado (-bu.dat)</th>
+                <th class="py-1.5 px-2 text-center">Pacote Sugerido</th>
+              </tr>
+            </thead>
+            <tbody id="auditModalTableSecoesBody" class="divide-y divide-slate-900 mono">
+              <tr>
+                <td colspan="6" class="py-4 text-center text-slate-500">Carregando seções faltantes...</td>
               </tr>
             </tbody>
           </table>
@@ -3707,9 +3832,16 @@ o Boletim de Urna (apos encerramento da votacao).
         <!-- Rodapé com Ações -->
         <div class="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-slate-800 flex-shrink-0">
           <div class="text-[11px] text-slate-400">
-            Dica: Coloque os arquivos das seções faltantes em <code class="text-amber-300 bg-slate-950 px-1 py-0.5 rounded">/root/tse_import</code> e clique em Complementar.
+            Dica: Coloque os pacotes <code class="text-amber-300 bg-slate-950 px-1 py-0.5 rounded">bu_imgbu_logjez_rdv_vscmr_2026_2t_{UF}.zip</code> em <code class="text-amber-300 bg-slate-950 px-1 py-0.5 rounded">/root/tse_import</code> e inicie a ingestão.
           </div>
           <div class="flex items-center gap-2">
+            <button
+              type="button"
+              onclick="copiarListaArquivosFaltantes()"
+              class="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs rounded-xl transition cursor-pointer flex items-center gap-1"
+            >
+              <span>📋</span> <span>Copiar Arquivos</span>
+            </button>
             <button
               type="button"
               onclick="iniciarComplementacaoDiretaVps(); fecharModalAuditoriaCargaFaltantes2T();"
@@ -3726,6 +3858,7 @@ o Boletim de Urna (apos encerramento da votacao).
             </button>
           </div>
         </div>
+
       </div>
     </div>
 
@@ -9603,52 +9736,347 @@ o Boletim de Urna (apos encerramento da votacao).
       if (m) m.classList.add("hidden");
     }
 
-    async function abrirModalAuditoriaCargaFaltantes2T() {
+    let auditoriaCargaCache = null;
+    let auditoriaUfAtiva = "ALL";
+    let auditoriaAbaAtiva = "ufs";
+
+    async function abrirModalAuditoriaCargaFaltantes2T(ufParam = null) {
       const modal = document.getElementById("modalAuditoriaCargaFaltantes2T");
       if (!modal) return;
       modal.classList.remove("hidden");
 
-      const tbody = document.getElementById("auditModalTableBody");
-      if (tbody) {
-        tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-cyan-400 animate-pulse">Consultando PostgreSQL em tempo real...</td></tr>`;
+      let ufInicial = ufParam;
+      if (!ufInicial || ufInicial === "null" || ufInicial === "undefined") {
+        const uSel = window.arvoreTseState?.uf;
+        if (uSel && uSel !== "TODAS" && uSel !== "BR") {
+          ufInicial = uSel;
+        } else {
+          ufInicial = "ALL";
+        }
       }
 
+      await carregarAuditoriaCarga2T(ufInicial);
+    }
+
+    async function selecionarUfAuditoria(uf) {
+      await carregarAuditoriaCarga2T(uf);
+    }
+
+    function alternarAbaAuditoria(aba) {
+      auditoriaAbaAtiva = aba;
+      const btnUfs = document.getElementById("auditTabBtnUfs");
+      const btnCidades = document.getElementById("auditTabBtnCidades");
+      const btnSecoes = document.getElementById("auditTabBtnSecoes");
+
+      const tabUfs = document.getElementById("auditTabContentUfs");
+      const tabCidades = document.getElementById("auditTabContentCidades");
+      const tabSecoes = document.getElementById("auditTabContentSecoes");
+
+      [btnUfs, btnCidades, btnSecoes].forEach(b => {
+        if (b) {
+          b.className = "px-3.5 py-1.5 text-xs font-bold border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5";
+        }
+      });
+      [tabUfs, tabCidades, tabSecoes].forEach(t => {
+        if (t) t.classList.add("hidden");
+      });
+
+      if (aba === "ufs") {
+        if (btnUfs) btnUfs.className = "px-3.5 py-1.5 text-xs font-bold border-b-2 border-amber-400 text-amber-300 transition flex items-center gap-1.5";
+        if (tabUfs) tabUfs.classList.remove("hidden");
+      } else if (aba === "cidades") {
+        if (btnCidades) btnCidades.className = "px-3.5 py-1.5 text-xs font-bold border-b-2 border-amber-400 text-amber-300 transition flex items-center gap-1.5";
+        if (tabCidades) tabCidades.classList.remove("hidden");
+      } else if (aba === "secoes") {
+        if (btnSecoes) btnSecoes.className = "px-3.5 py-1.5 text-xs font-bold border-b-2 border-amber-400 text-amber-300 transition flex items-center gap-1.5";
+        if (tabSecoes) tabSecoes.classList.remove("hidden");
+      }
+    }
+
+    async function carregarAuditoriaCarga2T(uf = "ALL") {
+      auditoriaUfAtiva = (uf || "ALL").trim().toUpperCase();
+
+      const tbUfs = document.getElementById("auditModalTableUfsBody");
+      const tbCidades = document.getElementById("auditModalTableCidadesBody");
+      const tbSecoes = document.getElementById("auditModalTableSecoesBody");
+
+      if (tbUfs) tbUfs.innerHTML = `<tr><td colspan="10" class="py-4 text-center text-cyan-400 animate-pulse">Auditando dados do PostgreSQL...</td></tr>`;
+      if (tbCidades) tbCidades.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-cyan-400 animate-pulse">Consultando zonas e municípios...</td></tr>`;
+      if (tbSecoes) tbSecoes.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-cyan-400 animate-pulse">Listando seções e arquivos esperados...</td></tr>`;
+
       try {
-        const res = await fetch("/api/tse-reverso/auditoria-faltantes-2t");
+        const url = auditoriaUfAtiva === "ALL"
+          ? "/api/tse-reverso/auditoria-faltantes-2t"
+          : `/api/tse-reverso/auditoria-faltantes-2t?uf=${encodeURIComponent(auditoriaUfAtiva)}`;
+        
+        const res = await fetch(url);
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
+        auditoriaCargaCache = data;
 
-        if (document.getElementById("auditModalUrnas1T")) {
-          document.getElementById("auditModalUrnas1T").textContent = `${data.total_urnas_1t.toLocaleString('pt-BR')} Urnas`;
-        }
-        if (document.getElementById("auditModalUrnas2T")) {
-          document.getElementById("auditModalUrnas2T").textContent = `${data.total_urnas_2t.toLocaleString('pt-BR')} Urnas`;
-        }
-        if (document.getElementById("auditModalUrnasFaltam")) {
-          document.getElementById("auditModalUrnasFaltam").textContent = `${data.urnas_faltantes_2t.toLocaleString('pt-BR')} Urnas (${(100 - data.pct_completude_2t).toFixed(1)}%)`;
+        // 1. Título e Badges
+        const escopoNome = data.titulo_escopo || (auditoriaUfAtiva === "ALL" ? "Brasil (Geral)" : auditoriaUfAtiva);
+        const titEl = document.getElementById("auditModalTituloEscopo");
+        if (titEl) titEl.textContent = `Diagnóstico de Integridade da Carga do 2º Turno (${escopoNome})`;
+        const badgeEl = document.getElementById("auditModalBadgeEscopo");
+        if (badgeEl) badgeEl.textContent = escopoNome.toUpperCase();
+
+        // 2. Cards de Resumo
+        const u1t = data.total_urnas_1t || 0;
+        const u2t = data.total_urnas_2t || 0;
+        const uFaltam = data.urnas_faltantes_2t || 0;
+        const pctComp = data.pct_completude_2t || 0;
+
+        const elUrnas1T = document.getElementById("auditModalUrnas1T");
+        if (elUrnas1T) elUrnas1T.textContent = `${u1t.toLocaleString("pt-BR")} Urnas`;
+        const elVotos1T = document.getElementById("auditModalVotos1T");
+        if (elVotos1T) {
+          const v22_1 = data.votos_1t_presidente?.["22"] || 0;
+          const v13_1 = data.votos_1t_presidente?.["13"] || 0;
+          elVotos1T.innerHTML = `Flávio: <strong class="text-emerald-300">${v22_1.toLocaleString("pt-BR")}</strong> | Lula: <strong class="text-indigo-300">${v13_1.toLocaleString("pt-BR")}</strong>`;
         }
 
-        const rows = data.detalhe_por_zona_municipio || [];
-        if (!tbody) return;
-
-        if (rows.length === 0) {
-          tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-emerald-400 font-bold">🎉 Nenhuma urna faltante no 2º Turno! A carga de 100% de Santa Catarina está completa.</td></tr>`;
-          return;
+        const elUrnas2T = document.getElementById("auditModalUrnas2T");
+        if (elUrnas2T) elUrnas2T.textContent = `${u2t.toLocaleString("pt-BR")} Urnas`;
+        const elVotos2T = document.getElementById("auditModalVotos2T");
+        if (elVotos2T) {
+          const v22_2 = data.votos_2t_presidente?.["22"] || 0;
+          const v13_2 = data.votos_2t_presidente?.["13"] || 0;
+          elVotos2T.innerHTML = `Flávio: <strong class="text-cyan-300">${v22_2.toLocaleString("pt-BR")}</strong> | Lula: <strong class="text-indigo-300">${v13_2.toLocaleString("pt-BR")}</strong>`;
         }
 
-        tbody.innerHTML = rows.map(r => `
-          <tr class="hover:bg-slate-900/60">
-            <td class="py-1.5 px-2 text-white font-sans font-bold">${r.municipio_nome}</td>
-            <td class="py-1.5 px-2 text-center text-indigo-300 font-mono">${r.zona}</td>
-            <td class="py-1.5 px-2 text-center text-slate-300 font-mono">${r.total_urnas_1t}</td>
-            <td class="py-1.5 px-2 text-center text-cyan-300 font-mono font-bold">${r.total_urnas_2t}</td>
-            <td class="py-1.5 px-2 text-right text-amber-300 font-mono font-extrabold">${r.urnas_faltantes_2t}</td>
-          </tr>
-        `).join("");
+        const elUrnasFaltam = document.getElementById("auditModalUrnasFaltam");
+        if (elUrnasFaltam) {
+          elUrnasFaltam.textContent = `${uFaltam.toLocaleString("pt-BR")} Urnas (${(100 - pctComp).toFixed(1)}%)`;
+          if (uFaltam === 0) {
+            elUrnasFaltam.className = "text-lg font-black text-emerald-400 font-mono";
+          } else {
+            elUrnasFaltam.className = "text-lg font-black text-amber-300 font-mono";
+          }
+        }
+        const elStatusFaltam = document.getElementById("auditModalStatusFaltam");
+        if (elStatusFaltam) {
+          if (uFaltam === 0) {
+            elStatusFaltam.innerHTML = `<span class="text-emerald-300 font-bold">🎉 100% Auditado e Completo!</span>`;
+          } else {
+            const numUfs = data.total_ufs_com_pendencia || (data.ufs_com_pendencia ? data.ufs_com_pendencia.length : 1);
+            elStatusFaltam.innerHTML = `<span class="text-amber-300 font-bold">⚠️ ${numUfs} UF(s) com pendência</span>`;
+          }
+        }
+
+        // 3. Banner Explicativo Inteligente
+        const bannerTexto = document.getElementById("auditModalBannerTexto");
+        if (bannerTexto) bannerTexto.textContent = data.diagnostico_texto || "";
+        const bannerTitulo = document.getElementById("auditModalBannerTitulo");
+        if (bannerTitulo) {
+          bannerTitulo.textContent = uFaltam === 0
+            ? "100% da Carga Oficial Concluída"
+            : `Alerta Forense: ${uFaltam} urna(s) faltante(s) detectada(s) no 2º Turno`;
+        }
+
+        // 4. Renderizar Seletor de UF e Chips Rápidos
+        renderizarChipsESeletorUfAuditoria(data);
+
+        // 5. Renderizar Tabelas
+        renderizarTabelaUfsAuditoria(data.resumo_por_uf || []);
+        renderizarTabelaCidadesAuditoria(data.detalhe_por_zona_municipio || []);
+        renderizarTabelaSecoesAuditoria(data.amostra_secoes_faltantes || [], data.urnas_faltantes_2t || 0);
+
       } catch (err) {
-        if (tbody) {
-          tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-rose-400">Erro ao carregar auditoria: ${err.message}</td></tr>`;
+        if (tbUfs) tbUfs.innerHTML = `<tr><td colspan="10" class="py-4 text-center text-rose-400">Falha ao carregar auditoria: ${err.message}</td></tr>`;
+      }
+    }
+
+    function renderizarChipsESeletorUfAuditoria(data) {
+      const chipsCont = document.getElementById("auditModalUfChips");
+      const selUf = document.getElementById("auditModalSelectUf");
+      const listaUfs = data.resumo_por_uf || [];
+
+      // Atualiza Select
+      if (selUf) {
+        selUf.innerHTML = `
+          <option value="ALL">🇧🇷 Todas as 28 UFs (Nacional)</option>
+          ${listaUfs.map(u => `
+            <option value="${u.uf}" ${u.uf === auditoriaUfAtiva ? "selected" : ""}>
+              ${u.uf} - ${u.nome} ${u.urnas_faltantes > 0 ? `(⚠️ ${u.urnas_faltantes} faltam)` : `(✅ 100%)`}
+            </option>
+          `).join("")}
+        `;
+        selUf.value = auditoriaUfAtiva;
+      }
+
+      // Atualiza Chips Rápidos
+      if (chipsCont) {
+        const isAll = (auditoriaUfAtiva === "ALL");
+        let htmlChips = `
+          <span class="text-[11px] font-bold text-slate-400 uppercase tracking-wider mr-1">Filtrar Escopo:</span>
+          <button
+            type="button"
+            onclick="selecionarUfAuditoria('ALL')"
+            class="px-2.5 py-1 rounded-lg text-xs font-bold transition border ${
+              isAll
+                ? "border-emerald-500 bg-emerald-500/20 text-emerald-300"
+                : "border-slate-800 bg-slate-900 text-slate-300 hover:border-slate-700"
+            }"
+          >
+            🇧🇷 Brasil Completo
+          </button>
+        `;
+
+        listaUfs.filter(u => u.urnas_faltantes > 0).forEach(u => {
+          const isAtivo = (auditoriaUfAtiva === u.uf);
+          htmlChips += `
+            <button
+              type="button"
+              onclick="selecionarUfAuditoria('${u.uf}')"
+              class="px-2.5 py-1 rounded-lg text-xs font-bold transition border ${
+                isAtivo
+                  ? "border-amber-400 bg-amber-400/25 text-amber-200 ring-1 ring-amber-400"
+                  : "border-amber-700/60 bg-amber-950/40 text-amber-300 hover:bg-amber-900/60"
+              }"
+            >
+              ⚠️ ${u.uf} (${u.urnas_faltantes} faltam)
+            </button>
+          `;
+        });
+
+        chipsCont.innerHTML = htmlChips;
+      }
+    }
+
+    function renderizarTabelaUfsAuditoria(ufs) {
+      const tb = document.getElementById("auditModalTableUfsBody");
+      if (!tb) return;
+
+      const apenasPendentes = document.getElementById("auditApenasPendentesChk")?.checked;
+      const filtradas = apenasPendentes ? ufs.filter(u => u.urnas_faltantes > 0) : ufs;
+
+      if (filtradas.length === 0) {
+        tb.innerHTML = `<tr><td colspan="10" class="py-4 text-center text-emerald-400 font-bold">🎉 Nenhuma UF com pendência! Todas as unidades federativas estão 100% carregadas.</td></tr>`;
+        return;
+      }
+
+      tb.innerHTML = filtradas.map(u => {
+        const isOk = u.urnas_faltantes === 0;
+        const statusBadge = isOk
+          ? `<span class="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-700 font-extrabold text-[10px]">100% COMPLETO</span>`
+          : `<span class="px-2 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-700 font-extrabold text-[10px]">PENDENTE (${u.urnas_faltantes})</span>`;
+
+        return `
+          <tr class="hover:bg-slate-900/60 transition ${u.uf === auditoriaUfAtiva ? "bg-amber-950/20" : ""}">
+            <td class="py-2 px-2 text-white font-sans font-bold">
+              <span class="inline-block w-6 font-mono text-cyan-300">${u.uf}</span>
+              <span class="text-slate-300">${u.nome}</span>
+            </td>
+            <td class="py-2 px-2 text-center text-slate-400 text-[11px] font-sans">${u.regiao}</td>
+            <td class="py-2 px-2 text-center text-slate-300 font-mono">${(u.total_catalogo || 0).toLocaleString("pt-BR")}</td>
+            <td class="py-2 px-2 text-center text-emerald-400 font-mono">${(u.total_1t || 0).toLocaleString("pt-BR")}</td>
+            <td class="py-2 px-2 text-center text-cyan-300 font-mono font-bold">${(u.total_2t || 0).toLocaleString("pt-BR")}</td>
+            <td class="py-2 px-2 text-center font-mono font-extrabold ${isOk ? "text-slate-600" : "text-amber-300"}">
+              ${u.urnas_faltantes > 0 ? u.urnas_faltantes.toLocaleString("pt-BR") : "0"}
+            </td>
+            <td class="py-2 px-2 text-center font-mono text-xs font-bold ${isOk ? "text-emerald-400" : "text-amber-300"}">
+              ${u.pct_completude.toFixed(1)}%
+            </td>
+            <td class="py-2 px-2 text-center">${statusBadge}</td>
+            <td class="py-2 px-2 text-center font-mono text-[10px] text-slate-400 truncate max-w-[200px]" title="${u.pacote_zip_sugerido}">
+              ${u.pacote_zip_sugerido}
+            </td>
+            <td class="py-2 px-2 text-right">
+              <button
+                type="button"
+                onclick="selecionarUfAuditoria('${u.uf}')"
+                class="px-2 py-0.5 rounded text-[11px] font-bold border ${
+                  u.uf === auditoriaUfAtiva
+                    ? "bg-amber-400 text-slate-950 border-amber-400"
+                    : "bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700"
+                } transition"
+              >
+                ${u.uf === auditoriaUfAtiva ? "Filtrado" : "Filtrar"}
+              </button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+    }
+
+    function filtrarTabelaUfsAuditoria() {
+      if (auditoriaCargaCache && auditoriaCargaCache.resumo_por_uf) {
+        renderizarTabelaUfsAuditoria(auditoriaCargaCache.resumo_por_uf);
+      }
+    }
+
+    function renderizarTabelaCidadesAuditoria(cidades) {
+      const tb = document.getElementById("auditModalTableCidadesBody");
+      if (!tb) return;
+
+      if (cidades.length === 0) {
+        tb.innerHTML = `<tr><td colspan="7" class="py-4 text-center text-emerald-400 font-bold">🎉 Nenhuma zona ou município com pendência no escopo selecionado!</td></tr>`;
+        return;
+      }
+
+      tb.innerHTML = cidades.map(r => `
+        <tr class="hover:bg-slate-900/60 transition">
+          <td class="py-1.5 px-2 text-center text-cyan-300 font-mono font-bold">${r.uf || ""}</td>
+          <td class="py-1.5 px-2 text-white font-sans font-bold">${r.municipio_nome}</td>
+          <td class="py-1.5 px-2 text-center text-indigo-300 font-mono">${r.zona}</td>
+          <td class="py-1.5 px-2 text-center text-slate-300 font-mono">${(r.total_urnas_1t || 0).toLocaleString("pt-BR")}</td>
+          <td class="py-1.5 px-2 text-center text-cyan-300 font-mono font-bold">${(r.total_urnas_2t || 0).toLocaleString("pt-BR")}</td>
+          <td class="py-1.5 px-2 text-right text-amber-300 font-mono font-extrabold">${(r.urnas_faltantes_2t || 0).toLocaleString("pt-BR")}</td>
+          <td class="py-1.5 px-2 text-center text-slate-400 font-mono text-[10px]">${r.pacote_sugerido || ""}</td>
+        </tr>
+      `).join("");
+    }
+
+    function renderizarTabelaSecoesAuditoria(secoes, totalFaltantes) {
+      const tb = document.getElementById("auditModalTableSecoesBody");
+      const lbl = document.getElementById("auditSecoesContadorLabel");
+      if (lbl) {
+        lbl.textContent = `Amostra de Seções e Nomes de Arquivos BU Faltantes (${secoes.length} de ${totalFaltantes} seções):`;
+      }
+      if (!tb) return;
+
+      if (secoes.length === 0) {
+        tb.innerHTML = `<tr><td colspan="6" class="py-4 text-center text-emerald-400 font-bold">🎉 Todas as seções deste escopo já possuem arquivo BU do 2º Turno gravado!</td></tr>`;
+        return;
+      }
+
+      tb.innerHTML = secoes.map(s => `
+        <tr class="hover:bg-slate-900/60 transition">
+          <td class="py-1.5 px-2 text-center text-cyan-300 font-mono font-bold">${s.uf}</td>
+          <td class="py-1.5 px-2 text-slate-200 font-sans">${s.municipio_nome}</td>
+          <td class="py-1.5 px-2 text-center text-indigo-300 font-mono">${s.zona}</td>
+          <td class="py-1.5 px-2 text-center text-amber-300 font-mono font-bold">${s.secao}</td>
+          <td class="py-1.5 px-2 font-mono text-slate-200 text-xs">
+            <span class="text-amber-300">${s.arquivo_bu}</span>
+          </td>
+          <td class="py-1.5 px-2 text-center text-slate-400 font-mono text-[10px]">${s.pacote_sugerido || ""}</td>
+        </tr>
+      `).join("");
+    }
+
+    async function copiarListaArquivosFaltantes() {
+      if (!auditoriaCargaCache || !auditoriaCargaCache.lista_arquivos_bu_esperados || auditoriaCargaCache.lista_arquivos_bu_esperados.length === 0) {
+        alert("Nenhum arquivo BU faltante na lista atual.");
+        return;
+      }
+      const texto = auditoriaCargaCache.lista_arquivos_bu_esperados.join("\n");
+      try {
+        await navigator.clipboard.writeText(texto);
+        const btnTxt = document.getElementById("auditBtnCopiarArquivosTexto");
+        if (btnTxt) {
+          const original = btnTxt.textContent;
+          btnTxt.textContent = "✅ Copiado com Sucesso!";
+          setTimeout(() => { btnTxt.textContent = original; }, 2500);
         }
+      } catch (e) {
+        const ta = document.createElement("textarea");
+        ta.value = texto;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        alert(`Lista com ${auditoriaCargaCache.lista_arquivos_bu_esperados.length} arquivos copiada para a área de transferência!`);
       }
     }
 

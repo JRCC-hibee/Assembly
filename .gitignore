@@ -12,6 +12,7 @@ ENV/
 *.db
 *.sqlite3
 /data/
+backend/data/
 !backend/app/data/
 !backend/app/data/*.tsv.gz
 cartuchos/*.zip

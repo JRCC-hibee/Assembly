@@ -1906,12 +1906,13 @@ def api_tse_reverso_remover_zips_ingeridos(payload: Optional[RemoverZipsRequest]
 
 
 @app.get("/api/tse-reverso/auditoria-faltantes-2t")
-def api_tse_reverso_auditoria_faltantes_2t(db: Session = Depends(get_db)):
+def api_tse_reverso_auditoria_faltantes_2t(uf: Optional[str] = None, db: Session = Depends(get_db)):
     """
-    Audita e lista exatamente quais seções e municípios de Santa Catarina (ou outra UF)
-    possuem dados no 1º Turno mas ainda não foram integradas no 2º Turno.
+    Audita e lista exatamente quais seções, municípios e UFs
+    possuem dados no 1º Turno ou catálogo mas ainda não foram integradas no 2º Turno.
+    Suporta escopo nacional completo (todas as UFs) ou filtrado por UF específica.
     """
-    return obter_auditoria_secoes_faltantes_2t(db=db)
+    return obter_auditoria_secoes_faltantes_2t(uf=uf, db=db)
 
 
 @app.post("/api/tse-reverso/amostra-pr")
