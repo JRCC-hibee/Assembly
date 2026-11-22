@@ -1157,12 +1157,29 @@ def obter_setup_secao_real(
         pct_nulos_2t = round((nulos_2t / max(1, comp_2t)) * 100.0, 1)
         val_2t = max(1, comp_2t - brancos_2t - nulos_2t)
 
-    # Cálculo dos Novos Votos Efetivos em Disputa (sem considerar quem venceu no 2T)
+    # Cálculo dos Novos Votos Efetivos em Disputa (conforme BI consolidado: 3ª Via 1T + ΔComp + Saldo Br/Nu)
     piso_base_1t = v1_1t + v2_1t
-    novos_votos_disputa = max(0, val_2t - piso_base_1t)
-    delta_comparecimento = comp_2t - comp_1t
+    pct_1t_rel_c1 = round((v1_1t / max(1, piso_base_1t)) * 100.0, 1) if piso_base_1t > 0 else 50.0
+    pct_1t_rel_c2 = round(100.0 - pct_1t_rel_c1, 1)
 
-    # Resultado real do 2T se existir no banco (apenas para exibição comparativa posterior!)
+    delta_comparecimento = comp_2t - comp_1t
+    saldo_br_nu = (brancos_1t + nulos_1t) - (brancos_2t + nulos_2t)
+    novos_votos_disputa = max(0, v_outros_1t + delta_comparecimento + saldo_br_nu)
+
+    # Distribuição dos novos votos proporcional ao 1º Turno (setup base de pesquisa)
+    novos_c1_prop = round(novos_votos_disputa * (pct_1t_rel_c1 / 100.0))
+    novos_c2_prop = max(0, novos_votos_disputa - novos_c1_prop)
+
+    proj_votos_c1 = v1_1t + novos_c1_prop
+    proj_votos_c2 = v2_1t + novos_c2_prop
+    proj_validos = proj_votos_c1 + proj_votos_c2
+    pct_pesq_proj_c1 = round((proj_votos_c1 / max(1, proj_validos)) * 100.0, 1) if proj_validos > 0 else 50.0
+    pct_pesq_proj_c2 = round(100.0 - pct_pesq_proj_c1, 1)
+
+    p_est = pct_pesq_proj_c1 / 100.0
+    me_amostral = round(1.96 * math.sqrt(max(0.0001, (p_est * (1.0 - p_est)) / max(1, proj_validos))) * 100.0, 2)
+
+    # Resultado real do 2T se existir no banco (para confrontação analítica)
     c1_real_2t = next((v.quantidade_votos for v in votos_2t if v.numero_candidato == int(c1_num)), None)
     c2_real_2t = next((v.quantidade_votos for v in votos_2t if v.numero_candidato == int(c2_num)), None)
 
@@ -1174,6 +1191,8 @@ def obter_setup_secao_real(
         venc_real = c1_nome if c1_real_2t > c2_real_2t else (c2_nome if c2_real_2t > c1_real_2t else "EMPATE")
         delta_real_c1 = c1_real_2t - v1_1t
         delta_real_c2 = c2_real_2t - v2_1t
+        delta_pct_c1 = round(pct_pesq_proj_c1 - p_real_c1, 1)
+        dentro_me_real = abs(delta_pct_c1) <= me_amostral
 
         real_comparativo_2t = {
             "votos_cand1": c1_real_2t,
@@ -1186,6 +1205,10 @@ def obter_setup_secao_real(
             "pct_absorcao_real_cand2": round((delta_real_c2 / max(1, novos_votos_disputa)) * 100.0, 1) if novos_votos_disputa > 0 else 0.0,
             "vencedor_real": venc_real,
             "total_validos_real": tot_real_2t,
+            "delta_proj_c1_pct": delta_pct_c1,
+            "margem_erro_pct": me_amostral,
+            "dentro_margem_erro": dentro_me_real,
+            "status_margem": "DENTRO DA MARGEM" if dentro_me_real else "FORA DA MARGEM",
         }
 
     return {
@@ -1207,6 +1230,7 @@ def obter_setup_secao_real(
                 "partido": c1_part,
                 "votos": v1_1t,
                 "pct_validos": round((v1_1t / max(1, val_1t)) * 100.0, 1) if val_1t > 0 else 0.0,
+                "pct_relativo_dois_candidatos": pct_1t_rel_c1,
             },
             "cand2": {
                 "numero": c2_num,
@@ -1214,7 +1238,9 @@ def obter_setup_secao_real(
                 "partido": c2_part,
                 "votos": v2_1t,
                 "pct_validos": round((v2_1t / max(1, val_1t)) * 100.0, 1) if val_1t > 0 else 0.0,
+                "pct_relativo_dois_candidatos": pct_1t_rel_c2,
             },
+            "piso_dois_candidatos": piso_base_1t,
             "votos_outros_candidatos": v_outros_1t,
             "votos_validos": val_1t,
             "brancos": brancos_1t,
@@ -1225,6 +1251,25 @@ def obter_setup_secao_real(
             "aptos": aptos_1t,
             "abstencoes": abst_1t,
             "pct_abstencao": round((abst_1t / max(1, aptos_1t)) * 100.0, 1) if aptos_1t > 0 else 0.0,
+        },
+        "pesquisa_simulada_secao": {
+            "cand1_pct_pesquisa": pct_pesq_proj_c1,
+            "cand2_pct_pesquisa": pct_pesq_proj_c2,
+            "piso_1t_cand1": v1_1t,
+            "piso_1t_cand2": v2_1t,
+            "pct_1t_rel_cand1": pct_1t_rel_c1,
+            "pct_1t_rel_cand2": pct_1t_rel_c2,
+            "novos_votos_cand1": novos_c1_prop,
+            "novos_votos_cand2": novos_c2_prop,
+            "proj_votos_cand1": proj_votos_c1,
+            "proj_votos_cand2": proj_votos_c2,
+            "margem_erro_amostral_secao_pct": me_amostral,
+        },
+        "novos_votos_detalhados": {
+            "total_novos_votos": novos_votos_disputa,
+            "votos_terceiras_vias_1t": v_outros_1t,
+            "delta_comparecimento": delta_comparecimento,
+            "saldo_brancos_nulos": saldo_br_nu,
         },
         "segundo_turno_condicoes_efetivas": {
             "aptos": aptos_2t,
@@ -1238,6 +1283,7 @@ def obter_setup_secao_real(
             "votos_validos": val_2t,
             "novos_votos_efetivos_disputa": novos_votos_disputa,
             "delta_comparecimento": delta_comparecimento,
+            "saldo_brancos_nulos": saldo_br_nu,
             "tem_dados_2t_oficiais": tem_dados_2t,
         },
         "resultado_real_2t_tse": real_comparativo_2t,
@@ -1441,6 +1487,14 @@ def listar_historico_simulacoes(db: Session, limit: int = 50) -> list[dict]:
         venc_pct = h.cand1_pct_urna if h.vencedor_numero == h.cand1_numero else (h.cand2_pct_urna if h.vencedor_numero == h.cand2_numero else 50.0)
         dt_str = h.created_at.strftime("%d/%m/%Y %H:%M:%S") if h.created_at else "-"
 
+        tem_real = h.real_2t_c1_votos is not None and h.real_2t_c2_votos is not None
+        tot_real = (h.real_2t_c1_votos + h.real_2t_c2_votos) if tem_real else 0
+        pct_real_c1 = round((h.real_2t_c1_votos / max(1, tot_real)) * 100.0, 1) if (tem_real and tot_real > 0) else 0.0
+        pct_real_c2 = round(100.0 - pct_real_c1, 1) if (tem_real and tot_real > 0) else 0.0
+        delta_real_pct = round(abs(h.cand1_pct_urna - pct_real_c1), 1) if tem_real else 0.0
+        me_pct = h.margem_amostral_pct or 5.0
+        dentro_me_real = (delta_real_pct <= me_pct) if tem_real else None
+
         itens.append({
             "id": h.id,
             "created_at": dt_str,
@@ -1493,6 +1547,15 @@ def listar_historico_simulacoes(db: Session, limit: int = 50) -> list[dict]:
             "novos_votos_efetivos": h.novos_votos_efetivos,
             "pct_absorcao_c1": h.pct_absorcao_c1,
             "pct_absorcao_c2": h.pct_absorcao_c2,
+            "tem_real_2t": tem_real,
+            "real_2t_c1_votos": h.real_2t_c1_votos,
+            "real_2t_c2_votos": h.real_2t_c2_votos,
+            "real_2t_c1_pct": pct_real_c1 if tem_real else None,
+            "real_2t_c2_pct": pct_real_c2 if tem_real else None,
+            "real_2t_vencedor": h.real_2t_vencedor,
+            "delta_real_c1_pct": delta_real_pct if tem_real else None,
+            "dentro_margem_real_tse": dentro_me_real,
+            "status_margem_real_tse": ("DENTRO DA MARGEM" if dentro_me_real else "FORA DA MARGEM") if tem_real else None,
         })
     return itens
 

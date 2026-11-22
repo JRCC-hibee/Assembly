@@ -1433,8 +1433,10 @@ o Boletim de Urna (apos encerramento da votacao).
                     <th class="p-2.5 text-center">1º Turno (Piso)</th>
                     <th class="p-2.5 text-center">Hipótese Absorção Novos Votos</th>
                     <th class="p-2.5 text-center">Simulado na Urna (2ºT)</th>
-                    <th class="p-2.5 text-center">Oficial TSE no 2ºT (Físico)</th>
-                    <th class="p-2.5 text-right">Acurácia da Hipótese (Δ)</th>
+                    <th class="p-2.5 text-center">Oficial TSE 2ºT (Físico)</th>
+                    <th class="p-2.5 text-center">Desvio (Δ Sim × TSE)</th>
+                    <th class="p-2.5 text-center">Margem de Erro (±ME%)</th>
+                    <th class="p-2.5 text-right">Status Forense</th>
                   </tr>
                 </thead>
                 <tbody id="sim2tDossieTbody" class="divide-y divide-slate-800/60"></tbody>
@@ -5939,9 +5941,16 @@ o Boletim de Urna (apos encerramento da votacao).
         const nulos2T = document.getElementById("simSecao2TNulos");
         if (nulos2T) nulos2T.textContent = `${c2t.nulos}v (${c2t.pct_nulos}%)`;
 
-        // 4. Novos Votos Efetivos em Disputa
+        // 4. Novos Votos Efetivos em Disputa (Fórmula Consolidada: 3ª Via + Comparecimento + Saldo Br/Nu)
         const novosVotosBadge = document.getElementById("simSecaoNovosVotosBadge");
-        if (novosVotosBadge) novosVotosBadge.textContent = `+${c2t.novos_votos_efetivos_disputa} votos`;
+        const nv = data.novos_votos_detalhados || {};
+        const vOutros = nv.votos_terceiras_vias_1t ?? p1t.votos_outros_candidatos ?? 0;
+        const dComp = nv.delta_comparecimento ?? (c2t.delta_comparecimento ?? 0);
+        const sBrNu = nv.saldo_brancos_nulos ?? (c2t.saldo_brancos_nulos ?? 0);
+        const totNv = c2t.novos_votos_efetivos_disputa ?? 0;
+        if (novosVotosBadge) {
+          novosVotosBadge.textContent = `+${totNv} (3ª Via: ${vOutros} • Comparecimento: ${dComp >= 0 ? '+' : ''}${dComp} • Saldo Br/Nu: ${sBrNu >= 0 ? '+' : ''}${sBrNu})`;
+        }
 
         // 5. Sincronizar inputs do formulário principal da urna com a seção
         document.getElementById("sim2tCand1Num").value = p1t.cand1.numero;
@@ -5957,10 +5966,10 @@ o Boletim de Urna (apos encerramento da votacao).
         document.getElementById("sim2tBrancos").value = c2t.pct_brancos;
         document.getElementById("sim2tNulos").value = c2t.pct_nulos;
 
-        // 6. Atualizar slider e projeção com preset padrão (50/50 neutro ou o valor atual)
-        const slider = document.getElementById("simSliderAbsorcaoC1");
-        const valSlider = slider ? parseFloat(slider.value) : 50.0;
-        atualizarSetupAbsorcaoSlider(valSlider);
+        // 6. Atualizar slider e intenção de pesquisa com base na proporção do 1º Turno (Setup inicial proporcional)
+        const pesqSecao = data.pesquisa_simulada_secao;
+        const pctProp1T = pesqSecao ? pesqSecao.pct_1t_rel_cand1 : (p1t.cand1.pct_relativo_dois_candidatos || p1t.cand1.pct_validos || 50.0);
+        aplicarPresetAbsorcao(pctProp1T);
         atualizarAbstencaoCalculada2T();
 
       } catch (err) {
@@ -6028,8 +6037,9 @@ o Boletim de Urna (apos encerramento da votacao).
 
     function aplicarPresetAbsorcaoProporcional1T() {
       if (!window.setupSecaoRealAtual) return;
+      const pesq = window.setupSecaoRealAtual.pesquisa_simulada_secao;
       const p1t = window.setupSecaoRealAtual.primeiro_turno;
-      const pctC1 = p1t.cand1.pct_validos || 50.0;
+      const pctC1 = pesq ? pesq.pct_1t_rel_cand1 : (p1t.cand1.pct_relativo_dois_candidatos || p1t.cand1.pct_validos || 50.0);
       aplicarPresetAbsorcao(pctC1);
     }
 
@@ -6177,6 +6187,9 @@ o Boletim de Urna (apos encerramento da votacao).
             const hipNovos1 = Math.round(novosTot * ((sr.pct_absorcao_c1 || 50) / 100));
             const hipNovos2 = Math.max(0, novosTot - hipNovos1);
 
+            const conf = data.confrontacao_oficial_2t;
+            const mePct = (conf && conf.margem_erro_amostral_secao_pct) || r.margem_amostral_secao_pct || 5.0;
+
             const realC1 = sr.real_2t_c1_votos;
             const realC2 = sr.real_2t_c2_votos;
             const temReal = realC1 !== null && realC1 !== undefined && realC2 !== null && realC2 !== undefined;
@@ -6185,7 +6198,13 @@ o Boletim de Urna (apos encerramento da votacao).
             const pctReal2 = temReal && totalReal > 0 ? ((realC2 / totalReal) * 100).toFixed(1) : "-";
 
             const delta1 = temReal ? (c1.votos - realC1) : null;
+            const deltaPct1 = temReal ? +(c1.pct_validos - parseFloat(pctReal1)).toFixed(1) : null;
             const delta2 = temReal ? (c2.votos - realC2) : null;
+            const deltaPct2 = temReal ? +(c2.pct_validos - parseFloat(pctReal2)).toFixed(1) : null;
+
+            const dentroMe1 = temReal ? (Math.abs(deltaPct1) <= mePct) : true;
+            const dentroMe2 = temReal ? (Math.abs(deltaPct2) <= mePct) : true;
+            const dentroMeGeral = temReal ? (dentroMe1 && dentroMe2) : true;
 
             tbody.innerHTML = `
               <tr class="hover:bg-slate-900/60 transition">
@@ -6197,8 +6216,12 @@ o Boletim de Urna (apos encerramento da votacao).
                 <td class="p-2.5 text-center font-bold text-cyan-300">+${hipNovos1}v (${sr.pct_absorcao_c1}%)</td>
                 <td class="p-2.5 text-center font-black text-white bg-slate-900/80">${c1.votos}v (${c1.pct_validos}%)</td>
                 <td class="p-2.5 text-center font-black ${temReal ? 'text-emerald-400' : 'text-slate-500'}">${temReal ? `${realC1}v (${pctReal1}%)` : 'Não apurado'}</td>
-                <td class="p-2.5 text-right font-black mono ${temReal ? (Math.abs(delta1) <= 2 ? 'text-emerald-400' : 'text-amber-400') : 'text-slate-500'}">
-                  ${temReal ? `${delta1 >= 0 ? '+' : ''}${delta1}v (Δ ${Math.abs(c1.pct_validos - pctReal1).toFixed(1)}%)` : '-'}
+                <td class="p-2.5 text-center font-black mono ${temReal ? (dentroMe1 ? 'text-emerald-400' : 'text-rose-400') : 'text-slate-500'}">
+                  ${temReal ? `${delta1 >= 0 ? '+' : ''}${delta1}v (${deltaPct1 >= 0 ? '+' : ''}${deltaPct1}%)` : '-'}
+                </td>
+                <td class="p-2.5 text-center font-bold mono text-slate-300">±${mePct}%</td>
+                <td class="p-2.5 text-right font-black mono">
+                  ${temReal ? (dentroMe1 ? '<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-700">✅ DENTRO DA ME</span>' : '<span class="px-2 py-0.5 rounded text-[10px] bg-rose-950 text-rose-300 border border-rose-700 animate-pulse">⚠️ FORA DA ME</span>') : '<span class="text-slate-500">-</span>'}
                 </td>
               </tr>
               <tr class="hover:bg-slate-900/60 transition">
@@ -6210,8 +6233,12 @@ o Boletim de Urna (apos encerramento da votacao).
                 <td class="p-2.5 text-center font-bold text-rose-300">+${hipNovos2}v (${sr.pct_absorcao_c2}%)</td>
                 <td class="p-2.5 text-center font-black text-white bg-slate-900/80">${c2.votos}v (${c2.pct_validos}%)</td>
                 <td class="p-2.5 text-center font-black ${temReal ? 'text-emerald-400' : 'text-slate-500'}">${temReal ? `${realC2}v (${pctReal2}%)` : 'Não apurado'}</td>
-                <td class="p-2.5 text-right font-black mono ${temReal ? (Math.abs(delta2) <= 2 ? 'text-emerald-400' : 'text-amber-400') : 'text-slate-500'}">
-                  ${temReal ? `${delta2 >= 0 ? '+' : ''}${delta2}v (Δ ${Math.abs(c2.pct_validos - pctReal2).toFixed(1)}%)` : '-'}
+                <td class="p-2.5 text-center font-black mono ${temReal ? (dentroMe2 ? 'text-emerald-400' : 'text-rose-400') : 'text-slate-500'}">
+                  ${temReal ? `${delta2 >= 0 ? '+' : ''}${delta2}v (${deltaPct2 >= 0 ? '+' : ''}${deltaPct2}%)` : '-'}
+                </td>
+                <td class="p-2.5 text-center font-bold mono text-slate-300">±${mePct}%</td>
+                <td class="p-2.5 text-right font-black mono">
+                  ${temReal ? (dentroMe2 ? '<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-700">✅ DENTRO DA ME</span>' : '<span class="px-2 py-0.5 rounded text-[10px] bg-rose-950 text-rose-300 border border-rose-700 animate-pulse">⚠️ FORA DA ME</span>') : '<span class="text-slate-500">-</span>'}
                 </td>
               </tr>
               <tr class="bg-slate-900 font-extrabold text-[11px] text-slate-300 border-t border-slate-800">
@@ -6220,28 +6247,63 @@ o Boletim de Urna (apos encerramento da votacao).
                 <td class="p-2.5 text-center text-emerald-400">+${novosTot}v em disputa</td>
                 <td class="p-2.5 text-center text-white">${r.votos_validos}v</td>
                 <td class="p-2.5 text-center">${temReal ? `${totalReal}v` : '-'}</td>
-                <td class="p-2.5 text-right text-cyan-300">${temReal ? (totalReal === r.votos_validos ? 'Batimento Exato (0v)' : `Δ ${r.votos_validos - totalReal}v`) : 'Simulação Pura'}</td>
+                <td class="p-2.5 text-center text-cyan-300">${temReal ? (totalReal === r.votos_validos ? '0v (Batimento Exato)' : `Δ ${r.votos_validos - totalReal}v`) : 'Simulação Pura'}</td>
+                <td class="p-2.5 text-center font-bold text-slate-400">±${mePct}%</td>
+                <td class="p-2.5 text-right">${temReal ? (dentroMeGeral ? '<span class="text-emerald-400 font-black">CONFORME</span>' : '<span class="text-rose-400 font-black">DISPERSÃO</span>') : '-'}</td>
               </tr>
             `;
           }
 
           const parecerBox = document.getElementById("sim2tDossieParecerBox");
           if (parecerBox) {
-            const temReal = sr.real_2t_c1_votos !== null && sr.real_2t_c1_votos !== undefined;
+            const conf = data.confrontacao_oficial_2t;
+            const mePct = (conf && conf.margem_erro_amostral_secao_pct) || r.margem_amostral_secao_pct || 5.0;
+            const temReal = sr.real_2t_c1_votos !== null && sr.real_2t_c1_votos !== undefined && sr.real_2t_c2_votos !== null && sr.real_2t_c2_votos !== undefined;
+
             if (temReal) {
-              const deltaPct = Math.abs(c1.pct_validos - ((sr.real_2t_c1_votos / (sr.real_2t_c1_votos + sr.real_2t_c2_votos)) * 100)).toFixed(1);
-              parecerBox.className = "p-3 rounded-xl border text-xs leading-relaxed bg-cyan-950/40 border-cyan-500/50 text-cyan-300";
-              parecerBox.innerHTML = `
-                <div class="flex items-start gap-2">
-                  <span class="text-xl">🎯</span>
-                  <div>
-                    <strong>Confrontação Forense da Hipótese com o Resultado Real do TSE (2º Turno):</strong>
-                    <p class="text-slate-300 text-[11px] mt-1">
-                      A hipótese de absorção de novos votos configurada (${sr.pct_absorcao_c1}% p/ ${c1.nome} e ${sr.pct_absorcao_c2}% p/ ${c2.nome}) gerou uma divergência de apenas <strong>${deltaPct}%</strong> em relação ao Boletim de Urna oficial do TSE emitido na urna física desta seção. O piso nominal do 1º Turno foi integralmente preservado.
-                    </p>
+              const totalReal = (sr.real_2t_c1_votos + sr.real_2t_c2_votos);
+              const pctReal1 = totalReal > 0 ? ((sr.real_2t_c1_votos / totalReal) * 100).toFixed(1) : "0.0";
+              const pctReal2 = totalReal > 0 ? ((sr.real_2t_c2_votos / totalReal) * 100).toFixed(1) : "0.0";
+              const deltaPct = Math.abs(c1.pct_validos - parseFloat(pctReal1)).toFixed(1);
+              const dentroMe = (conf && conf.dentro_margem_erro !== undefined) ? conf.dentro_margem_erro : (parseFloat(deltaPct) <= mePct);
+
+              if (dentroMe) {
+                parecerBox.className = "p-4 rounded-xl border text-xs leading-relaxed bg-emerald-950/40 border-emerald-500/60 text-emerald-200 shadow-lg";
+                parecerBox.innerHTML = `
+                  <div class="flex items-start gap-3">
+                    <span class="text-2xl shrink-0">✅</span>
+                    <div class="space-y-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="px-2.5 py-0.5 rounded font-black text-xs mono uppercase bg-emerald-900 text-emerald-200 border border-emerald-500">
+                          CONFORME — RESULTADO DENTRO DA MARGEM DE ERRO DA SEÇÃO
+                        </span>
+                        <span class="text-[11px] font-bold mono text-slate-300">Margem Amostral (95% Confiança): ±${mePct}% | Desvio Apurado: ${deltaPct}%</span>
+                      </div>
+                      <p class="text-slate-200 text-xs leading-relaxed mt-1">
+                        ${(conf && conf.diagnostico) ? conf.diagnostico : `A simulação voto a voto baseada no 1º Turno + Novos Votos (${c1.pct_validos}% x ${c2.pct_validos}%) divergiu apenas ${deltaPct}% do Boletim de Urna oficial do TSE (${pctReal1}% x ${pctReal2}%), ficando RIGOROSAMENTE DENTRO da margem de erro estatística amostral da seção (±${mePct}%). A dinâmica eleitoral física desta urna operou em estrita consonância com a distribuição proporcional histórica.`}
+                      </p>
+                    </div>
                   </div>
-                </div>
-              `;
+                `;
+              } else {
+                parecerBox.className = "p-4 rounded-xl border text-xs leading-relaxed bg-rose-950/50 border-rose-500/80 text-rose-200 shadow-lg";
+                parecerBox.innerHTML = `
+                  <div class="flex items-start gap-3">
+                    <span class="text-2xl shrink-0">⚠️</span>
+                    <div class="space-y-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="px-2.5 py-0.5 rounded font-black text-xs mono uppercase bg-rose-900 text-rose-200 border border-rose-500 animate-pulse">
+                          ALERTA FORENSE — RESULTADO FORA DA MARGEM DE ERRO DA SEÇÃO
+                        </span>
+                        <span class="text-[11px] font-bold mono text-rose-300">Margem Amostral (95% Confiança): ±${mePct}% | Desvio Apurado: ${deltaPct}%</span>
+                      </div>
+                      <p class="text-slate-200 text-xs leading-relaxed mt-1">
+                        ${(conf && conf.diagnostico) ? conf.diagnostico : `O resultado simulado na urna (${c1.pct_validos}% x ${c2.pct_validos}%) divergiu ${deltaPct}% do resultado oficial do 2º Turno apurado pelo TSE (${pctReal1}% x ${pctReal2}%), EXCEDENDO o limite estatístico da margem de erro amostral da seção (±${mePct}% com 95% de confiança). Esta divergência aponta que o comportamento real do eleitorado nesta seção fugiu substancialmente da proporcionalidade do 1º turno.`}
+                      </p>
+                    </div>
+                  </div>
+                `;
+              }
             } else {
               parecerBox.className = "p-3 rounded-xl border text-xs leading-relaxed bg-slate-950 border-slate-800 text-slate-300";
               parecerBox.innerHTML = `
@@ -6250,7 +6312,7 @@ o Boletim de Urna (apos encerramento da votacao).
                   <div>
                     <strong>Simulação com Condições Efetivas de Seção Real:</strong>
                     <p class="text-[11px] text-slate-400 mt-1">
-                      A urna simulou o fluxo da seção oficial com comparecimento de ${r.comparecimento_total} eleitores, absorvendo ${sr.novos_votos_efetivos} novos votos sobre o piso do 1º Turno.
+                      A urna simulou o fluxo da seção oficial com comparecimento de ${r.comparecimento_total} eleitores, absorvendo ${sr.novos_votos_efetivos} novos votos sobre o piso do 1º Turno (Margem Amostral Teórica: ±${mePct}%).
                     </p>
                   </div>
                 </div>
@@ -6737,9 +6799,19 @@ o Boletim de Urna (apos encerramento da votacao).
               </div>
 
               ${isSecaoReal ? `
-                <div class="text-[10px] mono text-slate-400 bg-slate-900/60 p-1.5 rounded flex items-center justify-between">
-                  <span>Piso 1ºT: C1 ${item.votos_1t_c1 || 0}v × C2 ${item.votos_1t_c2 || 0}v</span>
-                  <span class="text-cyan-300 font-bold">Novos Votos Efetivos: +${item.novos_votos_efetivos || 0} (Absorção: ${item.pct_absorcao_c1 || 50}% / ${item.pct_absorcao_c2 || 50}%)</span>
+                <div class="text-[10px] mono text-slate-400 bg-slate-900/60 p-2 rounded flex flex-wrap items-center justify-between gap-2 border border-slate-800">
+                  <div class="flex items-center gap-2">
+                    <span>Piso 1ºT: C1 ${item.votos_1t_c1 || 0}v × C2 ${item.votos_1t_c2 || 0}v</span>
+                    <span>•</span>
+                    <span class="text-cyan-300 font-bold">Novos Votos: +${item.novos_votos_efetivos || 0} (Absorção: ${item.pct_absorcao_c1 || 50}% / ${item.pct_absorcao_c2 || 50}%)</span>
+                  </div>
+                  <div>
+                    ${item.tem_real_2t ? (
+                      item.dentro_margem_real_tse
+                        ? `<span class="px-2 py-0.5 rounded font-black text-[10px] bg-emerald-950 text-emerald-300 border border-emerald-700">✅ DENTRO DA ME (Δ ${item.delta_real_c1_pct}% ≤ ±${item.margem_amostral_pct}%)</span>`
+                        : `<span class="px-2 py-0.5 rounded font-black text-[10px] bg-rose-950 text-rose-300 border border-rose-700">⚠️ FORA DA ME (Δ ${item.delta_real_c1_pct}% > ±${item.margem_amostral_pct}%)</span>`
+                    ) : `<span class="text-slate-500 font-bold">ME Amostral: ±${item.margem_amostral_pct}%</span>`}
+                  </div>
                 </div>
               ` : ''}
             </div>

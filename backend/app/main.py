@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from .database import (
+    engine,
     SessionLocal,
     init_db,
     SeccaoConfig,
@@ -27,6 +28,8 @@ from .database import (
     LogAuditoriaUrna,
     TseHistoricoUpload,
     TseRelatorioOficialTse,
+    HistoricoSimulacao,
+    garantir_tabelas_custodia_tse,
     criar_historico_upload,
     atualizar_historico_upload,
     finalizar_historico_upload,
@@ -1007,9 +1010,49 @@ def api_simular_segundo_turno(payload: SimulacaoSegundoTurnoSchema, db: Session 
             candidato_alvo_anomalia=(payload.candidato_alvo_anomalia or "").strip(),
         )
 
-        # Anexar dados de transição 1T -> 2T se fornecidos
+        # Anexar dados de transição 1T -> 2T e confrontação oficial de margem de erro
         if payload.tipo_origem == "SECAO_REAL":
-            resultado["dados_secao_real"] = {
+            c1_sim_v = resultado["resultado_urna"]["cand1"]["votos"]
+            c1_sim_p = resultado["resultado_urna"]["cand1"]["pct_validos"]
+            c2_sim_v = resultado["resultado_urna"]["cand2"]["votos"]
+            c2_sim_p = resultado["resultado_urna"]["cand2"]["pct_validos"]
+            me_pct = resultado["resultado_urna"]["margem_amostral_secao_pct"]
+
+            tem_real = payload.real_2t_c1_votos is not None and payload.real_2t_c2_votos is not None
+            c1_real_v = payload.real_2t_c1_votos or 0
+            c2_real_v = payload.real_2t_c2_votos or 0
+            tot_real = c1_real_v + c2_real_v
+            c1_real_p = round((c1_real_v / max(1, tot_real)) * 100.0, 1) if tot_real > 0 else 0.0
+            c2_real_p = round((c2_real_v / max(1, tot_real)) * 100.0, 1) if tot_real > 0 else 0.0
+
+            delta_c1 = round(c1_sim_p - c1_real_p, 1) if tem_real else 0.0
+            delta_c2 = round(c2_sim_p - c2_real_p, 1) if tem_real else 0.0
+            dentro_me_real = (abs(delta_c1) <= me_pct) if tem_real else True
+
+            if tem_real:
+                if dentro_me_real:
+                    status_me_txt = "DENTRO DA MARGEM DE ERRO"
+                    diag_me_txt = (
+                        f"✅ CONFORME — DENTRO DA MARGEM DE ERRO DA SEÇÃO: "
+                        f"A simulação voto a voto baseada no 1º Turno + Novos Votos ({c1_sim_p}% x {c2_sim_p}%) "
+                        f"divergiu apenas {abs(delta_c1):.1f}% do Boletim de Urna oficial do TSE ({c1_real_p}% x {c2_real_p}%), "
+                        f"ficando RIGOROSAMENTE DENTRO da margem de erro estatística amostral da seção (±{me_pct}% com 95% de confiança). "
+                        f"A hipótese estatística reproduziu com fidelidade o comportamento físico da urna."
+                    )
+                else:
+                    status_me_txt = "FORA DA MARGEM DE ERRO"
+                    diag_me_txt = (
+                        f"⚠️ ALERTA FORENSE — FORA DA MARGEM DE ERRO DA SEÇÃO: "
+                        f"O resultado simulado ({c1_sim_p}% x {c2_sim_p}%) divergiu {abs(delta_c1):.1f}% "
+                        f"do resultado real do 2º Turno oficial apurado pelo TSE ({c1_real_p}% x {c2_real_p}%), "
+                        f"EXCEDENDO o limite estatístico da margem de erro da seção (±{me_pct}% com 95% de confiança). "
+                        f"Esta divergência anômala indica que a dinâmica eleitoral física nesta seção fugiu da proporcionalidade do 1º turno."
+                    )
+            else:
+                status_me_txt = "SIMULAÇÃO PURA"
+                diag_me_txt = f"Simulação baseada no fluxo demográfico do 1ºT com margem de erro de ±{me_pct}%. Sem dados oficiais físicos do 2ºT para confronto."
+
+            dados_secao = {
                 "uf": payload.uf,
                 "municipio": payload.municipio,
                 "zona": payload.zona,
@@ -1022,10 +1065,20 @@ def api_simular_segundo_turno(payload: SimulacaoSegundoTurnoSchema, db: Session 
                 "novos_votos_efetivos": payload.novos_votos_efetivos,
                 "pct_absorcao_c1": payload.pct_absorcao_c1,
                 "pct_absorcao_c2": payload.pct_absorcao_c2,
-                "real_2t_c1_votos": payload.real_2t_c1_votos,
-                "real_2t_c2_votos": payload.real_2t_c2_votos,
+                "real_2t_c1_votos": c1_real_v if tem_real else None,
+                "real_2t_c2_votos": c2_real_v if tem_real else None,
+                "real_2t_c1_pct": c1_real_p if tem_real else None,
+                "real_2t_c2_pct": c2_real_p if tem_real else None,
                 "real_2t_vencedor": payload.real_2t_vencedor,
+                "delta_cand1_pct": delta_c1 if tem_real else None,
+                "delta_cand2_pct": delta_c2 if tem_real else None,
+                "margem_erro_secao_pct": me_pct,
+                "dentro_margem_erro_real": dentro_me_real if tem_real else None,
+                "status_margem_erro_real": status_me_txt,
+                "diagnostico_margem_erro_real": diag_me_txt,
             }
+            resultado["dados_secao_real"] = dados_secao
+            resultado["confrontacao_oficial_2t"] = dados_secao
 
         # Arquiva automaticamente a simulação no Histórico Persistido
         try:
