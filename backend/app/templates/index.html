@@ -2416,7 +2416,7 @@ o Boletim de Urna (apos encerramento da votacao).
       </div>
 
       <!-- ÁRVORE DE NAVEGAÇÃO E CONSOLIDAÇÃO EM 5 NÍVEIS: REGIÃO > ESTADO > CIDADE > ZONA > SEÇÃO -->
-      <div id="tseFilterBarContainer" class="hidden bg-slate-900 border-2 border-emerald-500/40 rounded-xl p-4 space-y-3">
+      <div id="tseFilterBarContainer" class="bg-slate-900 border-2 border-emerald-500/40 rounded-xl p-4 space-y-3">
         <!-- Cabeçalho + Trilha Breadcrumb Interativa da Árvore -->
         <div class="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-800">
           <div class="flex flex-wrap items-center gap-2">
@@ -5211,6 +5211,9 @@ o Boletim de Urna (apos encerramento da votacao).
         if (mainTitle) mainTitle.textContent = "Auditoria Eleições — BI & Inteligência Eleitoral";
         if (subtitle) subtitle.textContent = "Dashboard Forense Nacional (1º e 2º Turno) • Árvore 5 Níveis • Batimento Triplo • Curvas de Vazão";
 
+        try {
+          garantirSeletoresBasicosArvoreTse();
+        } catch (eGsb) {}
         try {
           atualizarConsolidacaoTse(false);
         } catch (eCons) {}
@@ -10637,6 +10640,11 @@ o Boletim de Urna (apos encerramento da votacao).
       if (!payload) return false;
       window.lastConsolidadoPayload = payload;
 
+      const fCont = document.getElementById("tseFilterBarContainer");
+      if (fCont) fCont.classList.remove("hidden");
+      const rCont = document.getElementById("tseReversoResultContainer");
+      if (rCont) rCont.classList.remove("hidden");
+
       const st = window.arvoreTseState;
 
       // Popula dinamicamente os cargos disponíveis retornados pelo banco mantendo a lista de cargos completa
@@ -10818,6 +10826,7 @@ o Boletim de Urna (apos encerramento da votacao).
         const res = await fetch(`/api/tse-reverso/consolidar?${qs.toString()}`, { signal: ctrl.signal });
         if (!res.ok) {
           fecharModalProgressoFiltroComErro(`Falha na resposta do servidor (HTTP ${res.status})`);
+          garantirSeletoresBasicosArvoreTse();
           return;
         }
         const payload = await res.json();
@@ -10839,6 +10848,7 @@ o Boletim de Urna (apos encerramento da votacao).
           window._tseAutoSyncTentado = false;
           aplicarPayloadConsolidadoNoDOM(payload, mostrarAlertaSeVazio);
           fecharModalProgressoFiltroComErro("Nenhum dado retornado pelo banco para este filtro.");
+          garantirSeletoresBasicosArvoreTse();
           return;
         }
         window._tseAutoSyncTentado = false;
@@ -10855,10 +10865,85 @@ o Boletim de Urna (apos encerramento da votacao).
           ? "Tempo limite excedido (55s). Selecione um Estado ou Região na árvore para consulta instantânea."
           : (err?.message || "Falha de conexão com o servidor.");
         fecharModalProgressoFiltroComErro(msgErro);
+        garantirSeletoresBasicosArvoreTse();
       } finally {
         clearTimeout(fetchTimeoutId);
         ocultarSinalizacaoCarregandoArvore();
         window._tseCarregandoArvore = false;
+      }
+    }
+
+    function garantirSeletoresBasicosArvoreTse() {
+      const fCont = document.getElementById("tseFilterBarContainer");
+      if (fCont) fCont.classList.remove("hidden");
+      const rCont = document.getElementById("tseReversoResultContainer");
+      if (rCont) rCont.classList.remove("hidden");
+
+      if (!window.arvoreTseState) {
+        window.arvoreTseState = {
+          regiao: "TODAS",
+          uf: "TODAS",
+          municipio: "TODAS",
+          zona: "TODAS",
+          secao: "CONSOLIDADO",
+          cargo: "PRESIDENTE",
+          modo_visao: "COMPARATIVO",
+          filtro_forense: "TODAS"
+        };
+      }
+
+      if (!window.arvoreTseState.hierarquia || !(window.arvoreTseState.hierarquia.regioes || []).length) {
+        const regioesPadrao = [
+          { regiao: "SUL", total_estados: 3, total_cidades: 1191, total_urnas: 0 },
+          { regiao: "SUDESTE", total_estados: 4, total_cidades: 1668, total_urnas: 0 },
+          { regiao: "NORDESTE", total_estados: 9, total_cidades: 1794, total_urnas: 0 },
+          { regiao: "CENTRO-OESTE", total_estados: 4, total_cidades: 467, total_urnas: 0 },
+          { regiao: "NORTE", total_estados: 7, total_cidades: 450, total_urnas: 0 },
+        ];
+        const estadosPadrao = [
+          { uf: "PR", nome: "Paraná", regiao: "SUL", total_cidades: 399, total_urnas: 0 },
+          { uf: "SC", nome: "Santa Catarina", regiao: "SUL", total_cidades: 295, total_urnas: 0 },
+          { uf: "RS", nome: "Rio Grande do Sul", regiao: "SUL", total_cidades: 497, total_urnas: 0 },
+          { uf: "SP", nome: "São Paulo", regiao: "SUDESTE", total_cidades: 645, total_urnas: 0 },
+          { uf: "RJ", nome: "Rio de Janeiro", regiao: "SUDESTE", total_cidades: 92, total_urnas: 0 },
+          { uf: "MG", nome: "Minas Gerais", regiao: "SUDESTE", total_cidades: 853, total_urnas: 0 },
+          { uf: "ES", nome: "Espírito Santo", regiao: "SUDESTE", total_cidades: 78, total_urnas: 0 },
+          { uf: "BA", nome: "Bahia", regiao: "NORDESTE", total_cidades: 417, total_urnas: 0 },
+          { uf: "PE", nome: "Pernambuco", regiao: "NORDESTE", total_cidades: 185, total_urnas: 0 },
+          { uf: "CE", nome: "Ceará", regiao: "NORDESTE", total_cidades: 184, total_urnas: 0 },
+          { uf: "MA", nome: "Maranhão", regiao: "NORDESTE", total_cidades: 217, total_urnas: 0 },
+          { uf: "PB", nome: "Paraíba", regiao: "NORDESTE", total_cidades: 223, total_urnas: 0 },
+          { uf: "RN", nome: "Rio Grande do Norte", regiao: "NORDESTE", total_cidades: 167, total_urnas: 0 },
+          { uf: "AL", nome: "Alagoas", regiao: "NORDESTE", total_cidades: 102, total_urnas: 0 },
+          { uf: "SE", nome: "Sergipe", regiao: "NORDESTE", total_cidades: 75, total_urnas: 0 },
+          { uf: "PI", nome: "Piauí", regiao: "NORDESTE", total_cidades: 224, total_urnas: 0 },
+          { uf: "GO", nome: "Goiás", regiao: "CENTRO-OESTE", total_cidades: 246, total_urnas: 0 },
+          { uf: "DF", nome: "Distrito Federal", regiao: "CENTRO-OESTE", total_cidades: 1, total_urnas: 0 },
+          { uf: "MT", nome: "Mato Grosso", regiao: "CENTRO-OESTE", total_cidades: 142, total_urnas: 0 },
+          { uf: "MS", nome: "Mato Grosso do Sul", regiao: "CENTRO-OESTE", total_cidades: 79, total_urnas: 0 },
+          { uf: "PA", nome: "Pará", regiao: "NORTE", total_cidades: 144, total_urnas: 0 },
+          { uf: "AM", nome: "Amazonas", regiao: "NORTE", total_cidades: 62, total_urnas: 0 },
+          { uf: "RO", nome: "Rondônia", regiao: "NORTE", total_cidades: 52, total_urnas: 0 },
+          { uf: "AC", nome: "Acre", regiao: "NORTE", total_cidades: 22, total_urnas: 0 },
+          { uf: "TO", nome: "Tocantins", regiao: "NORTE", total_cidades: 139, total_urnas: 0 },
+          { uf: "AP", nome: "Amapá", regiao: "NORTE", total_cidades: 16, total_urnas: 0 },
+          { uf: "RR", nome: "Roraima", regiao: "NORTE", total_cidades: 15, total_urnas: 0 },
+        ];
+        window.arvoreTseState.hierarquia = {
+          total_geral_urnas: 499163,
+          total_secoes_no_filtro: 499163,
+          regiao_selecionada: window.arvoreTseState.regiao || "TODAS",
+          uf_selecionada: window.arvoreTseState.uf || "TODAS",
+          municipio_selecionado: window.arvoreTseState.municipio || "TODAS",
+          zona_selecionada: window.arvoreTseState.zona || "TODAS",
+          secao_selecionada: window.arvoreTseState.secao || "CONSOLIDADO",
+          regioes: regioesPadrao,
+          estados: estadosPadrao,
+          cidades: [],
+          zonas: [],
+          secoes: [],
+        };
+        popularSeletoresHierarquicosTse(window.arvoreTseState.hierarquia);
       }
     }
 

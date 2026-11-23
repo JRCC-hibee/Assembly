@@ -8599,6 +8599,18 @@ def _construir_arvore_minima_sql(
             "total_secoes_no_filtro": total_no_filtro,
             "filtro_forense_selecionado": filtro_forense or "TODAS",
             "filtros_contagens": {"total_urnas": total_no_filtro},
+            "distribuicao_votos_0_20": {},
+            "locais_votacao": [],
+            "resumo_locais": {
+                "total_locais": 0,
+                "total_secoes": total_no_filtro,
+                "media_secoes_por_local": 0.0,
+                "max_secoes_local": 0,
+                "locais_criticos": 0,
+                "locais_atencao": 0,
+                "locais_homogeneos": 0,
+                "tres_foruns": [],
+            },
             "regiao_selecionada": regiao_filtro,
             "uf_selecionada": uf_filtro,
             "municipio_selecionado": municipio_filtro,
@@ -9731,6 +9743,8 @@ def _consolidar_secoes_tse_sql(
         itens = []
         for r in rows_t:
             num_str = str(r.numero_candidato)
+            if cargo_filtro == "PRESIDENTE" and not (num_str.isdigit() and 10 <= int(num_str) <= 99):
+                continue
             nome_c = cands_nomes.get(num_str) or _norm_nome_cand(num_str, r.nome_candidato)
             v = int(r.votos or 0)
             v_bu = int(r.votos_bu or 0)

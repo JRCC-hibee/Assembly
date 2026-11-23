@@ -1214,6 +1214,37 @@ def obter_setup_secao_real(
             "status_margem": "DENTRO DA MARGEM" if dentro_me_real else "FORA DA MARGEM",
         }
 
+    # Dados do Prédio Físico / Local de Votação (agrupamento de urnas do mesmo local)
+    loc_val = (secao_db.local_votacao or "").strip()
+    tem_loc = bool(loc_val and loc_val != "-")
+    q_loc = db.query(TseSecao).filter(
+        TseSecao.uf == secao_db.uf,
+        TseSecao.municipio_codigo == secao_db.municipio_codigo,
+        TseSecao.zona == secao_db.zona,
+    )
+    if tem_loc:
+        q_loc = q_loc.filter(func.trim(func.upper(TseSecao.local_votacao)) == loc_val.upper())
+    else:
+        q_loc = q_loc.filter(TseSecao.secao == secao_db.secao)
+
+    secoes_local_db = q_loc.order_by(TseSecao.secao).all()
+    dados_local = {
+        "local_id": loc_val or "-",
+        "nome_local": loc_val or f"Zona {secao_db.zona:04d} - Seção {secao_db.secao}",
+        "qtd_secoes": len(secoes_local_db),
+        "secao_referencia": secao_db.secao,
+        "pode_simular_local": len(secoes_local_db) >= 2,
+        "secoes_lista": [s.secao for s in secoes_local_db],
+        "secoes_resumo": [
+            {
+                "secao": s.secao,
+                "modelo_urna": s.modelo_urna or "UE2020",
+                "chave_secao": s.chave_secao,
+            }
+            for s in secoes_local_db
+        ],
+    }
+
     return {
         "secao_info": {
             "id": secao_db.id,

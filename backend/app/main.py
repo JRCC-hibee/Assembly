@@ -230,12 +230,10 @@ def on_startup():
                 print(f"[STARTUP] Aviso na verificação de votos do catálogo: {e_rep}")
 
             # Sanitização automática de cargos em tse_votos_candidatos:
-            # Garante que PRESIDENTE contenha exclusivamente candidatos de 2 dígitos (10 a 99)
+            # Garante que PRESIDENTE contenha exclusivamente candidatos válidos de 2 dígitos (10 a 99)
             try:
                 from sqlalchemy import text
-                db.execute(text("UPDATE tse_votos_candidatos SET cargo = 'DEPUTADO ESTADUAL' WHERE cargo = 'PRESIDENTE' AND numero_candidato >= 10000;"))
-                db.execute(text("UPDATE tse_votos_candidatos SET cargo = 'DEPUTADO FEDERAL' WHERE cargo = 'PRESIDENTE' AND numero_candidato BETWEEN 1000 AND 9999;"))
-                db.execute(text("UPDATE tse_votos_candidatos SET cargo = 'SENADOR' WHERE cargo = 'PRESIDENTE' AND numero_candidato BETWEEN 100 AND 999;"))
+                db.execute(text("DELETE FROM tse_votos_candidatos WHERE cargo = 'PRESIDENTE' AND (numero_candidato < 10 OR numero_candidato > 99);"))
                 db.commit()
             except Exception as e_san:
                 db.rollback()
