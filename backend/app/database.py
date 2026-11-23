@@ -865,7 +865,7 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
                     "votos_rdv": votos_val,
                 }
 
-    # Complemento/Fallback de Presidente via candidatos_list (caso não esteja em cargos_bu ou para enriquecer dados)
+    # Complemento/Fallback de Candidatos via candidatos_list (categorizado rigorosamente por cargo e dígitos)
     candidatos_list = resumo.get("candidatos", [])
     if candidatos_list:
         for cand in candidatos_list:
@@ -876,20 +876,46 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
             if not num_cand:
                 continue
 
+            raw_cg = str(cand.get("cargo") or "").strip().upper()
+            if "PRESIDENT" in raw_cg:
+                cg_det = "PRESIDENTE"
+            elif "GOVERNAD" in raw_cg:
+                cg_det = "GOVERNADOR"
+            elif "SENAD" in raw_cg:
+                cg_det = "SENADOR"
+            elif "DEPUTADO FED" in raw_cg:
+                cg_det = "DEPUTADO FEDERAL"
+            elif "DEPUTADO EST" in raw_cg or "DEPUTADO DIST" in raw_cg:
+                cg_det = "DEPUTADO ESTADUAL"
+            else:
+                # Regra oficial da Justiça Eleitoral baseada na quantidade de dígitos:
+                if num_cand <= 99:
+                    cg_det = "PRESIDENTE"
+                elif num_cand <= 999:
+                    cg_det = "SENADOR"
+                elif num_cand <= 9999:
+                    cg_det = "DEPUTADO FEDERAL"
+                else:
+                    cg_det = "DEPUTADO ESTADUAL"
+
             votos_val = int(cand.get("votos") or cand.get("votos_bu") or cand.get("votos_rdv") or 0)
             v_bu = int(cand.get("votos_bu") or (cand.get("votos") if cand.get("votos_bu") is None else 0) or 0)
             v_rdv = int(cand.get("votos_rdv") or (cand.get("votos") if cand.get("votos_rdv") is None else 0) or 0)
 
             nome_cand = cand.get("nome")
             num_str = str(num_cand)
-            if not nome_cand or nome_cand.startswith("CANDIDATO") or "JAIR" in (nome_cand or "").upper():
-                nome_cand = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_cand}")
-            elif num_cand == 22:
-                nome_cand = "FLÁVIO BOLSONARO"
-            elif num_cand == 13:
-                nome_cand = "LULA"
+            if cg_det == "PRESIDENTE":
+                if not nome_cand or nome_cand.startswith("CANDIDATO") or "JAIR" in (nome_cand or "").upper():
+                    nome_cand = PADRAO_NOMES_PRESIDENTE.get(num_str, f"CANDIDATO {num_cand}")
+                elif num_cand == 22:
+                    nome_cand = "FLÁVIO BOLSONARO"
+                elif num_cand == 13:
+                    nome_cand = "LULA"
+            elif cg_det == "GOVERNADOR":
+                if num_cand == 22 or "BOLSONARO" in (nome_cand or "").upper():
+                    nome_cand = "SÉRGIO MORO"
 
-            key = ("PRESIDENTE", num_cand)
+            key = (cg_det, num_cand)
             if key in votos_map:
                 if votos_val > 0:
                     votos_map[key]["votos"] = votos_val
@@ -901,7 +927,7 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
                     votos_map[key]["nome"] = nome_cand
             else:
                 votos_map[key] = {
-                    "cargo": "PRESIDENTE",
+                    "cargo": cg_det,
                     "numero": num_cand,
                     "nome": nome_cand,
                     "votos": votos_val,

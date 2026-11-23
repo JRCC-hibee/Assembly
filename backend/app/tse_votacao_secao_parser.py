@@ -544,12 +544,17 @@ def _executar_complementacao_worker(
                 secao = int(row[idx_secao])
                 mun_cod = row[idx_mun].strip()
                 mun_nm = row[idx_mun_nm].strip().upper()
+                cargo_nome = row[idx_cargo].strip().upper() if idx_cargo < len(row) else "PRESIDENTE"
                 votavel_str = row[idx_votavel].strip()
                 votavel = int(votavel_str) if votavel_str.isdigit() else -1
                 nome_votavel = row[idx_nome_votavel].strip().upper()
                 qtd = int(row[idx_votos])
                 local_vot = row[idx_local].strip() if idx_local and row[idx_local] else None
             except Exception:
+                continue
+
+            # Foco estrito em Presidente da República (evita misturar votos de Deputados/Senador/Governador)
+            if "PRESIDENT" not in cargo_nome:
                 continue
 
             # No modo APENAS_LACUNAS: se a chave física sequer existe no banco, pula rapidamente

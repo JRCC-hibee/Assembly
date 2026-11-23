@@ -1157,6 +1157,31 @@ o Boletim de Urna (apos encerramento da votacao).
                   </div>
                 </div>
 
+                <!-- Opção Condicional de Simulação Intra-Local (Visível apenas se houver 2+ seções no prédio físico) -->
+                <div id="boxOpcaoSimularLocal" class="hidden p-3 rounded-xl bg-slate-900 border-2 border-indigo-500/50 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                      <span>🏢</span>
+                      <span id="labelNomeLocalDetectado">Local com Múltiplas Urnas</span>
+                    </span>
+                    <span id="badgeQtdSecoesLocal" class="px-2 py-0.5 rounded text-[10px] font-black mono bg-indigo-950 text-indigo-300 border border-indigo-700"></span>
+                  </div>
+                  <p class="text-[11px] text-slate-300 leading-snug">
+                    Foram identificadas múltiplas urnas instaladas neste endereço físico. Deseja realizar a simulação em todas as seções deste local levando em consideração as urnas de forma individual?
+                  </p>
+                  <div class="pt-1">
+                    <button
+                      type="button"
+                      id="btnExecutarSimulacaoIntraLocal"
+                      onclick="executarSimulacaoIntraLocal()"
+                      class="w-full py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-purple-500 text-white font-black rounded-lg text-xs shadow-lg transition flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
+                    >
+                      <span>🏢</span>
+                      <span id="btnTextoSimularLocal">Simular Todas as Seções do Prédio (Intra-Local)</span>
+                    </button>
+                  </div>
+                </div>
+
               </div>
             </div>
 
@@ -1410,6 +1435,127 @@ o Boletim de Urna (apos encerramento da votacao).
         <!-- PAINEL CONSOLIDADO DE RESULTADOS DO 2º TURNO (APÓS A SIMULAÇÃO) -->
         <!-- ============================================================== -->
         <div id="sim2tResultadosContainer" class="hidden space-y-6 pt-2">
+
+          <!-- Card de Dossiê da Simulação Intra-Local: Todas as Seções do Prédio Físico -->
+          <div id="painelResultadoSimulacaoIntraLocal" class="hidden bg-slate-900 border-2 border-purple-500/50 rounded-2xl p-5 space-y-5 shadow-2xl">
+            <!-- Cabeçalho -->
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-3">
+              <div class="flex items-center gap-3">
+                <span class="text-3xl">🏢</span>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <h3 id="intraLocalTitulo" class="text-base font-extrabold text-white">Simulação Intra-Local: Prédio Físico</h3>
+                    <span id="intraLocalBadgeUrnas" class="px-2.5 py-0.5 rounded-full text-xs font-black mono uppercase bg-purple-950 text-purple-300 border border-purple-700"></span>
+                  </div>
+                  <p id="intraLocalSubtitulo" class="text-xs text-slate-400 mt-0.5"></p>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="intraLocalVereditoBadge" class="px-3 py-1 rounded-full text-xs font-black mono uppercase"></span>
+              </div>
+            </div>
+
+            <!-- Veredito Forense e Coerência Estatística -->
+            <div id="intraLocalVereditoBanner" class="p-4 rounded-xl border text-xs leading-relaxed space-y-2"></div>
+
+            <!-- Cards Resumo: Média do Prédio 1T vs 2T Simulado vs 2T Real Oficial -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+              <!-- Média 1T -->
+              <div class="p-3.5 rounded-xl bg-slate-950 border border-amber-500/40 space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="font-extrabold text-amber-400 text-xs">🗳️ MÉDIA DO PRÉDIO (1ºT)</span>
+                  <span id="intraLocal1TTotalVotos" class="text-[10px] mono text-slate-400"></span>
+                </div>
+                <div class="space-y-1 mono">
+                  <div class="flex justify-between items-center">
+                    <span id="intraLocal1TCand1Nome" class="text-cyan-300"></span>
+                    <span id="intraLocal1TCand1Val" class="font-bold text-white"></span>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <span id="intraLocal1TCand2Nome" class="text-rose-300"></span>
+                    <span id="intraLocal1TCand2Val" class="font-bold text-white"></span>
+                  </div>
+                  <div class="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-slate-800">
+                    <span>Terceiras Vias:</span>
+                    <span id="intraLocal1TOutrosVal" class="text-slate-300"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Média 2T Simulado -->
+              <div class="p-3.5 rounded-xl bg-slate-950 border border-cyan-500/40 space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="font-extrabold text-cyan-400 text-xs">⚡ MÉDIA SIMULADA (2ºT)</span>
+                  <span id="intraLocalSimMargemErro" class="text-[10px] mono text-cyan-300"></span>
+                </div>
+                <div class="space-y-1 mono">
+                  <div class="flex justify-between items-center">
+                    <span id="intraLocalSimCand1Nome" class="text-cyan-300"></span>
+                    <span id="intraLocalSimCand1Val" class="font-black text-cyan-300 text-sm"></span>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <span id="intraLocalSimCand2Nome" class="text-rose-300"></span>
+                    <span id="intraLocalSimCand2Val" class="font-black text-rose-300 text-sm"></span>
+                  </div>
+                  <div class="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-slate-800">
+                    <span>Novos Votos Totais:</span>
+                    <span id="intraLocalSimNovosVotos" class="text-emerald-400 font-bold"></span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Média 2T Real Oficial -->
+              <div class="p-3.5 rounded-xl bg-slate-950 border border-emerald-500/40 space-y-2">
+                <div class="flex items-center justify-between">
+                  <span class="font-extrabold text-emerald-400 text-xs">🏛️ MÉDIA REAL TSE (2ºT)</span>
+                  <span id="intraLocalRealBadgeStatus" class="text-[10px] mono text-slate-400"></span>
+                </div>
+                <div id="intraLocalRealBoxConteudo" class="space-y-1 mono">
+                  <div class="flex justify-between items-center">
+                    <span id="intraLocalRealCand1Nome" class="text-cyan-300"></span>
+                    <span id="intraLocalRealCand1Val" class="font-black text-white"></span>
+                  </div>
+                  <div class="flex justify-between items-center">
+                    <span id="intraLocalRealCand2Nome" class="text-rose-300"></span>
+                    <span id="intraLocalRealCand2Val" class="font-black text-white"></span>
+                  </div>
+                  <div class="flex justify-between items-center text-[11px] text-slate-400 pt-1 border-t border-slate-800">
+                    <span>Média Absorção Novos Votos:</span>
+                    <span id="intraLocalRealAbsorcaoVal" class="text-emerald-400 font-bold"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Tabela Comparativa Detalhada: Média do Local x Cada Urna Individual -->
+            <div class="space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="font-bold text-white text-xs flex items-center gap-2">
+                  <span>📊</span>
+                  <span>Comparativo Individual de Urnas vs. Média do Prédio Físico</span>
+                </span>
+                <span class="text-[10px] mono text-slate-400">Clique em qualquer urna para inspecionar</span>
+              </div>
+
+              <div class="overflow-x-auto rounded-xl border border-slate-800 bg-slate-950">
+                <table class="w-full text-left text-xs mono">
+                  <thead class="bg-slate-900/90 text-slate-400 text-[10px] uppercase font-bold border-b border-slate-800">
+                    <tr>
+                      <th class="p-2.5">Seção / Urna</th>
+                      <th class="p-2.5 text-center">1º Turno</th>
+                      <th class="p-2.5 text-center">2ºT Simulado</th>
+                      <th class="p-2.5 text-center">2ºT Real TSE</th>
+                      <th class="p-2.5 text-center">Δ Sim vs Média Local</th>
+                      <th class="p-2.5 text-center">Δ Real vs Sim</th>
+                      <th class="p-2.5 text-center">Distorção Novos Votos</th>
+                      <th class="p-2.5 text-right">Diagnóstico Intra-Local</th>
+                    </tr>
+                  </thead>
+                  <tbody id="intraLocalTbody" class="divide-y divide-slate-800/60"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
 
           <!-- Card de Dossiê da Seção Real: Transição 1ºT -> 2ºT & Validação com a Urna do TSE -->
           <div id="sim2tDossieSecaoRealBox" class="hidden bg-slate-900 border-2 border-cyan-500/50 rounded-2xl p-5 space-y-4 shadow-2xl">
@@ -6015,6 +6161,8 @@ o Boletim de Urna (apos encerramento da votacao).
         if (!res.ok) {
           showSecurityAlert(data.detail || "Seção eleitoral não encontrada na base de dados do TSE.", true);
           if (fBox) fBox.classList.add("hidden");
+          const boxLocal = document.getElementById("boxOpcaoSimularLocal");
+          if (boxLocal) boxLocal.classList.add("hidden");
           window.setupSecaoRealAtual = null;
           return;
         }
@@ -6104,6 +6252,23 @@ o Boletim de Urna (apos encerramento da votacao).
         const pctProp1T = pesqSecao ? pesqSecao.pct_1t_rel_cand1 : (p1t.cand1.pct_relativo_dois_candidatos || p1t.cand1.pct_validos || 50.0);
         aplicarPresetAbsorcao(pctProp1T);
         atualizarAbstencaoCalculada2T();
+
+        // 7. Simulação Intra-Local por Local de Votação (Prédio Físico)
+        const boxLocal = document.getElementById("boxOpcaoSimularLocal");
+        const dl = data.dados_local;
+        if (boxLocal) {
+          if (dl && dl.pode_simular_local) {
+            boxLocal.classList.remove("hidden");
+            const lblNome = document.getElementById("labelNomeLocalDetectado");
+            if (lblNome) lblNome.textContent = dl.nome_local || "Prédio Físico";
+            const badgeQtd = document.getElementById("badgeQtdSecoesLocal");
+            if (badgeQtd) badgeQtd.textContent = `${dl.qtd_secoes} Urnas no Local`;
+            const btnTxt = document.getElementById("btnTextoSimularLocal");
+            if (btnTxt) btnTxt.textContent = `🏢 Simular Todas as ${dl.qtd_secoes} Seções deste Local (Intra-Local)`;
+          } else {
+            boxLocal.classList.add("hidden");
+          }
+        }
 
       } catch (err) {
         console.error("Erro ao consultar seção real:", err);
@@ -6295,6 +6460,10 @@ o Boletim de Urna (apos encerramento da votacao).
       const container = document.getElementById("sim2tResultadosContainer");
       if (!container) return;
       container.classList.remove("hidden");
+
+      // Ocultar painel intra-local quando executar simulação de urna individual
+      const painelIntra = document.getElementById("painelResultadoSimulacaoIntraLocal");
+      if (painelIntra) painelIntra.classList.add("hidden");
 
       const p = data.parametros;
       const r = data.resultado_urna;
@@ -6753,6 +6922,329 @@ o Boletim de Urna (apos encerramento da votacao).
     }
 
     // ==============================================================
+    // SIMULAÇÃO INTRA-LOCAL (TODAS AS URNAS DE UM PRÉDIO FÍSICO)
+    // ==============================================================
+    async function executarSimulacaoIntraLocal() {
+      if (!window.setupSecaoRealAtual || !window.setupSecaoRealAtual.dados_local) {
+        showSecurityAlert("Por favor, selecione e carregue uma seção real com local de votação válido.", true);
+        return;
+      }
+      const dl = window.setupSecaoRealAtual.dados_local;
+      if (!dl.pode_simular_local) {
+        showSecurityAlert("Este local possui apenas 1 seção. A simulação intra-local requer 2 ou mais seções.", true);
+        return;
+      }
+
+      const uf = (document.getElementById("simSecaoUf")?.value || "").trim().toUpperCase();
+      const zona = parseInt(document.getElementById("simSecaoZona")?.value || "0", 10);
+      const secao = parseInt(document.getElementById("simSecaoNumero")?.value || "0", 10);
+
+      const cand1Num = parseInt(document.getElementById("sim2tCand1Num")?.value || "22", 10);
+      const cand1Nome = (document.getElementById("sim2tCand1Nome")?.value || "FLÁVIO BOLSONARO").trim();
+      const cand2Num = parseInt(document.getElementById("sim2tCand2Num")?.value || "13", 10);
+      const cand2Nome = (document.getElementById("sim2tCand2Nome")?.value || "LULA").trim();
+
+      const sliderC1 = document.getElementById("simSliderAbsorcaoC1");
+      const pctAbsC1 = sliderC1 ? parseFloat(sliderC1.value) : 50.0;
+
+      const btn = document.getElementById("btnExecutarSimulacaoIntraLocal");
+      const btnTexto = document.getElementById("btnTextoSimularLocal");
+      const originalText = btnTexto ? btnTexto.textContent : "Simular Todas as Seções do Prédio (Intra-Local)";
+      if (btn) btn.disabled = true;
+      if (btnTexto) btnTexto.textContent = "Simulando todas as urnas do prédio...";
+
+      try {
+        const payload = {
+          uf: uf,
+          zona: zona,
+          secao_referencia: secao,
+          cand1_numero: cand1Num,
+          cand1_nome: cand1Nome,
+          cand2_numero: cand2Num,
+          cand2_nome: cand2Nome,
+          tipo_absorcao: "PROPORCIONAL_1T",
+          pct_absorcao_c1: pctAbsC1
+        };
+
+        const res = await fetch("/api/simulacao/executar-intra-local", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const rawText = await res.text();
+        let data = {};
+        try {
+          data = JSON.parse(rawText);
+        } catch (e) {
+          showSecurityAlert("Erro ao processar resposta da simulação intra-local: " + rawText.slice(0, 150), true);
+          return;
+        }
+
+        if (!res.ok) {
+          showSecurityAlert(data.detail || "Erro ao executar simulação intra-local.", true);
+          return;
+        }
+
+        // Tocar som de término da urna
+        try { playSomFimUrna(); } catch(err) {}
+
+        renderizarResultadoSimulacaoIntraLocal(data);
+
+        // Atualizar contador do histórico
+        atualizarContadorHistoricoSimulacoes();
+
+      } catch (err) {
+        console.error("Erro na simulação intra-local:", err);
+        showSecurityAlert("Erro de rede ao executar simulação intra-local: " + err.message, true);
+      } finally {
+        if (btn) btn.disabled = false;
+        if (btnTexto) btnTexto.textContent = originalText;
+      }
+    }
+
+    function renderizarResultadoSimulacaoIntraLocal(data) {
+      const container = document.getElementById("sim2tResultadosContainer");
+      if (container) container.classList.remove("hidden");
+
+      const painel = document.getElementById("painelResultadoSimulacaoIntraLocal");
+      if (!painel) return;
+      painel.classList.remove("hidden");
+
+      // Ocultar dossiê de urna individual para focar na visão intra-local
+      const dossieSecao = document.getElementById("sim2tDossieSecaoRealBox");
+      if (dossieSecao) dossieSecao.classList.add("hidden");
+
+      const loc = data.local_info;
+      const c1 = data.candidatos.cand1;
+      const c2 = data.candidatos.cand2;
+      const med = data.media_local;
+      const m1t = med.primeiro_turno;
+      const msim = med.segundo_turno_simulado;
+      const mreal = med.segundo_turno_real_oficial;
+      const coer = med.coerencia_estatistica;
+
+      // 1. Cabeçalho
+      const elTit = document.getElementById("intraLocalTitulo");
+      if (elTit) elTit.textContent = `Simulação Intra-Local: ${loc.nome_local}`;
+
+      const elUrnas = document.getElementById("intraLocalBadgeUrnas");
+      if (elUrnas) elUrnas.textContent = `${loc.qtd_secoes} Urnas no Prédio`;
+
+      const elSub = document.getElementById("intraLocalSubtitulo");
+      if (elSub) elSub.textContent = `${loc.municipio_nome} (${loc.uf}) • Zona ${loc.zona} • Seção de Referência: ${loc.secao_referencia}`;
+
+      const elVencBadge = document.getElementById("intraLocalVereditoBadge");
+      if (elVencBadge) {
+        if (coer.urnas_com_distorcao === 0) {
+          elVencBadge.className = "px-3 py-1 rounded-full text-xs font-black mono uppercase bg-emerald-950 text-emerald-300 border border-emerald-700";
+          elVencBadge.textContent = "✅ Padrão Homogêneo";
+        } else {
+          elVencBadge.className = "px-3 py-1 rounded-full text-xs font-black mono uppercase bg-rose-950 text-rose-300 border border-rose-700";
+          elVencBadge.textContent = `🚨 ${coer.urnas_com_distorcao} Urna(s) com Distorção`;
+        }
+      }
+
+      // 2. Banner de Veredito Forense e Coerência Estatística
+      const banner = document.getElementById("intraLocalVereditoBanner");
+      if (banner) {
+        if (coer.urnas_com_distorcao === 0) {
+          banner.className = "p-4 rounded-xl border border-emerald-500/50 bg-emerald-950/30 text-xs leading-relaxed space-y-2";
+          banner.innerHTML = `
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-emerald-400 uppercase mono text-[11px] flex items-center gap-1.5">
+                <span>✅</span>
+                <span>Coerência Estatística Intra-Prédio Aprovada</span>
+              </span>
+              <span class="mono text-[10px] text-emerald-300">Desvio Padrão (σ): <strong>${coer.desvio_padrao_sigma}%</strong> | Delta Máximo (Δmax): <strong>${coer.delta_maximo_pct}%</strong></span>
+            </div>
+            <p class="text-slate-300">
+              Todas as <strong>${loc.qtd_secoes} urnas</strong> instaladas no endereço <strong>${loc.nome_local}</strong> apresentam comportamento estatístico homogêneo na absorção de novos votos. Não foram identificados desvios atípicos ou assimetrias de novos votos entre as seções vizinhas.
+            </p>
+          `;
+        } else {
+          banner.className = "p-4 rounded-xl border border-amber-500/60 bg-amber-950/40 text-xs leading-relaxed space-y-2";
+          banner.innerHTML = `
+            <div class="flex items-center justify-between">
+              <span class="font-bold text-amber-400 uppercase mono text-[11px] flex items-center gap-1.5">
+                <span>⚠️</span>
+                <span>Divergência Interna Detectada no Endereço Físico</span>
+              </span>
+              <span class="mono text-[10px] text-amber-300">Desvio Padrão (σ): <strong>${coer.desvio_padrao_sigma}%</strong> | Delta Máximo (Δmax): <strong>${coer.delta_maximo_pct}%</strong></span>
+            </div>
+            <p class="text-slate-200">
+              <strong>${coer.urnas_com_distorcao} das ${loc.qtd_secoes} urnas</strong> deste estabelecimento apresentaram captação atípica de novos votos em relação à média física do prédio:
+              ${coer.urnas_favorecendo_c1 > 0 ? `<span class="text-cyan-300 font-bold">${coer.urnas_favorecendo_c1} urna(s) favorecendo ${c1.nome}</span>` : ''}
+              ${(coer.urnas_favorecendo_c1 > 0 && coer.urnas_favorecendo_c2 > 0) ? ' e ' : ''}
+              ${coer.urnas_favorecendo_c2 > 0 ? `<span class="text-rose-300 font-bold">${coer.urnas_favorecendo_c2} urna(s) favorecendo ${c2.nome}</span>` : ''}.
+              Consulte a coluna <em>Distorção Novos Votos</em> na tabela abaixo para inspecionar cada seção divergente.
+            </p>
+          `;
+        }
+      }
+
+      // 3. Preencher Cards Resumo de Médias do Prédio
+      // Card 1T
+      const el1TTot = document.getElementById("intraLocal1TTotalVotos");
+      if (el1TTot) el1TTot.textContent = `${m1t.comparecimento} Votantes`;
+      const el1TC1Nome = document.getElementById("intraLocal1TCand1Nome");
+      if (el1TC1Nome) el1TC1Nome.textContent = `${c1.numero} ${c1.nome}:`;
+      const el1TC1Val = document.getElementById("intraLocal1TCand1Val");
+      if (el1TC1Val) el1TC1Val.textContent = `${m1t.votos_cand1}v (${m1t.pct_cand1}%)`;
+      const el1TC2Nome = document.getElementById("intraLocal1TCand2Nome");
+      if (el1TC2Nome) el1TC2Nome.textContent = `${c2.numero} ${c2.nome}:`;
+      const el1TC2Val = document.getElementById("intraLocal1TCand2Val");
+      if (el1TC2Val) el1TC2Val.textContent = `${m1t.votos_cand2}v (${m1t.pct_cand2}%)`;
+      const el1TOutros = document.getElementById("intraLocal1TOutrosVal");
+      if (el1TOutros) el1TOutros.textContent = `${m1t.votos_outros}v`;
+
+      // Card 2T Simulado
+      const elSimME = document.getElementById("intraLocalSimMargemErro");
+      if (elSimME) elSimME.textContent = `±${msim.margem_erro_local_pct}% ME`;
+      const elSimC1Nome = document.getElementById("intraLocalSimCand1Nome");
+      if (elSimC1Nome) elSimC1Nome.textContent = `${c1.numero} ${c1.nome}:`;
+      const elSimC1Val = document.getElementById("intraLocalSimCand1Val");
+      if (elSimC1Val) elSimC1Val.textContent = `${msim.votos_cand1}v (${msim.pct_cand1}%)`;
+      const elSimC2Nome = document.getElementById("intraLocalSimCand2Nome");
+      if (elSimC2Nome) elSimC2Nome.textContent = `${c2.numero} ${c2.nome}:`;
+      const elSimC2Val = document.getElementById("intraLocalSimCand2Val");
+      if (elSimC2Val) elSimC2Val.textContent = `${msim.votos_cand2}v (${msim.pct_cand2}%)`;
+      const elSimNV = document.getElementById("intraLocalSimNovosVotos");
+      if (elSimNV) elSimNV.textContent = `+${msim.novos_votos_totais}v`;
+
+      // Card 2T Real Oficial
+      const elRealBadge = document.getElementById("intraLocalRealBadgeStatus");
+      const elRealC1Nome = document.getElementById("intraLocalRealCand1Nome");
+      const elRealC1Val = document.getElementById("intraLocalRealCand1Val");
+      const elRealC2Nome = document.getElementById("intraLocalRealCand2Nome");
+      const elRealC2Val = document.getElementById("intraLocalRealCand2Val");
+      const elRealAbs = document.getElementById("intraLocalRealAbsorcaoVal");
+
+      if (mreal.disponivel) {
+        if (elRealBadge) elRealBadge.textContent = "Totalização 100% Oficial";
+        if (elRealC1Nome) elRealC1Nome.textContent = `${c1.numero} ${c1.nome}:`;
+        if (elRealC1Val) elRealC1Val.textContent = `${mreal.votos_cand1}v (${mreal.pct_cand1}%)`;
+        if (elRealC2Nome) elRealC2Nome.textContent = `${c2.numero} ${c2.nome}:`;
+        if (elRealC2Val) elRealC2Val.textContent = `${mreal.votos_cand2}v (${mreal.pct_cand2}%)`;
+        if (elRealAbs) elRealAbs.textContent = `${mreal.media_absorcao_real_cand1}% C1 × ${mreal.media_absorcao_real_cand2}% C2`;
+      } else {
+        if (elRealBadge) elRealBadge.textContent = "Aguardando Carga 2T";
+        if (elRealC1Val) elRealC1Val.textContent = "-";
+        if (elRealC2Val) elRealC2Val.textContent = "-";
+        if (elRealAbs) elRealAbs.textContent = "Pendente";
+      }
+
+      // 4. Preencher Tabela de Seções
+      const tbody = document.getElementById("intraLocalTbody");
+      if (tbody) {
+        let htmlRows = "";
+
+        // Linha Consolidada da Média Ponderada do Local
+        htmlRows += `
+          <tr class="bg-gradient-to-r from-purple-950/60 to-indigo-950/60 border-b-2 border-purple-500/50 font-bold">
+            <td class="p-2.5 text-white flex items-center gap-1.5">
+              <span>🏛️</span>
+              <span class="tracking-wider">MÉDIA DO PRÉDIO FÍSICO</span>
+            </td>
+            <td class="p-2.5 text-center text-amber-300">${m1t.pct_cand1}% × ${m1t.pct_cand2}%</td>
+            <td class="p-2.5 text-center text-cyan-300">${msim.pct_cand1}% × ${msim.pct_cand2}%</td>
+            <td class="p-2.5 text-center text-emerald-300">${mreal.disponivel ? `${mreal.pct_cand1}% × ${mreal.pct_cand2}%` : 'Pendente'}</td>
+            <td class="p-2.5 text-center text-slate-400">0.0%</td>
+            <td class="p-2.5 text-center text-slate-400">${mreal.disponivel ? `${(mreal.pct_cand1 - msim.pct_cand1 >= 0 ? '+' : '')}${(mreal.pct_cand1 - msim.pct_cand1).toFixed(1)}%` : '-'}</td>
+            <td class="p-2.5 text-center text-purple-300">${mreal.disponivel ? `${mreal.media_absorcao_real_cand1}% C1` : '50% / 50%'}</td>
+            <td class="p-2.5 text-right">
+              <span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-purple-900 text-purple-200 border border-purple-700">Média Consolidada</span>
+            </td>
+          </tr>
+        `;
+
+        // Linha para cada seção individual
+        data.secoes_detalhes.forEach(sec => {
+          const isFoco = sec.is_secao_foco;
+          const rowBg = isFoco ? "bg-cyan-950/30 border-l-4 border-l-cyan-400" : "hover:bg-slate-900/50";
+          const dSimLoc = sec.delta_sim_vs_media_local_c1;
+          const dRealSim = sec.delta_real_vs_sim_c1;
+          const distNV = sec.distorcao_novos_votos_c1;
+
+          // Badge de Distorção Intra-Local
+          let distBadge = `<span class="text-slate-500 text-[10px]">Simulado</span>`;
+          if (distNV !== null && distNV !== undefined) {
+            if (distNV >= 10.0) {
+              distBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-rose-950 text-rose-300 border border-rose-700" title="${sec.veredito_intra_local}">🚨 +${distNV.toFixed(1)}% ${c1.nome.split(' ')[0]}</span>`;
+            } else if (distNV <= -10.0) {
+              distBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-rose-950 text-rose-300 border border-rose-700" title="${sec.veredito_intra_local}">🚨 +${Math.abs(distNV).toFixed(1)}% ${c2.nome.split(' ')[0]}</span>`;
+            } else {
+              distBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800">✅ ${distNV >= 0 ? '+' : ''}${distNV.toFixed(1)}%</span>`;
+            }
+          }
+
+          // Badge de Status / Veredito
+          let statusBadge = "";
+          if (sec.status_coerencia === "HOMOGENEO") {
+            statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-950 text-emerald-300 border border-emerald-800">Homogêneo</span>`;
+          } else if (sec.status_coerencia === "DISTORCAO_FAVOR_C1") {
+            statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800">Divergência C1</span>`;
+          } else if (sec.status_coerencia === "DISTORCAO_FAVOR_C2") {
+            statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-300 border border-amber-800">Divergência C2</span>`;
+          } else {
+            statusBadge = `<span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-900 text-slate-400 border border-slate-700">Simulado</span>`;
+          }
+
+          htmlRows += `
+            <tr class="${rowBg} transition border-b border-slate-900/60 cursor-pointer" onclick="preencherSecaoReal('${loc.uf}', '${loc.municipio_nome}', ${loc.zona}, ${sec.secao})" title="Clique para carregar esta urna individualmente no simulador">
+              <td class="p-2.5 font-bold text-white">
+                <div class="flex items-center gap-1.5">
+                  ${isFoco ? '<span class="text-cyan-400 text-xs">🎯</span>' : '<span class="text-slate-500 text-xs">•</span>'}
+                  <span class="text-cyan-300">Seção ${sec.secao}</span>
+                  <span class="text-[9px] px-1 py-0.2 rounded bg-slate-900 text-slate-400 mono">${sec.modelo_urna}</span>
+                  ${isFoco ? '<span class="text-[9px] px-1 py-0.2 rounded bg-cyan-900 text-cyan-200 mono">Foco</span>' : ''}
+                </div>
+              </td>
+              <td class="p-2.5 text-center text-slate-300">
+                <span>${sec.votos_1t_cand1}v (${sec.pct_1t_cand1}%)</span>
+                <span class="text-slate-500">×</span>
+                <span>${sec.votos_1t_cand2}v (${sec.pct_1t_cand2}%)</span>
+              </td>
+              <td class="p-2.5 text-center text-cyan-300 font-bold">
+                <span>${sec.sim_pct_cand1}%</span>
+                <span class="text-slate-500 font-normal">×</span>
+                <span class="text-rose-300">${sec.sim_pct_cand2}%</span>
+              </td>
+              <td class="p-2.5 text-center text-emerald-300 font-bold">
+                ${sec.tem_real_2t ? `
+                  <span>${sec.real_pct_cand1}%</span>
+                  <span class="text-slate-500 font-normal">×</span>
+                  <span class="text-rose-300">${sec.real_pct_cand2}%</span>
+                ` : `<span class="text-slate-500 font-normal">Sem 2T</span>`}
+              </td>
+              <td class="p-2.5 text-center mono ${dSimLoc >= 0 ? 'text-cyan-300' : 'text-rose-300'}">
+                ${dSimLoc >= 0 ? '+' : ''}${dSimLoc}%
+              </td>
+              <td class="p-2.5 text-center mono">
+                ${dRealSim !== null ? `
+                  <span class="${Math.abs(dRealSim) <= sec.margem_erro_urna_pct ? 'text-emerald-400 font-bold' : 'text-amber-400 font-bold'}">
+                    ${dRealSim >= 0 ? '+' : ''}${dRealSim}%
+                  </span>
+                ` : `<span class="text-slate-500">-</span>`}
+              </td>
+              <td class="p-2.5 text-center">
+                ${distBadge}
+              </td>
+              <td class="p-2.5 text-right">
+                ${statusBadge}
+              </td>
+            </tr>
+          `;
+        });
+
+        tbody.innerHTML = htmlRows;
+      }
+
+      // Rolar suavemente até o painel
+      painel.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+
+    // ==============================================================
     // MODAL DE CUPOM TÉRMICO (BOBINA BU / ZERÉSIMA)
     // ==============================================================
     function abrirModalCupomTermicoSimulador() {
@@ -6865,6 +7357,7 @@ o Boletim de Urna (apos encerramento da votacao).
 
         container.innerHTML = lista.map(item => {
           const isSecaoReal = item.tipo_origem === "SECAO_REAL";
+          const isIntraLocal = item.tipo_origem === "INTRA_LOCAL";
           const dCrt = item.criado_em || item.created_at || "-";
 
           const c1Nome = item.cand1_nome || (item.cand1 && item.cand1.nome) || "C1";
@@ -6881,7 +7374,9 @@ o Boletim de Urna (apos encerramento da votacao).
 
           let origemBadge = isSecaoReal
             ? `<span class="px-2 py-0.5 rounded text-[10px] font-black mono bg-cyan-950 text-cyan-300 border border-cyan-700">🏛️ SEÇÃO REAL: ${item.uf || ''} ${item.municipio_nome || item.municipio || ''} Z:${item.zona} S:${item.secao}</span>`
-            : `<span class="px-2 py-0.5 rounded text-[10px] font-black mono bg-slate-800 text-slate-300 border border-slate-700">⚡ PARAMÉTRICO</span>`;
+            : (isIntraLocal
+                ? `<span class="px-2 py-0.5 rounded text-[10px] font-black mono bg-purple-950 text-purple-300 border border-purple-700">🏢 INTRA-LOCAL: ${item.local_votacao || item.titulo_cenario || 'Prédio Físico'}</span>`
+                : `<span class="px-2 py-0.5 rounded text-[10px] font-black mono bg-slate-800 text-slate-300 border border-slate-700">⚡ PARAMÉTRICO</span>`);
 
           let vencColor = "text-slate-300";
           if (item.vencedor_numero === c1Num) vencColor = "text-cyan-400";
@@ -6979,10 +7474,13 @@ o Boletim de Urna (apos encerramento da votacao).
         }
 
         // Renderizar todos os elementos
-        renderizarResultadosSimulacao2T(payload);
-
-        // Se tiver logs, executa auditoria
-        await executarAuditoriaIndependenteNaBase();
+        if (payload.secoes_detalhes && payload.media_local) {
+          renderizarResultadoSimulacaoIntraLocal(payload);
+        } else {
+          renderizarResultadosSimulacao2T(payload);
+          // Se tiver logs, executa auditoria
+          await executarAuditoriaIndependenteNaBase();
+        }
 
         fecharModalHistoricoSimulacoes();
 

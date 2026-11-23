@@ -51,6 +51,7 @@ from .esp32_protocol import decode_esp32_vote_frame
 from .simulator_audit import (
     executar_simulacao_cadencia_seccao,
     executar_simulacao_segundo_turno_voto_a_voto,
+    executar_simulacao_intra_local,
     auditar_logs_independente,
     obter_setup_secao_real,
     buscar_secoes_reais_banco,
@@ -227,6 +228,18 @@ def on_startup():
                     print(f"[STARTUP] Resultado do reparo de votos: {rep_res}")
             except Exception as e_rep:
                 print(f"[STARTUP] Aviso na verificação de votos do catálogo: {e_rep}")
+
+            # Sanitização automática de cargos em tse_votos_candidatos:
+            # Garante que PRESIDENTE contenha exclusivamente candidatos de 2 dígitos (10 a 99)
+            try:
+                from sqlalchemy import text
+                db.execute(text("UPDATE tse_votos_candidatos SET cargo = 'DEPUTADO ESTADUAL' WHERE cargo = 'PRESIDENTE' AND numero_candidato >= 10000;"))
+                db.execute(text("UPDATE tse_votos_candidatos SET cargo = 'DEPUTADO FEDERAL' WHERE cargo = 'PRESIDENTE' AND numero_candidato BETWEEN 1000 AND 9999;"))
+                db.execute(text("UPDATE tse_votos_candidatos SET cargo = 'SENADOR' WHERE cargo = 'PRESIDENTE' AND numero_candidato BETWEEN 100 AND 999;"))
+                db.commit()
+            except Exception as e_san:
+                db.rollback()
+                print(f"[STARTUP] Aviso na sanitização de cargos de candidatos: {e_san}")
         except Exception as exc:
             print(f"[STARTUP] Erro no startup da seccao: {exc}")
         finally:
@@ -360,6 +373,18 @@ class SimulacaoSegundoTurnoSchema(BaseModel):
     real_2t_c1_votos: Optional[int] = None
     real_2t_c2_votos: Optional[int] = None
     real_2t_vencedor: Optional[str] = None
+
+
+class SimulacaoIntraLocalSchema(BaseModel):
+    uf: str
+    zona: int
+    secao_referencia: int
+    cand1_numero: int = 22
+    cand1_nome: str = "FLÁVIO BOLSONARO"
+    cand2_numero: int = 13
+    cand2_nome: str = "LULA"
+    tipo_absorcao: str = "PROPORCIONAL_1T"
+    pct_absorcao_c1: float = 50.0
 
 
 class AuditoriaExternaLogsSchema(BaseModel):
@@ -1135,6 +1160,37 @@ def api_simulacao_dados_secao_real(
         raise HTTPException(status_code=404, detail=str(exc))
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Erro ao carregar setup da seção: {str(exc)}")
+
+
+@app.post("/api/simulacao/executar-intra-local")
+def api_simulacao_executar_intra_local(
+    payload: SimulacaoIntraLocalSchema,
+    db: Session = Depends(get_db),
+):
+    """
+    Executa a simulação completa para todas as seções eleitorais de um mesmo local de votação (prédio físico).
+    Calcula os números de forma individual para cada urna.
+    Gera a média do local versus cada urna individual simulada e cada urna real no segundo turno,
+    além de apontar a distorção intra-local de novos votos.
+    """
+    try:
+        return executar_simulacao_intra_local(
+            db,
+            uf=payload.uf,
+            zona=payload.zona,
+            secao_ref=payload.secao_referencia,
+            cand1_num=payload.cand1_numero,
+            cand1_nome=payload.cand1_nome,
+            cand2_num=payload.cand2_numero,
+            cand2_nome=payload.cand2_nome,
+            tipo_absorcao=payload.tipo_absorcao,
+            pct_absorcao_c1=payload.pct_absorcao_c1,
+            arquivar_historico=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Erro ao executar simulação intra-local: {str(exc)}")
 
 
 @app.get("/api/simulacao/historico")

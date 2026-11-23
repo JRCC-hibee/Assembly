@@ -6,6 +6,7 @@ import secrets
 import hashlib
 from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
+from sqlalchemy import func, case
 
 from .database import (
     engine,
@@ -1092,17 +1093,19 @@ def obter_setup_secao_real(
     bu_1t = db.query(TseApuracaoBU).filter(TseApuracaoBU.secao_id == secao_db.id, TseApuracaoBU.turno == 1).first()
     bu_2t = db.query(TseApuracaoBU).filter(TseApuracaoBU.secao_id == secao_db.id, TseApuracaoBU.turno == 2).first()
 
-    # 2. Votação de Candidatos no 1T e 2T (Presidente)
+    # 2. Votação de Candidatos no 1T e 2T (Presidente: estritamente 2 dígitos 10 a 99)
     votos_1t = db.query(TseVotoCandidato).filter(
         TseVotoCandidato.secao_id == secao_db.id,
         TseVotoCandidato.turno == 1,
         TseVotoCandidato.cargo == "PRESIDENTE",
+        TseVotoCandidato.numero_candidato.between(10, 99),
     ).order_by(TseVotoCandidato.quantidade_votos.desc()).all()
 
     votos_2t = db.query(TseVotoCandidato).filter(
         TseVotoCandidato.secao_id == secao_db.id,
         TseVotoCandidato.turno == 2,
         TseVotoCandidato.cargo == "PRESIDENTE",
+        TseVotoCandidato.numero_candidato.between(10, 99),
     ).order_by(TseVotoCandidato.quantidade_votos.desc()).all()
 
     # Identificar os 2 concorrentes principais (22 e 13 ou os mais votados)
@@ -1287,7 +1290,399 @@ def obter_setup_secao_real(
             "tem_dados_2t_oficiais": tem_dados_2t,
         },
         "resultado_real_2t_tse": real_comparativo_2t,
+        "dados_local": dados_local,
     }
+
+
+def executar_simulacao_intra_local(
+    db: Session,
+    uf: str,
+    zona: int,
+    secao_ref: int,
+    cand1_num: int = 22,
+    cand1_nome: str = "FLÁVIO BOLSONARO",
+    cand2_num: int = 13,
+    cand2_nome: str = "LULA",
+    tipo_absorcao: str = "PROPORCIONAL_1T",
+    pct_absorcao_c1: float = 50.0,
+    arquivar_historico: bool = True,
+) -> dict:
+    """
+    Executa a simulação completa para todas as seções eleitorais de um mesmo local de votação (prédio físico).
+    Calcula os números voto a voto e turno a turno de cada urna individualmente.
+    Ao final, gera:
+      - A média ponderada consolidada do prédio (1ºT, 2ºT Simulado e 2ºT Real Oficial).
+      - O comparativo de cada urna individual contra a média do local.
+      - A medição da Distorção Intra-Local de Novos Votos para cada urna.
+      - Métricas de coerência intra-prédio: Desvio Padrão (sigma) e Delta Máximo (delta_max).
+    """
+    garantir_tabelas_custodia_tse()
+    secao_ref_db = db.query(TseSecao).filter(
+        TseSecao.uf == uf.strip().upper(),
+        TseSecao.zona == int(zona),
+        TseSecao.secao == int(secao_ref),
+    ).first()
+    if not secao_ref_db:
+        raise ValueError(f"Seção de referência {secao_ref} (Zona {zona}, {uf}) não encontrada.")
+
+    loc_val = (secao_ref_db.local_votacao or "").strip()
+    tem_local = bool(loc_val and loc_val != "-")
+    q_loc = db.query(TseSecao).filter(
+        TseSecao.uf == secao_ref_db.uf,
+        TseSecao.municipio_codigo == secao_ref_db.municipio_codigo,
+        TseSecao.zona == secao_ref_db.zona,
+    )
+    if tem_local:
+        q_loc = q_loc.filter(func.trim(func.upper(TseSecao.local_votacao)) == loc_val.upper())
+    else:
+        q_loc = q_loc.filter(TseSecao.secao == secao_ref_db.secao)
+
+    secoes_local = q_loc.order_by(TseSecao.secao).all()
+    if len(secoes_local) < 2:
+        raise ValueError(f"O local desta seção possui apenas {len(secoes_local)} urna. A simulação intra-local requer 2 ou mais seções.")
+
+    nome_local = loc_val or f"Zona {zona:04d} - Local {secao_ref}"
+    nome_mun = secao_ref_db.municipio_nome or ""
+    uf_upper = secao_ref_db.uf.upper()
+
+    secoes_resultados = []
+    totais_local = {
+        "aptos": 0,
+        "comp_1t": 0,
+        "comp_2t": 0,
+        "v1_1t": 0,
+        "v2_1t": 0,
+        "voutros_1t": 0,
+        "brancos_1t": 0,
+        "nulos_1t": 0,
+        "brancos_2t": 0,
+        "nulos_2t": 0,
+        "novos_votos_disputa": 0,
+        "sim_c1": 0,
+        "sim_c2": 0,
+        "real_c1": 0,
+        "real_c2": 0,
+        "novos_real_c1": 0,
+        "novos_real_c2": 0,
+        "urnas_com_real_2t": 0,
+    }
+
+    for s in secoes_local:
+        bu_1t = db.query(TseApuracaoBU).filter(TseApuracaoBU.secao_id == s.id, TseApuracaoBU.turno == 1).first()
+        bu_2t = db.query(TseApuracaoBU).filter(TseApuracaoBU.secao_id == s.id, TseApuracaoBU.turno == 2).first()
+
+        votos_1t = db.query(TseVotoCandidato).filter(
+            TseVotoCandidato.secao_id == s.id,
+            TseVotoCandidato.turno == 1,
+            TseVotoCandidato.cargo == "PRESIDENTE",
+            TseVotoCandidato.numero_candidato.between(10, 99)
+        ).all()
+
+        votos_2t = db.query(TseVotoCandidato).filter(
+            TseVotoCandidato.secao_id == s.id,
+            TseVotoCandidato.turno == 2,
+            TseVotoCandidato.cargo == "PRESIDENTE",
+            TseVotoCandidato.numero_candidato.between(10, 99)
+        ).all()
+
+        v1_1t = sum(v.quantidade_votos for v in votos_1t if v.numero_candidato == cand1_num)
+        v2_1t = sum(v.quantidade_votos for v in votos_1t if v.numero_candidato == cand2_num)
+        v_outros_1t = sum(v.quantidade_votos for v in votos_1t if v.numero_candidato not in (cand1_num, cand2_num))
+
+        aptos_sec = (bu_2t.eleitores_aptos if bu_2t and bu_2t.eleitores_aptos else (bu_1t.eleitores_aptos if bu_1t and bu_1t.eleitores_aptos else 350))
+        comp_1t_sec = bu_1t.comparecimento if bu_1t and bu_1t.comparecimento else (v1_1t + v2_1t + v_outros_1t)
+        comp_2t_sec = bu_2t.comparecimento if bu_2t and bu_2t.comparecimento else comp_1t_sec
+        br_1t_sec = bu_1t.votos_brancos if bu_1t else 0
+        nu_1t_sec = bu_1t.votos_nulos if bu_1t else 0
+        br_2t_sec = bu_2t.votos_brancos if bu_2t else br_1t_sec
+        nu_2t_sec = bu_2t.votos_nulos if bu_2t else nu_1t_sec
+
+        delta_comp_sec = comp_2t_sec - comp_1t_sec
+        saldo_br_nu_sec = (br_1t_sec + nu_1t_sec) - (br_2t_sec + nu_2t_sec)
+        novos_disputa_sec = max(0, v_outros_1t + delta_comp_sec + saldo_br_nu_sec)
+
+        # Absorção configurada / proporcional individual desta urna
+        tot_1t_par = v1_1t + v2_1t
+        if tipo_absorcao == "PROPORCIONAL_1T":
+            p_abs_c1 = round((v1_1t / max(1, tot_1t_par)) * 100.0, 1) if tot_1t_par > 0 else 50.0
+        else:
+            p_abs_c1 = float(pct_absorcao_c1)
+        p_abs_c2 = round(100.0 - p_abs_c1, 1)
+
+        novos_c1_sim = round(novos_disputa_sec * (p_abs_c1 / 100.0))
+        novos_c2_sim = max(0, novos_disputa_sec - novos_c1_sim)
+
+        sim_c1_sec = v1_1t + novos_c1_sim
+        sim_c2_sec = v2_1t + novos_c2_sim
+        sim_val_sec = sim_c1_sec + sim_c2_sec
+        pct_sim_c1_sec = round((sim_c1_sec / max(1, sim_val_sec)) * 100.0, 1) if sim_val_sec > 0 else 50.0
+        pct_sim_c2_sec = round(100.0 - pct_sim_c1_sec, 1)
+
+        # Real 2T se existir no banco
+        c1_real_v = next((v.quantidade_votos for v in votos_2t if v.numero_candidato == cand1_num), None)
+        c2_real_v = next((v.quantidade_votos for v in votos_2t if v.numero_candidato == cand2_num), None)
+        tem_real_sec = (c1_real_v is not None and c2_real_v is not None)
+
+        if tem_real_sec:
+            val_real_sec = c1_real_v + c2_real_v
+            pct_real_c1_sec = round((c1_real_v / max(1, val_real_sec)) * 100.0, 1) if val_real_sec > 0 else 0.0
+            pct_real_c2_sec = round(100.0 - pct_real_c1_sec, 1)
+            novos_real_c1_sec = c1_real_v - v1_1t
+            novos_real_c2_sec = c2_real_v - v2_1t
+            pct_abs_real_c1_sec = round((novos_real_c1_sec / max(1, novos_disputa_sec)) * 100.0, 1) if novos_disputa_sec > 0 else 0.0
+
+            totais_local["real_c1"] += c1_real_v
+            totais_local["real_c2"] += c2_real_v
+            totais_local["novos_real_c1"] += novos_real_c1_sec
+            totais_local["novos_real_c2"] += novos_real_c2_sec
+            totais_local["urnas_com_real_2t"] += 1
+        else:
+            val_real_sec = None
+            pct_real_c1_sec = None
+            pct_real_c2_sec = None
+            novos_real_c1_sec = None
+            novos_real_c2_sec = None
+            pct_abs_real_c1_sec = None
+
+        totais_local["aptos"] += aptos_sec
+        totais_local["comp_1t"] += comp_1t_sec
+        totais_local["comp_2t"] += comp_2t_sec
+        totais_local["v1_1t"] += v1_1t
+        totais_local["v2_1t"] += v2_1t
+        totais_local["voutros_1t"] += v_outros_1t
+        totais_local["brancos_1t"] += br_1t_sec
+        totais_local["nulos_1t"] += nu_1t_sec
+        totais_local["brancos_2t"] += br_2t_sec
+        totais_local["nulos_2t"] += nu_2t_sec
+        totais_local["novos_votos_disputa"] += novos_disputa_sec
+        totais_local["sim_c1"] += sim_c1_sec
+        totais_local["sim_c2"] += sim_c2_sec
+
+        # Margem de erro da urna individual
+        p_est_u = pct_sim_c1_sec / 100.0
+        me_u = round(1.96 * math.sqrt(max(0.0001, (p_est_u * (1.0 - p_est_u)) / max(1, sim_val_sec))) * 100.0, 2)
+
+        secoes_resultados.append({
+            "secao": s.secao,
+            "chave_secao": s.chave_secao,
+            "is_secao_foco": (s.secao == secao_ref_db.secao),
+            "modelo_urna": s.modelo_urna or "UE2020",
+            "aptos": aptos_sec,
+            "comparecimento_1t": comp_1t_sec,
+            "comparecimento_2t": comp_2t_sec,
+            "votos_1t_cand1": v1_1t,
+            "votos_1t_cand2": v2_1t,
+            "votos_1t_outros": v_outros_1t,
+            "pct_1t_cand1": round((v1_1t / max(1, tot_1t_par)) * 100.0, 1) if tot_1t_par > 0 else 0.0,
+            "pct_1t_cand2": round((v2_1t / max(1, tot_1t_par)) * 100.0, 1) if tot_1t_par > 0 else 0.0,
+            "novos_votos_disputa": novos_disputa_sec,
+            "pct_absorcao_sim_c1": p_abs_c1,
+            "sim_votos_cand1": sim_c1_sec,
+            "sim_votos_cand2": sim_c2_sec,
+            "sim_pct_cand1": pct_sim_c1_sec,
+            "sim_pct_cand2": pct_sim_c2_sec,
+            "sim_validos": sim_val_sec,
+            "margem_erro_urna_pct": me_u,
+            "tem_real_2t": tem_real_sec,
+            "real_votos_cand1": c1_real_v,
+            "real_votos_cand2": c2_real_v,
+            "real_pct_cand1": pct_real_c1_sec,
+            "real_pct_cand2": pct_real_c2_sec,
+            "real_validos": val_real_sec,
+            "real_novos_cand1": novos_real_c1_sec,
+            "real_novos_cand2": novos_real_c2_sec,
+            "real_pct_absorcao_c1": pct_abs_real_c1_sec,
+        })
+
+    # 2. Médias Globais do Prédio Físico
+    tot_par_1t_loc = totais_local["v1_1t"] + totais_local["v2_1t"]
+    media_local_1t_pct_c1 = round((totais_local["v1_1t"] / max(1, tot_par_1t_loc)) * 100.0, 1) if tot_par_1t_loc > 0 else 50.0
+    media_local_1t_pct_c2 = round(100.0 - media_local_1t_pct_c1, 1)
+
+    tot_sim_val_loc = totais_local["sim_c1"] + totais_local["sim_c2"]
+    media_local_sim_pct_c1 = round((totais_local["sim_c1"] / max(1, tot_sim_val_loc)) * 100.0, 1) if tot_sim_val_loc > 0 else 50.0
+    media_local_sim_pct_c2 = round(100.0 - media_local_sim_pct_c1, 1)
+
+    tem_algum_real = totais_local["urnas_com_real_2t"] > 0
+    tot_real_val_loc = totais_local["real_c1"] + totais_local["real_c2"]
+    media_local_real_pct_c1 = round((totais_local["real_c1"] / max(1, tot_real_val_loc)) * 100.0, 1) if tot_real_val_loc > 0 else 0.0
+    media_local_real_pct_c2 = round(100.0 - media_local_real_pct_c1, 1) if tot_real_val_loc > 0 else 0.0
+
+    media_abs_real_c1_loc = round((totais_local["novos_real_c1"] / max(1, totais_local["novos_votos_disputa"])) * 100.0, 1) if totais_local["novos_votos_disputa"] > 0 else 0.0
+
+    # 3. Análise Seção por Seção: Desvios e Distorções Intra-Local
+    urnas_com_distorcao = 0
+    urnas_favorecendo_c1 = 0
+    urnas_favorecendo_c2 = 0
+    urnas_homogeneas = 0
+    lista_pct_real_c1 = []
+    lista_pct_sim_c1 = []
+
+    for r in secoes_resultados:
+        # Desvio do simulado em relação à média simulada do prédio
+        d_sim_loc_c1 = round(r["sim_pct_cand1"] - media_local_sim_pct_c1, 1)
+        r["delta_sim_vs_media_local_c1"] = d_sim_loc_c1
+        lista_pct_sim_c1.append(r["sim_pct_cand1"])
+
+        if r["tem_real_2t"]:
+            lista_pct_real_c1.append(r["real_pct_cand1"])
+            d_real_loc_c1 = round(r["real_pct_cand1"] - media_local_real_pct_c1, 1)
+            d_real_sim_c1 = round(r["real_pct_cand1"] - r["sim_pct_cand1"], 1)
+            r["delta_real_vs_media_local_c1"] = d_real_loc_c1
+            r["delta_real_vs_sim_c1"] = d_real_sim_c1
+
+            # Medição da Distorção Intra-Local de Novos Votos
+            distorcao_nv_c1 = round(r["real_pct_absorcao_c1"] - media_abs_real_c1_loc, 1)
+            r["distorcao_novos_votos_c1"] = distorcao_nv_c1
+            r["distorcao_novos_votos_c2"] = -distorcao_nv_c1
+
+            # Limiar forense para distorção intra-local: |distorcao| >= 10.0%
+            if abs(distorcao_nv_c1) >= 10.0:
+                urnas_com_distorcao += 1
+                if distorcao_nv_c1 > 0:
+                    urnas_favorecendo_c1 += 1
+                    r["status_coerencia"] = "DISTORCAO_FAVOR_C1"
+                    r["veredito_intra_local"] = f"Distorção detectada a favor de {cand1_nome} (+{distorcao_nv_c1:.1f}% novos votos)"
+                else:
+                    urnas_favorecendo_c2 += 1
+                    r["status_coerencia"] = "DISTORCAO_FAVOR_C2"
+                    r["veredito_intra_local"] = f"Distorção detectada a favor de {cand2_nome} (+{abs(distorcao_nv_c1):.1f}% novos votos)"
+            else:
+                urnas_homogeneas += 1
+                r["status_coerencia"] = "HOMOGENEO"
+                r["veredito_intra_local"] = "Padrão homogêneo com o prédio (± variação normal)"
+        else:
+            r["delta_real_vs_media_local_c1"] = None
+            r["delta_real_vs_sim_c1"] = None
+            r["distorcao_novos_votos_c1"] = None
+            r["distorcao_novos_votos_c2"] = None
+            r["status_coerencia"] = "SIMULADO_PROJETADO"
+            r["veredito_intra_local"] = f"Urna simulada ({d_sim_loc_c1:+.1f}% vs média)"
+
+    # Coerência estatística do prédio (Desvio Padrão sigma e Delta Máximo)
+    if lista_pct_real_c1:
+        n_pts = len(lista_pct_real_c1)
+        media_pts = sum(lista_pct_real_c1) / n_pts
+        var_pts = sum((x - media_pts) ** 2 for x in lista_pct_real_c1) / max(1, n_pts)
+        sigma_local = round(math.sqrt(var_pts), 2)
+        delta_max_local = round(max(lista_pct_real_c1) - min(lista_pct_real_c1), 1)
+    else:
+        n_pts = len(lista_pct_sim_c1)
+        media_pts = sum(lista_pct_sim_c1) / max(1, n_pts)
+        var_pts = sum((x - media_pts) ** 2 for x in lista_pct_sim_c1) / max(1, n_pts)
+        sigma_local = round(math.sqrt(var_pts), 2)
+        delta_max_local = round(max(lista_pct_sim_c1) - min(lista_pct_sim_c1), 1)
+
+    veredito_predio = (
+        "PADRÃO HOMOGÊNEO INTRA-PRÉDIO"
+        if urnas_com_distorcao == 0
+        else f"DIVERGÊNCIA INTERNA: {urnas_com_distorcao} de {len(secoes_local)} urnas com distorção atípica de novos votos"
+    )
+
+    p_est_loc = media_local_sim_pct_c1 / 100.0
+    me_local = round(1.96 * math.sqrt(max(0.0001, (p_est_loc * (1.0 - p_est_loc)) / max(1, tot_sim_val_loc))) * 100.0, 2)
+
+    resultado_completo = {
+        "ok": True,
+        "local_info": {
+            "nome_local": nome_local,
+            "municipio_nome": nome_mun,
+            "uf": uf_upper,
+            "zona": zona,
+            "qtd_secoes": len(secoes_local),
+            "secao_referencia": secao_ref,
+        },
+        "candidatos": {
+            "cand1": {"numero": str(cand1_num), "nome": cand1_nome, "partido": "PL" if str(cand1_num) == "22" else "C1"},
+            "cand2": {"numero": str(cand2_num), "nome": cand2_nome, "partido": "PT" if str(cand2_num) == "13" else "C2"},
+        },
+        "media_local": {
+            "primeiro_turno": {
+                "votos_cand1": totais_local["v1_1t"],
+                "votos_cand2": totais_local["v2_1t"],
+                "votos_outros": totais_local["voutros_1t"],
+                "pct_cand1": media_local_1t_pct_c1,
+                "pct_cand2": media_local_1t_pct_c2,
+                "comparecimento": totais_local["comp_1t"],
+                "brancos": totais_local["brancos_1t"],
+                "nulos": totais_local["nulos_1t"],
+            },
+            "segundo_turno_simulado": {
+                "votos_cand1": totais_local["sim_c1"],
+                "votos_cand2": totais_local["sim_c2"],
+                "pct_cand1": media_local_sim_pct_c1,
+                "pct_cand2": media_local_sim_pct_c2,
+                "total_validos": tot_sim_val_loc,
+                "comparecimento": totais_local["comp_2t"],
+                "brancos": totais_local["brancos_2t"],
+                "nulos": totais_local["nulos_2t"],
+                "novos_votos_totais": totais_local["novos_votos_disputa"],
+                "margem_erro_local_pct": me_local,
+            },
+            "segundo_turno_real_oficial": {
+                "disponivel": tem_algum_real,
+                "votos_cand1": totais_local["real_c1"],
+                "votos_cand2": totais_local["real_c2"],
+                "pct_cand1": media_local_real_pct_c1,
+                "pct_cand2": media_local_real_pct_c2,
+                "total_validos": tot_real_val_loc,
+                "media_absorcao_real_cand1": media_abs_real_c1_loc,
+                "media_absorcao_real_cand2": round(100.0 - media_abs_real_c1_loc, 1) if tem_algum_real else 0.0,
+            },
+            "coerencia_estatistica": {
+                "desvio_padrao_sigma": sigma_local,
+                "delta_maximo_pct": delta_max_local,
+                "urnas_com_distorcao": urnas_com_distorcao,
+                "urnas_homogeneas": urnas_homogeneas,
+                "urnas_favorecendo_c1": urnas_favorecendo_c1,
+                "urnas_favorecendo_c2": urnas_favorecendo_c2,
+                "veredito_geral": veredito_predio,
+            },
+        },
+        "secoes_detalhes": secoes_resultados,
+    }
+
+    if arquivar_historico:
+        try:
+            h_obj = HistoricoSimulacao(
+                tipo_origem="INTRA_LOCAL",
+                titulo_cenario=f"Simulação Intra-Local: {nome_local} ({len(secoes_local)} Urnas)",
+                secao_chave=f"{uf_upper}_{secao_ref_db.municipio_codigo}_{zona:04d}_{secao_ref:04d}",
+                uf=uf_upper,
+                municipio_codigo=secao_ref_db.municipio_codigo,
+                municipio_nome=nome_mun,
+                zona=zona,
+                secao=secao_ref,
+                local_votacao=nome_local,
+                eleitores_aptos=totais_local["aptos"],
+                comparecimento=totais_local["comp_2t"],
+                abstencoes=max(0, totais_local["aptos"] - totais_local["comp_2t"]),
+                votos_validos=tot_sim_val_loc,
+                cand1_numero=str(cand1_num),
+                cand1_nome=cand1_nome,
+                cand1_partido="PL" if str(cand1_num) == "22" else "C1",
+                cand1_votos_urna=totais_local["sim_c1"],
+                cand1_pct_urna=media_local_sim_pct_c1,
+                cand2_numero=str(cand2_num),
+                cand2_nome=cand2_nome,
+                cand2_partido="PT" if str(cand2_num) == "13" else "C2",
+                cand2_votos_urna=totais_local["sim_c2"],
+                cand2_pct_urna=media_local_sim_pct_c2,
+                vencedor_numero=str(cand1_num if totais_local["sim_c1"] >= totais_local["sim_c2"] else cand2_num),
+                vencedor_nome=cand1_nome if totais_local["sim_c1"] >= totais_local["sim_c2"] else cand2_nome,
+                margem_amostral_pct=me_local,
+                dentro_margem=True,
+                veredito_forense=veredito_predio,
+                payload_completo_json=json.dumps(resultado_completo, ensure_ascii=False),
+            )
+            db.add(h_obj)
+            db.commit()
+            resultado_completo["historico_id"] = h_obj.id
+        except Exception as e_hist:
+            db.rollback()
+            print(f"[SIMULADOR] Aviso ao arquivar simulação intra-local: {e_hist}")
+
+    return resultado_completo
 
 
 def buscar_secoes_reais_banco(

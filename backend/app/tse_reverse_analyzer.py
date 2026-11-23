@@ -3948,9 +3948,17 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     linhas_1t_val = len(ciclos_1t) * 15 if ciclos_1t else (comp_1t_val * 15)
                     linhas_2t_val = len(ciclos_2t) * 15 if ciclos_2t else (comp_2t_val * 15)
 
-                    # Constrói comparativo dinâmico completo de todos os candidatos de Presidente
-                    cands_1t_pres = [c for c in cands_1t_fmt if "PRESIDENT" in str(c.get("cargo", "PRESIDENTE")).upper()]
-                    cands_2t_pres = [c for c in cands if "PRESIDENT" in str(c.get("cargo", "PRESIDENTE")).upper()]
+                    # Constrói comparativo dinâmico completo de todos os candidatos de Presidente (estritamente 2 dígitos: 10 a 99)
+                    cands_1t_pres = [
+                        c for c in cands_1t_fmt
+                        if "PRESIDENT" in str(c.get("cargo", "PRESIDENTE")).upper()
+                        and str(c.get("numero", "")).isdigit() and 10 <= int(c.get("numero", 0)) <= 99
+                    ]
+                    cands_2t_pres = [
+                        c for c in cands
+                        if "PRESIDENT" in str(c.get("cargo", "PRESIDENTE")).upper()
+                        and str(c.get("numero", "")).isdigit() and 10 <= int(c.get("numero", 0)) <= 99
+                    ]
 
                     nums_2t = [c["numero"] for c in cands_2t_pres]
                     nums_1t = [c["numero"] for c in cands_1t_pres if c["numero"] not in nums_2t]
@@ -9672,10 +9680,22 @@ def _consolidar_secoes_tse_sql(
             ).label("votos_rdv"),
             func.count(TseVotoCandidato.id).label("urnas_com_voto"),
         ).select_from(TseVotoCandidato)
+        filtros_cargo = [TseVotoCandidato.cargo == cargo_filtro]
+        if cargo_filtro == "PRESIDENTE":
+            filtros_cargo.append(TseVotoCandidato.numero_candidato.between(10, 99))
+        elif cargo_filtro == "GOVERNADOR":
+            filtros_cargo.append(TseVotoCandidato.numero_candidato.between(10, 99))
+        elif cargo_filtro == "SENADOR":
+            filtros_cargo.append(TseVotoCandidato.numero_candidato.between(100, 999))
+        elif cargo_filtro == "DEPUTADO FEDERAL":
+            filtros_cargo.append(TseVotoCandidato.numero_candidato.between(1000, 9999))
+        elif cargo_filtro == "DEPUTADO ESTADUAL":
+            filtros_cargo.append(TseVotoCandidato.numero_candidato.between(10000, 99999))
+
         if filtro_secao:
             q_vr = q_vr.join(TseSecao, TseVotoCandidato.secao_id == TseSecao.id).filter(*filtro_secao)
         votos_resumo_rows = (
-            q_vr.filter(TseVotoCandidato.cargo == cargo_filtro)
+            q_vr.filter(*filtros_cargo)
             .group_by(TseVotoCandidato.turno, TseVotoCandidato.numero_candidato)
             .all()
         )
@@ -9691,6 +9711,9 @@ def _consolidar_secoes_tse_sql(
 
     cands_t1_map = {str(r.numero_candidato): int(r.votos or 0) for r in vr_t1}
     cands_t2_map = {str(r.numero_candidato): int(r.votos or 0) for r in vr_t2}
+    if cargo_filtro == "PRESIDENTE":
+        cands_t1_map = {k: v for k, v in cands_t1_map.items() if k.isdigit() and 10 <= int(k) <= 99}
+        cands_t2_map = {k: v for k, v in cands_t2_map.items() if k.isdigit() and 10 <= int(k) <= 99}
     cands_nomes = {}
     for r in vr_t1 + vr_t2:
         n_str = str(r.numero_candidato)
