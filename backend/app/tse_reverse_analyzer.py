@@ -728,8 +728,17 @@ def _novo_estado_dia_log(data_str: str) -> dict:
         "hora_zeresima": "",
         "hora_pronta_votos": "",
         "hora_encerramento": "",
+        "titulo_abertura": "",
+        "hora_abertura_mesario": "",
         "titulo_encerramento": "",
+        "hora_titulo_encerramento": "",
+        "mac_encerramento": "",
         "mesarios_registrados": [],
+        "mesarios_detalhes": {},
+        "fase_mesa": "ANTES_VOTACAO",
+        "contador_ordem_abertura": 0,
+        "ultimo_titulo_bio_pendente": "",
+        "titulos_invalidos_mesario": 0,
         "cargos_distintos": [],
         "alertas_e_erros": [],
         "ciclos_votacao": [],
@@ -762,6 +771,51 @@ def _novo_estado_dia_log(data_str: str) -> dict:
     }
 
 
+def _garantir_item_mesario_log(est: dict, titulo_raw: str) -> dict | None:
+    digs = "".join(ch for ch in str(titulo_raw or "") if ch.isdigit())
+    if not digs:
+        return None
+    tit_norm = digs.zfill(12) if len(digs) <= 12 else digs
+    det = est["mesarios_detalhes"].get(tit_norm)
+    if det is None:
+        det = {
+            "titulo": tit_norm,
+            "abriu_secao": False,
+            "ordem_abertura": 0,
+            "hora_abertura": "",
+            "mac_abertura": "",
+            "registrou_durante": False,
+            "hora_durante": "",
+            "digitou_encerramento": False,
+            "hora_encerramento": "",
+            "mac_encerramento": "",
+            "registrou_pos_votacao": False,
+            "hora_pos_votacao": "",
+            "qtd_habilitacoes_bio": 0,
+            "primeira_acao_hora": "",
+            "ultima_acao_hora": "",
+            "eleitor_da_secao": None,
+            "biometria_conferida": None,
+            "eventos": [],
+        }
+        est["mesarios_detalhes"][tit_norm] = det
+    return det
+
+
+def _registrar_evento_mesario_log(det: dict, hora_cur: str, acao: str, mac_hex: str = "") -> None:
+    if hora_cur:
+        if not det["primeira_acao_hora"] or hora_cur < det["primeira_acao_hora"]:
+            det["primeira_acao_hora"] = hora_cur
+        if not det["ultima_acao_hora"] or hora_cur > det["ultima_acao_hora"]:
+            det["ultima_acao_hora"] = hora_cur
+    if len(det["eventos"]) < 30:
+        det["eventos"].append({
+            "hora": hora_cur,
+            "acao": acao,
+            "mac": mac_hex,
+        })
+
+
 def _compilar_resumo_dia_log(est: dict) -> dict:
     ciclos = est["ciclos_votacao"]
     tempos_cabine = [c["tempo_cabine_s"] for c in ciclos]
@@ -773,6 +827,16 @@ def _compilar_resumo_dia_log(est: dict) -> dict:
         hh = c["hora_computado"][:2] + "h"
         votos_por_hora[hh] += 1
 
+    mesarios_lista = sorted(
+        est.get("mesarios_detalhes", {}).values(),
+        key=lambda m: (
+            0 if m.get("abriu_secao") else 1,
+            m.get("ordem_abertura") or 99,
+            m.get("primeira_acao_hora") or "99:99:99",
+            m.get("titulo") or "",
+        ),
+    )
+
     return {
         "data_eleicao": est["data_eleicao"],
         "linhas_log_dia": est["linhas_dia"],
@@ -781,8 +845,14 @@ def _compilar_resumo_dia_log(est: dict) -> dict:
         "hora_zeresima": est["hora_zeresima"],
         "hora_pronta_votos": est["hora_pronta_votos"],
         "hora_encerramento": est["hora_encerramento"],
+        "titulo_abertura": est.get("titulo_abertura", ""),
+        "hora_abertura_mesario": est.get("hora_abertura_mesario", ""),
         "titulo_encerramento": est["titulo_encerramento"],
+        "hora_titulo_encerramento": est.get("hora_titulo_encerramento", ""),
+        "mac_encerramento": est.get("mac_encerramento", ""),
+        "titulos_invalidos_mesario": est.get("titulos_invalidos_mesario", 0),
         "mesarios_registrados": est["mesarios_registrados"],
+        "mesarios_detalhados": mesarios_lista,
         "cargos_votados": est["cargos_distintos"],
         "qtd_cargos_votados": len(est["cargos_distintos"]),
         "total_votos_computados": len(ciclos),
@@ -952,16 +1022,95 @@ def decodificar_log_jez_tse(log_jez_bytes: bytes, data_alvo_filtro: str = "") ->
             est["etapas_assinatura_sucesso"] += 1
         elif "Gerando relatório [ZERÉSIMA] [TÉRMINO]" in msg and not est["hora_zeresima"]:
             est["hora_zeresima"] = hora_cur
-        elif "Urna pronta para receber votos" in msg and not est["hora_pronta_votos"]:
-            est["hora_pronta_votos"] = hora_cur
+        elif "Registrando mesários antes da votação" in msg:
+            est["fase_mesa"] = "ANTES_VOTACAO"
+        elif "Registrando mesários durante a votação" in msg:
+            est["fase_mesa"] = "DURANTE_VOTACAO"
+        elif "Registrando mesários após a votação" in msg:
+            est["fase_mesa"] = "APOS_VOTACAO"
+        elif "Urna pronta para receber votos" in msg:
+            if not est["hora_pronta_votos"]:
+                est["hora_pronta_votos"] = hora_cur
+            est["fase_mesa"] = "DURANTE_VOTACAO"
         elif "Procedimento de encerramento confirmado" in msg:
             est["hora_encerramento"] = hora_cur
+            est["fase_mesa"] = "APOS_VOTACAO"
+        elif "Digitado título inválido para o registro de mesário" in msg:
+            est["titulos_invalidos_mesario"] = est.get("titulos_invalidos_mesario", 0) + 1
+        elif "Pedido de leitura da biometria do mesário" in msg:
+            m_p = re.search(r"mesário\s+(\d+)", msg, re.IGNORECASE)
+            if m_p:
+                det_m = _garantir_item_mesario_log(est, m_p.group(1))
+                if det_m:
+                    est["ultimo_titulo_bio_pendente"] = det_m["titulo"]
+                    _registrar_evento_mesario_log(det_m, hora_cur, "PEDIDO_BIOMETRIA_MESARIO", mac_hex)
+        elif "Realizada a conferência da biometria do mesário" in msg:
+            tit_pend = est.get("ultimo_titulo_bio_pendente")
+            if tit_pend and tit_pend in est["mesarios_detalhes"]:
+                est["mesarios_detalhes"][tit_pend]["biometria_conferida"] = True
+        elif "Digital capturada não corresponde a digital do eleitor" in msg and est.get("ultimo_titulo_bio_pendente"):
+            tit_pend = est.get("ultimo_titulo_bio_pendente")
+            if tit_pend in est["mesarios_detalhes"] and est["mesarios_detalhes"][tit_pend]["biometria_conferida"] is None:
+                est["mesarios_detalhes"][tit_pend]["biometria_conferida"] = False
+        elif "é eleitor da seção" in msg and msg.startswith("Mesário "):
+            m_el = re.search(r"^Mesário\s+(\d+)\s+(não\s+)?é eleitor da seção", msg)
+            if m_el:
+                det_m = _garantir_item_mesario_log(est, m_el.group(1))
+                if det_m:
+                    det_m["eleitor_da_secao"] = (m_el.group(2) is None)
         elif "Título digitado para encerramento:" in msg:
-            est["titulo_encerramento"] = msg.split(":", 1)[1].strip()
+            tit_raw_enc = msg.split(":", 1)[1].strip()
+            det_m = _garantir_item_mesario_log(est, tit_raw_enc)
+            if det_m:
+                est["titulo_encerramento"] = det_m["titulo"]
+                est["hora_titulo_encerramento"] = hora_cur
+                est["mac_encerramento"] = mac_hex
+                det_m["digitou_encerramento"] = True
+                det_m["hora_encerramento"] = hora_cur
+                det_m["mac_encerramento"] = mac_hex
+                _registrar_evento_mesario_log(det_m, hora_cur, "DIGITOU_TITULO_ENCERRAMENTO", mac_hex)
+            else:
+                est["titulo_encerramento"] = tit_raw_enc
+                est["hora_titulo_encerramento"] = hora_cur
         elif re.match(r"^Mesário\s+\d+\s+registrado$", msg):
             m_mes = re.search(r"Mesário\s+(\d+)\s+registrado", msg)
-            if m_mes and m_mes.group(1) not in est["mesarios_registrados"]:
-                est["mesarios_registrados"].append(m_mes.group(1))
+            if m_mes:
+                det_m = _garantir_item_mesario_log(est, m_mes.group(1))
+                est["ultimo_titulo_bio_pendente"] = ""
+                if det_m:
+                    tit_n = det_m["titulo"]
+                    if tit_n not in est["mesarios_registrados"]:
+                        est["mesarios_registrados"].append(tit_n)
+                    fase_m = est.get("fase_mesa", "ANTES_VOTACAO")
+                    if fase_m == "ANTES_VOTACAO":
+                        if not det_m["abriu_secao"]:
+                            est["contador_ordem_abertura"] = est.get("contador_ordem_abertura", 0) + 1
+                            det_m["abriu_secao"] = True
+                            det_m["ordem_abertura"] = est["contador_ordem_abertura"]
+                            det_m["hora_abertura"] = hora_cur
+                            det_m["mac_abertura"] = mac_hex
+                            if est["contador_ordem_abertura"] == 1:
+                                est["titulo_abertura"] = tit_n
+                                est["hora_abertura_mesario"] = hora_cur
+                        _registrar_evento_mesario_log(det_m, hora_cur, "REGISTRO_ABERTURA", mac_hex)
+                    elif fase_m == "APOS_VOTACAO":
+                        det_m["registrou_pos_votacao"] = True
+                        det_m["hora_pos_votacao"] = hora_cur
+                        if not det_m["mac_encerramento"]:
+                            det_m["mac_encerramento"] = mac_hex
+                        _registrar_evento_mesario_log(det_m, hora_cur, "REGISTRO_POS_ENCERRAMENTO", mac_hex)
+                    else:
+                        det_m["registrou_durante"] = True
+                        if not det_m["hora_durante"]:
+                            det_m["hora_durante"] = hora_cur
+                        _registrar_evento_mesario_log(det_m, hora_cur, "REGISTRO_DURANTE_VOTACAO", mac_hex)
+        elif msg.startswith("Mesário ") and "habilitou o eleitor" in msg:
+            m_hb = re.search(r"^Mesário\s+(\d+)\s+habilitou o eleitor", msg)
+            if m_hb:
+                det_m = _garantir_item_mesario_log(est, m_hb.group(1))
+                if det_m:
+                    det_m["qtd_habilitacoes_bio"] += 1
+                    _registrar_evento_mesario_log(det_m, hora_cur, "HABILITOU_ELEITOR_BIO", mac_hex)
 
         try:
             dt = datetime.strptime(ts_str, "%d/%m/%Y %H:%M:%S")
@@ -1616,10 +1765,18 @@ def analisar_pacote_seccao_tse(arquivos_dict: dict[str, bytes]) -> dict:
         "hora_pronta_votos_t2": res_log.get("hora_pronta_votos", ""),
         "hora_encerramento_t1": res_t1.get("hora_encerramento", "") if tem_comp_1t_log else "",
         "hora_encerramento_t2": res_log.get("hora_encerramento", ""),
+        "titulo_abertura_t1": res_t1.get("titulo_abertura", "") if tem_comp_1t_log else "",
+        "titulo_abertura_t2": res_log.get("titulo_abertura", ""),
+        "hora_abertura_mesario_t1": res_t1.get("hora_abertura_mesario", "") if tem_comp_1t_log else "",
+        "hora_abertura_mesario_t2": res_log.get("hora_abertura_mesario", ""),
         "titulo_encerramento_t1": res_t1.get("titulo_encerramento", "") if tem_comp_1t_log else "",
         "titulo_encerramento_t2": res_log.get("titulo_encerramento", ""),
         "mesarios_registrados_t1": res_t1.get("mesarios_registrados", []) if tem_comp_1t_log else [],
         "mesarios_registrados_t2": res_log.get("mesarios_registrados", []),
+        "mesarios_detalhados_t1": res_t1.get("mesarios_detalhados", []) if tem_comp_1t_log else [],
+        "mesarios_detalhados_t2": res_log.get("mesarios_detalhados", []),
+        "titulos_invalidos_mesario_t1": res_t1.get("titulos_invalidos_mesario", 0) if tem_comp_1t_log else 0,
+        "titulos_invalidos_mesario_t2": res_log.get("titulos_invalidos_mesario", 0),
     }
 
     return {
@@ -4424,6 +4581,41 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                     except Exception as exc_cust:
                         print(f"[TSE-CUSTODIA] Aviso ao auditar custódia da seção: {exc_cust}")
 
+                    auditoria_mesarios = {"disponivel": False, "turno_1": [], "turno_2": []}
+                    try:
+                        from .tse_mesarios_auditor import obter_mesarios_secao_individual
+                        auditoria_mesarios = obter_mesarios_secao_individual(db, secao_db.id)
+                        if auditoria_mesarios.get("disponivel"):
+                            t1_m = auditoria_mesarios.get("turno_1") or []
+                            t2_m = auditoria_mesarios.get("turno_2") or []
+                            if comp_turnos_sec:
+                                comp_turnos_sec["mesarios_registrados_t1"] = [m["titulo"] for m in t1_m]
+                                comp_turnos_sec["mesarios_registrados_t2"] = [m["titulo"] for m in t2_m]
+                                enc1 = next((m for m in t1_m if m.get("encerrou_secao")), None)
+                                enc2 = next((m for m in t2_m if m.get("encerrou_secao")), None)
+                                if enc1:
+                                    comp_turnos_sec["titulo_encerramento_t1"] = enc1["titulo"]
+                                    if enc1.get("hora_encerramento"):
+                                        comp_turnos_sec["hora_encerramento_t1"] = enc1["hora_encerramento"]
+                                if enc2:
+                                    comp_turnos_sec["titulo_encerramento_t2"] = enc2["titulo"]
+                                    if enc2.get("hora_encerramento"):
+                                        comp_turnos_sec["hora_encerramento_t2"] = enc2["hora_encerramento"]
+                            for m_item in t1_m + t2_m:
+                                al_m = m_item.get("alerta_multi_secao")
+                                if al_m and al_m.get("escala") in ("VERMELHO", "AMARELO"):
+                                    anomalias_forenses.append({
+                                        "severidade": "CRITICA" if al_m["escala"] == "VERMELHO" else "ALERTA",
+                                        "tipo": "MESARIO_MULTI_SECAO",
+                                        "titulo": f"Mesário {m_item['titulo']} ({m_item['turno']}ºT): {al_m['rotulo_escala']}",
+                                        "descricao": (
+                                            f"O título {m_item['titulo']} atuou em {al_m['qtd_secoes']} seções no {m_item['turno']}º Turno "
+                                            f"com distância máxima de {al_m['distancia_max_km']} km entre os locais."
+                                        ),
+                                    })
+                    except Exception as exc_aud_m:
+                        print(f"[TSE-MESARIOS] Aviso ao carregar mesários da seção: {exc_aud_m}")
+
                     c_t2_ue = (custodia_urna.get("turno_2") or {}).get("ue_efetivada")
                     c_t1_ue = (custodia_urna.get("turno_1") or {}).get("ue_efetivada")
                     serial_ue_real = c_t2_ue or c_t1_ue or getattr(bu2, "mac_urna", None) or getattr(bu1, "mac_urna", None) or secao_db.modelo_urna or "UE2020"
@@ -4526,6 +4718,7 @@ def obter_secao_individual_tse(prefixo: str, uf: str = None, mun: str = None, zo
                         "arquivos_recebidos": ["-bu.dat", "-log.jez", "-imgbu.dat", "-rdv.dat"],
                         "resumo_consolidacao": resumo,
                         "custodia_urna": custodia_urna,
+                        "auditoria_mesarios": auditoria_mesarios,
                         "comparativo_turnos": comp_turnos_sec,
                         "batimentos_cruzados": batimentos,
                         "anomalias_forenses": anomalias_forenses,

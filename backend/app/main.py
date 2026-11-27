@@ -238,6 +238,17 @@ def on_startup():
             except Exception as e_san:
                 db.rollback()
                 print(f"[STARTUP] Aviso na sanitização de cargos de candidatos: {e_san}")
+
+            # Indexação automática em segundo plano dos arquivos -log.jez já disponíveis para Auditoria de Mesários
+            try:
+                from .database import TseEventoMesario
+                from .tse_mesarios_auditor import iniciar_reindexacao_mesarios_background
+                qtd_mes_banco = db.query(TseEventoMesario.id).limit(1).count()
+                if qtd_mes_banco == 0:
+                    print("[STARTUP] Tabela tse_eventos_mesarios vazia. Disparando indexação em background dos logs .jez disponíveis...")
+                    iniciar_reindexacao_mesarios_background(forcar_reprocessamento=False)
+            except Exception as e_mes_st:
+                print(f"[STARTUP] Aviso ao iniciar indexação automática de mesários: {e_mes_st}")
         except Exception as exc:
             print(f"[STARTUP] Erro no startup da seccao: {exc}")
         finally:
@@ -2613,6 +2624,70 @@ def api_tse_reverso_gedai_delete(lote_id: int, db: Session = Depends(get_db)):
     db.delete(lote)
     db.commit()
     return {"status": "REMOVIDO", "id": lote_id}
+
+
+# ==============================================================================
+# Auditoria Forense Geotemporal de Mesários (Abertura, Operação e Encerramento)
+# ==============================================================================
+@app.get("/api/tse-reverso/mesarios/auditoria")
+def api_tse_reverso_mesarios_auditoria(
+    turno: str = "TODOS",
+    uf: str = "TODAS",
+    municipio: str = "TODAS",
+    zona: str = "TODAS",
+    escala: str = "TODAS",
+    papel: str = "TODOS",
+    busca_titulo: str = "",
+    limit: int = 250,
+    db: Session = Depends(get_db),
+):
+    """
+    Retorna a auditoria consolidada dos títulos de mesários extraídos dos logs .jez disponíveis:
+      - Escala de distância entre locais: AZUL (< 300m), AMARELO (300m-80km), VERMELHO (> 80km)
+      - Subtotais por Zona Eleitoral e Seções envolvidas
+      - Lista detalhada de alertas e busca individual por título
+    """
+    from .tse_mesarios_auditor import consultar_auditoria_mesarios_bi
+    return consultar_auditoria_mesarios_bi(
+        db=db,
+        turno=turno,
+        uf=uf,
+        municipio=municipio,
+        zona=zona,
+        escala=escala,
+        papel=papel,
+        busca_titulo=busca_titulo,
+        limit=limit,
+    )
+
+
+@app.get("/api/tse-reverso/mesarios/titulo/{titulo}")
+def api_tse_reverso_mesario_dossie_titulo(
+    titulo: str,
+    turno: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    """Retorna o dossiê cronológico completo, códigos MAC e coordenadas de deslocamento de um título de mesário."""
+    from .tse_mesarios_auditor import obter_dossie_titulo_mesario
+    try:
+        return obter_dossie_titulo_mesario(db=db, titulo=titulo, turno=turno)
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+
+
+@app.post("/api/tse-reverso/mesarios/reindexar")
+def api_tse_reverso_mesarios_reindexar(forcar: bool = False):
+    """Dispara a indexação rápida em segundo plano de todos os pacotes/arquivos -log.jez já disponíveis no servidor."""
+    from .tse_mesarios_auditor import iniciar_reindexacao_mesarios_background
+    return iniciar_reindexacao_mesarios_background(forcar_reprocessamento=bool(forcar))
+
+
+@app.get("/api/tse-reverso/mesarios/reindexar/status")
+def api_tse_reverso_mesarios_reindexar_status():
+    """Consulta o andamento em tempo real da indexação de mesários nos logs .jez disponíveis."""
+    from .tse_mesarios_auditor import obter_status_reindexacao_mesarios
+    return obter_status_reindexacao_mesarios()
+
 
 
 

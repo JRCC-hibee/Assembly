@@ -654,6 +654,75 @@ class TseCorrespRegistro(Base):
     )
 
 
+class TseEventoMesario(Base):
+    """
+    Rastreabilidade forense individual dos mesários extraída do arquivo oficial -log.jez (logd.dat).
+    Consolida 1 registro por (secao_id, turno, titulo_mesario) com coordenadas geográficas do prédio,
+    fases de abertura, operação biométrica e encerramento, permitindo detectar atuação em mais de uma
+    seção no mesmo turno (escala Azul < 300m, Amarelo 300m-80km, Vermelho > 80km).
+    """
+    __tablename__ = "tse_eventos_mesarios"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    secao_id = Column(Integer, ForeignKey("tse_secoes.id", ondelete="CASCADE"), index=True, nullable=False)
+    turno = Column(SmallInteger, index=True, nullable=False)  # 1 ou 2
+    titulo_mesario = Column(String(20), index=True, nullable=False)
+    uf_origem_titulo = Column(String(4), nullable=True)
+    dv_titulo_valido = Column(Boolean, default=True)
+
+    # Identificação geográfica desnormalizada p/ cruzamento sub-20ms
+    uf = Column(String(4), index=True, nullable=False)
+    municipio_codigo = Column(String(10), index=True, nullable=False)
+    municipio_nome = Column(String(120), nullable=True)
+    zona = Column(Integer, index=True, default=0, nullable=False)
+    secao = Column(Integer, index=True, default=0, nullable=False)
+    local_votacao = Column(String(120), nullable=True)
+    nome_local = Column(String(160), nullable=True)
+    endereco_local = Column(String(220), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    coord_exata = Column(Boolean, default=False)
+
+    # Metadados da urna no dia da votação
+    serial_ue = Column(String(32), nullable=True)
+    data_eleicao = Column(String(16), nullable=True)
+    hora_zeresima = Column(String(12), nullable=True)
+    hora_urna_pronta = Column(String(12), nullable=True)
+    hora_urna_encerrada = Column(String(12), nullable=True)
+
+    # Papéis e horários auditados do mesário
+    abriu_secao = Column(Boolean, default=False, index=True)
+    ordem_abertura = Column(SmallInteger, default=0)
+    hora_abertura = Column(String(12), nullable=True)
+    mac_abertura = Column(String(24), nullable=True)
+
+    registrou_durante = Column(Boolean, default=False)
+    hora_durante = Column(String(12), nullable=True)
+    qtd_habilitacoes_bio = Column(Integer, default=0)
+
+    encerrou_secao = Column(Boolean, default=False, index=True)
+    hora_encerramento = Column(String(12), nullable=True)
+    mac_encerramento = Column(String(24), nullable=True)
+
+    registrou_pos_votacao = Column(Boolean, default=False)
+    hora_pos_votacao = Column(String(12), nullable=True)
+
+    primeira_acao_hora = Column(String(12), nullable=True)
+    ultima_acao_hora = Column(String(12), nullable=True)
+
+    eleitor_da_secao = Column(Boolean, nullable=True)
+    biometria_conferida = Column(Boolean, nullable=True)
+    titulos_invalidos_urna = Column(Integer, default=0)
+    eventos_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    __table_args__ = (
+        UniqueConstraint("secao_id", "turno", "titulo_mesario", name="uq_tse_mesario_sec_turno_tit"),
+        Index("idx_tse_mesario_turno_tit", "turno", "titulo_mesario"),
+        Index("idx_tse_mesario_geo", "turno", "uf", "municipio_codigo", "zona"),
+    )
+
+
 # Mapeamento Oficial de Regiões do Brasil
 ESTADOS_E_REGIOES_BR = {
     "AC": {"nome": "Acre", "regiao": "NORTE"},
@@ -1102,6 +1171,19 @@ def salvar_resumo_tse_no_banco(db, resumo: dict, relatorio_completo: dict = None
                         dossie_db.vazao_horaria_json = vazao_str
         except Exception as exc_dos:
             print(f"[TSE-DB] Aviso ao salvar dossiê da seção: {exc_dos}")
+
+    # 7. Salva Rastreabilidade Forense de Mesários (Abertura, Operação e Encerramento do -log.jez)
+    try:
+        from .tse_mesarios_auditor import persistir_mesarios_pacote_no_banco
+        persistir_mesarios_pacote_no_banco(
+            db=db,
+            secao_db=secao_db,
+            turno_pacote=turno_pacote,
+            resumo=resumo,
+            relatorio_completo=relatorio_completo,
+        )
+    except Exception as exc_mes:
+        print(f"[TSE-DB] Aviso ao persistir eventos de mesários: {exc_mes}")
 
     if auto_commit:
         db.commit()
@@ -1704,6 +1786,55 @@ def init_db(max_retries=15, delay=2.0):
         "CREATE INDEX IF NOT EXISTS idx_tse_corresp_reg_ue_esp ON tse_corresp_registros(uf, turno, nr_urna_esperada);",
         "CREATE INDEX IF NOT EXISTS idx_tse_corresp_reg_ue_efet ON tse_corresp_registros(uf, turno, nr_urna_efetivada);",
         "CREATE INDEX IF NOT EXISTS idx_tse_corresp_reg_arq_tipo ON tse_corresp_registros(arquivo_id, tipo_registro);",
+        """
+        CREATE TABLE IF NOT EXISTS tse_eventos_mesarios (
+            id SERIAL PRIMARY KEY,
+            secao_id INTEGER NOT NULL REFERENCES tse_secoes(id) ON DELETE CASCADE,
+            turno SMALLINT NOT NULL,
+            titulo_mesario VARCHAR(20) NOT NULL,
+            uf_origem_titulo VARCHAR(4),
+            dv_titulo_valido BOOLEAN DEFAULT TRUE,
+            uf VARCHAR(4) NOT NULL,
+            municipio_codigo VARCHAR(10) NOT NULL,
+            municipio_nome VARCHAR(120),
+            zona INTEGER DEFAULT 0 NOT NULL,
+            secao INTEGER DEFAULT 0 NOT NULL,
+            local_votacao VARCHAR(120),
+            nome_local VARCHAR(160),
+            endereco_local VARCHAR(220),
+            latitude DOUBLE PRECISION,
+            longitude DOUBLE PRECISION,
+            coord_exata BOOLEAN DEFAULT FALSE,
+            serial_ue VARCHAR(32),
+            data_eleicao VARCHAR(16),
+            hora_zeresima VARCHAR(12),
+            hora_urna_pronta VARCHAR(12),
+            hora_urna_encerrada VARCHAR(12),
+            abriu_secao BOOLEAN DEFAULT FALSE,
+            ordem_abertura SMALLINT DEFAULT 0,
+            hora_abertura VARCHAR(12),
+            mac_abertura VARCHAR(24),
+            registrou_durante BOOLEAN DEFAULT FALSE,
+            hora_durante VARCHAR(12),
+            qtd_habilitacoes_bio INTEGER DEFAULT 0,
+            encerrou_secao BOOLEAN DEFAULT FALSE,
+            hora_encerramento VARCHAR(12),
+            mac_encerramento VARCHAR(24),
+            registrou_pos_votacao BOOLEAN DEFAULT FALSE,
+            hora_pos_votacao VARCHAR(12),
+            primeira_acao_hora VARCHAR(12),
+            ultima_acao_hora VARCHAR(12),
+            eleitor_da_secao BOOLEAN,
+            biometria_conferida BOOLEAN,
+            titulos_invalidos_urna INTEGER DEFAULT 0,
+            eventos_json TEXT,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+            UNIQUE(secao_id, turno, titulo_mesario)
+        );
+        """,
+        "CREATE INDEX IF NOT EXISTS idx_tse_mesario_turno_tit ON tse_eventos_mesarios(turno, titulo_mesario);",
+        "CREATE INDEX IF NOT EXISTS idx_tse_mesario_geo ON tse_eventos_mesarios(turno, uf, municipio_codigo, zona);",
+        "CREATE INDEX IF NOT EXISTS idx_tse_mesario_sec ON tse_eventos_mesarios(secao_id, turno);",
     ]
 
     try:
@@ -1752,6 +1883,7 @@ def garantir_tabelas_custodia_tse():
             TseGedaiCorrespondencia.__table__,
             TseCorrespArquivo.__table__,
             TseCorrespRegistro.__table__,
+            TseEventoMesario.__table__,
         ):
             try:
                 tbl.create(bind=engine, checkfirst=True)
